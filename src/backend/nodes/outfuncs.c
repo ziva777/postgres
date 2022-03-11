@@ -820,7 +820,6 @@ _outConstraint(StringInfo str, const Constraint *node)
 	}
 }
 
-
 /*
  * outNode -
  *	  converts a Node into ascii string and append it to 'str'
@@ -833,7 +832,7 @@ outNode(StringInfo str, const void *obj)
 
 	if (obj == NULL)
 		appendStringInfoString(str, "<>");
-	else if (IsA(obj, List) || IsA(obj, IntList) || IsA(obj, OidList))
+	else if (IsA(obj, List) || IsA(obj, IntList) || IsA(obj, XidList) || IsA(obj, OidList))
 		_outList(str, obj);
 	/* nodeRead does not want to see { } around these! */
 	else if (IsA(obj, Integer))

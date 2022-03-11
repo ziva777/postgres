@@ -237,6 +237,7 @@ equal(const void *a, const void *b)
 
 		case T_List:
 		case T_IntList:
+		case T_XidList:
 		case T_OidList:
 			retval = _equalList(a, b);
 			break;
