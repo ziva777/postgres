@@ -2933,8 +2933,8 @@ _outIndexStmt(StringInfo str, const IndexStmt *node)
 	WRITE_STRING_FIELD(idxcomment);
 	WRITE_OID_FIELD(indexOid);
 	WRITE_OID_FIELD(oldNode);
-	WRITE_UINT_FIELD(oldCreateSubid);
-	WRITE_UINT_FIELD(oldFirstRelfilenodeSubid);
+	WRITE_UINT64_FIELD(oldCreateSubid);
+	WRITE_UINT64_FIELD(oldFirstRelfilenodeSubid);
 	WRITE_BOOL_FIELD(unique);
 	WRITE_BOOL_FIELD(nulls_not_distinct);
 	WRITE_BOOL_FIELD(primary);
@@ -4037,7 +4037,7 @@ outNode(StringInfo str, const void *obj)
 
 	if (obj == NULL)
 		appendStringInfoString(str, "<>");
-	else if (IsA(obj, List) || IsA(obj, IntList) || IsA(obj, OidList))
+	else if (IsA(obj, List) || IsA(obj, IntList) || IsA(obj, XidList) || IsA(obj, OidList))
 		_outList(str, obj);
 	/* nodeRead does not want to see { } around these! */
 	else if (IsA(obj, Integer))
