@@ -248,6 +248,11 @@ const ResourceOwnerDesc buffer_pin_resowner_desc =
 };
 
 /*
+ * XXX: big dirty hack.
+ */
+Relation	last_rel;
+
+/*
  * Ensure that the PrivateRefCountArray has sufficient space to store one more
  * entry. This has to be called before using NewPrivateRefCountEntry() to fill
  * a new entry - but it's perfectly fine to not use a reserved entry.
@@ -1242,6 +1247,10 @@ ReadBuffer_common(Relation rel, SMgrRelation smgr, char smgr_persistence,
 	operation.persistence = persistence;
 	operation.forknum = forkNum;
 	operation.strategy = strategy;
+
+	/* XXX: big dirty hack */
+	last_rel = rel;
+
 	if (StartReadBuffer(&operation,
 						&buffer,
 						blockNum,
@@ -5484,6 +5493,64 @@ MarkBufferDirtyHint(Buffer buffer, bool buffer_std)
 }
 
 /*
+ * Mark buffer as converted - ie its format is changed without logical changes.
+ *
+ * It will override `full_page_write` GUC setting in XLogRecordAssemble.
+ */
+void
+MarkBufferConverted(Buffer buffer, bool converted)
+{
+	BufferDesc *bufHdr;
+	uint32		buf_state;
+	bool		has_mark;
+
+	if (!BufferIsValid(buffer))
+		elog(ERROR, "bad buffer ID: %d", buffer);
+
+	Assert(!BufferIsLocal(buffer));
+
+	bufHdr = GetBufferDescriptor(buffer - 1);
+
+	Assert(GetPrivateRefCount(buffer) > 0);
+	if (converted)
+	{
+		/* here, either share or exclusive lock is OK */
+		Assert(LWLockHeldByMe(BufferDescriptorGetContentLock(bufHdr)));
+	}
+
+	buf_state = pg_atomic_read_u32(&bufHdr->state);
+	has_mark = (buf_state & BM_CONVERTED) != 0;
+	if (converted == has_mark)
+		return;
+
+	buf_state = LockBufHdr(bufHdr);
+	buf_state &= ~BM_CONVERTED;
+	if (converted)
+		buf_state |= BM_CONVERTED;
+	UnlockBufHdr(bufHdr, buf_state);
+}
+
+bool
+IsBufferConverted(Buffer buffer)
+{
+
+	BufferDesc *bufHdr;
+	uint32		buf_state;
+
+	if (!BufferIsValid(buffer))
+		elog(ERROR, "bad buffer ID: %d", buffer);
+
+	Assert(!BufferIsLocal(buffer));
+
+	bufHdr = GetBufferDescriptor(buffer - 1);
+
+	Assert(GetPrivateRefCount(buffer) > 0);
+
+	buf_state = pg_atomic_read_u32(&bufHdr->state);
+	return (buf_state & BM_CONVERTED) != 0;
+}
+
+/*
  * Release buffer content locks for shared buffers.
  *
  * Used to clean up after errors.
@@ -5515,6 +5582,47 @@ UnlockBuffers(void)
 
 		PinCountWaitBuf = NULL;
 	}
+}
+
+/*
+ * Is shared buffer is locked?
+ */
+bool
+IsBufferLocked(Buffer buffer)
+{
+	BufferDesc *buf;
+
+	if (buffer == InvalidBuffer)
+		return true;
+
+	Assert(BufferIsPinned(buffer));
+	if (BufferIsLocal(buffer))
+		return true;					/* local buffers need no lock */
+
+	buf = GetBufferDescriptor(buffer - 1);
+
+	return LWLockHeldByMe(BufferDescriptorGetContentLock(buf));
+}
+
+/*
+ * Is shared buffer is locked exclusive?
+ */
+bool
+IsBufferLockedExclusive(Buffer buffer)
+{
+	BufferDesc *buf;
+
+	if (buffer == InvalidBuffer)
+		return true;
+
+	Assert(BufferIsPinned(buffer));
+	if (BufferIsLocal(buffer))
+		return true;					/* local buffers need no lock */
+
+	buf = GetBufferDescriptor(buffer - 1);
+
+	return LWLockHeldByMeInMode(BufferDescriptorGetContentLock(buf),
+								LW_EXCLUSIVE);
 }
 
 /*
@@ -6913,6 +7021,53 @@ buffer_readv_complete_one(PgAioTargetData *td, uint8 buf_off, Buffer buffer,
 									  buf_off, buf_off, buf_off);
 			pgaio_result_report(result_one, td, LOG_SERVER_ONLY);
 		}
+	}
+
+	/*
+	 * Test 001_aio.pl specifically corrupt pages, including the page header.
+	 * But we select a page for conversion based on the inequality of versions
+	 * in the header. Therefore, the spoiled header becomes zero and does not
+	 * equal the expected current one. This leads to test failure.
+	 *
+	 * XXX: consider compare for concrete page layout version, not simple
+	 * inequality.
+	 */
+	if (PageGetPageLayoutVersion((Page) bufdata) != 0 &&
+		PageGetPageLayoutVersion((Page) bufdata) != PG_PAGE_LAYOUT_VERSION &&
+		!PageIsNew((Page) bufdata))
+	{
+		ForkNumber	forknum = tag.forkNum;
+		BlockNumber	blocknum = tag.blockNum;
+
+		Assert(is_temp == false);	/* not on a temp relation */
+
+		/*
+		 * All the forks but MAIN_FORKNUM should be converted to the
+		 * actual page layout version in pg_upgrade.
+		 */
+		if (forknum != MAIN_FORKNUM)
+		{
+			RelPathStr path = relpathbackend(td->smgr.rlocator,
+											 INVALID_PROC_NUMBER, forknum);
+
+			ereport(ERROR,
+				(errcode(ERRCODE_DATA_CORRUPTED),
+				 errmsg("invalid fork type (%d) in block %u of relation %s",
+						forknum, blocknum, path.str)));
+		}
+
+
+		LWLockAcquire(BufferDescriptorGetContentLock(buf_hdr), LW_EXCLUSIVE);
+
+		/* Check for no concurrent changes */
+		if (PageGetPageLayoutVersion((Page) bufdata) != PG_PAGE_LAYOUT_VERSION)
+		{
+			Buffer buf = BufferDescriptorGetBuffer(buf_hdr);
+
+			convert_page(last_rel, bufdata, buf, blocknum);
+		}
+
+		LWLockRelease(BufferDescriptorGetContentLock(buf_hdr));
 	}
 
 	/* Terminate I/O and set BM_VALID. */
