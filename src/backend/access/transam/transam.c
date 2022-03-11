@@ -273,7 +273,6 @@ TransactionIdAbortTree(TransactionId xid, int nxids, TransactionId *xids)
 							   TRANSACTION_STATUS_ABORTED, InvalidXLogRecPtr);
 }
 
-
 /*
  * TransactionIdLatest --- get latest XID among a main xact and its children
  */

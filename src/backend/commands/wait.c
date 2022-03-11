@@ -138,7 +138,7 @@ ExecWaitStmt(ParseState *pstate, WaitStmt *stmt, DestReceiver *dest)
 	 * As the result we should hold no snapshot, and correspondingly our xmin
 	 * should be unset.
 	 */
-	Assert(MyProc->xmin == InvalidTransactionId);
+	Assert(pg_atomic_read_u64(&MyProc->xmin) == InvalidTransactionId);
 
 	waitLSNResult = WaitForLSN(WAIT_LSN_TYPE_REPLAY, lsn, timeout);
 
