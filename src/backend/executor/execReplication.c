@@ -511,7 +511,7 @@ update_most_recent_deletion_info(TupleTableSlot *scanslot,
 	if (!recently_dead)
 		return;
 
-	xmax = HeapTupleHeaderGetUpdateXid(tuple->t_data);
+	xmax = HeapTupleGetUpdateXidAny(tuple);
 	if (!TransactionIdIsValid(xmax))
 		return;
 
