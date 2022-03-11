@@ -380,7 +380,7 @@ pg_wal_replay_wait(PG_FUNCTION_ARGS)
 	 * As the result we should hold no snapshot, and correspondingly our xmin
 	 * should be unset.
 	 */
-	Assert(MyProc->xmin == InvalidTransactionId);
+	Assert(pg_atomic_read_u64(&MyProc->xmin) == InvalidTransactionId);
 
 	(void) WaitForLSNReplay(target_lsn, timeout);
 

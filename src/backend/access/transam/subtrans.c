@@ -272,11 +272,12 @@ BootStrapSUBTRANS(void)
 {
 	int			slotno;
 	LWLock	   *lock = SimpleLruGetBankLock(SubTransCtl, 0);
+	int64		pageno = TransactionIdToPage(XidFromFullTransactionId(TransamVariables->nextXid));
 
 	LWLockAcquire(lock, LW_EXCLUSIVE);
 
 	/* Create and zero the first page of the subtrans log */
-	slotno = ZeroSUBTRANSPage(0);
+	slotno = ZeroSUBTRANSPage(pageno);
 
 	/* Make sure it's written out */
 	SimpleLruWritePage(SubTransCtl, slotno);
@@ -341,9 +342,6 @@ StartupSUBTRANS(TransactionId oldestActiveXID)
 			break;
 
 		startPage++;
-		/* must account for wraparound */
-		if (startPage > TransactionIdToPage(MaxTransactionId))
-			startPage = 0;
 	}
 
 	LWLockRelease(lock);
@@ -421,6 +419,7 @@ TruncateSUBTRANS(TransactionId oldestXact)
 	 * a page and oldestXact == next XID.  In that case, if we didn't subtract
 	 * one, we'd trigger SimpleLruTruncate's wraparound detection.
 	 */
+
 	TransactionIdRetreat(oldestXact);
 	cutoffPage = TransactionIdToPage(oldestXact);
 
