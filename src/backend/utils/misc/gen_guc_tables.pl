@@ -25,7 +25,7 @@ my $parse = Catalog::ParseData($input_fname);
 open my $ofh, '>', $output_fname or die;
 
 print_boilerplate($ofh, $output_fname, 'GUC tables');
-foreach my $type (qw(bool int real string enum))
+foreach my $type (qw(bool int int64 real string enum))
 {
 	print_one_table($ofh, $type);
 }
@@ -80,11 +80,22 @@ sub print_one_table
 		}
 		print $ofh "\t\t},\n";
 		print $ofh "\t\t&$entry->{variable},\n";
-		print $ofh "\t\t$entry->{boot_val},";
+		if ($entry->{type} eq 'int64')
+		{
+			print $ofh "\t\tINT64CONST($entry->{boot_val}),";
+		}
+		else
+		{
+			print $ofh "\t\t$entry->{boot_val},";
+		}
 		print $ofh " $entry->{min},"
 		  if $entry->{type} eq 'int' || $entry->{type} eq 'real';
+		print $ofh " INT64CONST($entry->{min}),"
+		  if $entry->{type} eq 'int64';
 		print $ofh " $entry->{max},"
 		  if $entry->{type} eq 'int' || $entry->{type} eq 'real';
+		print $ofh " INT64CONST($entry->{max}),"
+		  if $entry->{type} eq 'int64';
 		print $ofh " $entry->{options},"
 		  if $entry->{type} eq 'enum';
 		print $ofh "\n";
