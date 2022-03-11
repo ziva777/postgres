@@ -242,7 +242,7 @@ _outList(StringInfo str, const List *node)
 		else if (IsA(node, OidList))
 			appendStringInfo(str, " %u", lfirst_oid(lc));
 		else if (IsA(node, XidList))
-			appendStringInfo(str, " %u", lfirst_xid(lc));
+			appendStringInfo(str, " %llu", (unsigned long long) lfirst_xid(lc));
 		else
 			elog(ERROR, "unrecognized list node type: %d",
 				 (int) node->type);
@@ -2933,8 +2933,8 @@ _outIndexStmt(StringInfo str, const IndexStmt *node)
 	WRITE_STRING_FIELD(idxcomment);
 	WRITE_OID_FIELD(indexOid);
 	WRITE_OID_FIELD(oldNumber);
-	WRITE_UINT_FIELD(oldCreateSubid);
-	WRITE_UINT_FIELD(oldFirstRelfilelocatorSubid);
+	WRITE_UINT64_FIELD(oldCreateSubid);
+	WRITE_UINT64_FIELD(oldFirstRelfilelocatorSubid);
 	WRITE_BOOL_FIELD(unique);
 	WRITE_BOOL_FIELD(nulls_not_distinct);
 	WRITE_BOOL_FIELD(primary);
@@ -4037,7 +4037,7 @@ outNode(StringInfo str, const void *obj)
 
 	if (obj == NULL)
 		appendStringInfoString(str, "<>");
-	else if (IsA(obj, List) || IsA(obj, IntList) || IsA(obj, OidList))
+	else if (IsA(obj, List) || IsA(obj, IntList) || IsA(obj, XidList) || IsA(obj, OidList))
 		_outList(str, obj);
 	/* nodeRead does not want to see { } around these! */
 	else if (IsA(obj, Integer))
