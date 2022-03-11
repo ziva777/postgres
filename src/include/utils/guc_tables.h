@@ -24,6 +24,7 @@ enum config_type
 {
 	PGC_BOOL,
 	PGC_INT,
+	PGC_INT64,
 	PGC_REAL,
 	PGC_STRING,
 	PGC_ENUM,
@@ -33,6 +34,7 @@ union config_var_val
 {
 	bool		boolval;
 	int			intval;
+	int64		int64val;
 	double		realval;
 	char	   *stringval;
 	int			enumval;
@@ -161,6 +163,20 @@ struct config_int
 	int			reset_val;
 };
 
+struct config_int64
+{
+	/* constant fields, must be set correctly in initial value: */
+	int64	   *variable;
+	int64		boot_val;
+	int64		min;
+	int64		max;
+	GucInt64CheckHook check_hook;
+	GucInt64AssignHook assign_hook;
+	GucShowHook show_hook;
+	/* variable fields, initialized at runtime: */
+	int64		reset_val;
+};
+
 struct config_real
 {
 	/* constant fields, must be set correctly in initial value: */
@@ -284,6 +300,7 @@ struct config_generic
 	{
 		struct config_bool _bool;
 		struct config_int _int;
+		struct config_int64 _int64;
 		struct config_real _real;
 		struct config_string _string;
 		struct config_enum _enum;
