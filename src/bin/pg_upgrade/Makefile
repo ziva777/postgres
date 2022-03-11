@@ -21,6 +21,7 @@ OBJS = \
 	pg_upgrade.o \
 	relfilenumber.o \
 	server.o \
+	segresize.o \
 	tablespace.o \
 	util.o \
 	version.o

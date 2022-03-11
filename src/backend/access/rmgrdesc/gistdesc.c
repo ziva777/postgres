@@ -51,7 +51,7 @@ static void
 out_gistxlogPageDelete(StringInfo buf, gistxlogPageDelete *xlrec)
 {
 	appendStringInfo(buf, "deleteXid %llu; downlink %u",
-					 (unsigned long long) U64FromFullTransactionId(xlrec->deleteXid),
+					 (unsigned long long) XidFromFullTransactionId(xlrec->deleteXid),
 					 xlrec->downlinkOffset);
 }
 
