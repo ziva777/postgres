@@ -9,6 +9,8 @@ use PostgreSQL::Test::Utils;
 
 use Test::More;
 
+use Data::Dumper;
+
 # This regression test demonstrates that the pg_amcheck binary correctly
 # identifies specific kinds of corruption within pages.  To test this, we need
 # a mechanism to create corrupt pages with predictable, repeatable corruption.
@@ -85,6 +87,62 @@ use Test::More;
 
 use constant HEAPTUPLE_PACK_CODE => 'LLLSSSSSCCLLCCCCCCCCCCllLL';
 use constant HEAPTUPLE_PACK_LENGTH => 58;    # Total size
+use constant HEAPPAGE_SPECIAL_PACK_CODE => 'QQ';
+use constant HEAPPAGE_SPECIAL_PACK_LENGTH => 16;
+use constant HEAPPAGE_SIZE => 8192;
+
+# Some #define constants from access/htup_details.h for use while corrupting.
+use constant HEAP_HASNULL        => 0x0001;
+use constant HEAP_XMAX_LOCK_ONLY => 0x0080;
+use constant HEAP_XMIN_COMMITTED => 0x0100;
+use constant HEAP_XMIN_INVALID   => 0x0200;
+use constant HEAP_XMAX_COMMITTED => 0x0400;
+use constant HEAP_XMAX_INVALID   => 0x0800;
+use constant HEAP_NATTS_MASK     => 0x07FF;
+use constant HEAP_XMAX_IS_MULTI  => 0x1000;
+use constant HEAP_KEYS_UPDATED   => 0x2000;
+
+use constant FIRST_NORMAL_TRANSACTION_ID => 3;
+
+# Read page special data
+sub read_special_data
+{
+	my ($fh, $offset) = @_;
+	my ($buffer, %special);
+
+	$offset -= $offset % HEAPPAGE_SIZE;
+	$offset += HEAPPAGE_SIZE - HEAPPAGE_SPECIAL_PACK_LENGTH;
+
+	sysseek($fh, $offset, 0)
+		or BAIL_OUT("sysseek failed: $!");
+	defined(sysread($fh, $buffer, HEAPPAGE_SPECIAL_PACK_LENGTH))
+		or BAIL_OUT("sysread failed: $!");
+
+	@_ = unpack(HEAPPAGE_SPECIAL_PACK_CODE, $buffer);
+	%special = (
+		pd_xid_base   => shift,
+		pd_multi_base => shift);
+	return \%special;
+}
+
+# Write page special data
+sub write_special_data
+{
+	my ($fh, $offset, $special) = @_;
+
+	$offset -= $offset % HEAPPAGE_SIZE;
+	$offset += HEAPPAGE_SIZE - HEAPPAGE_SPECIAL_PACK_LENGTH;
+
+	my $buffer = pack(
+		HEAPPAGE_SPECIAL_PACK_CODE,
+		$special->{pd_xid_base},  $special->{pd_multi_base});
+
+	sysseek($fh, $offset, 0)
+		or BAIL_OUT("sysseek failed: $!");
+	defined(syswrite($fh, $buffer, HEAPPAGE_SPECIAL_PACK_LENGTH))
+		or BAIL_OUT("syswrite failed: $!");
+	return;
+}
 
 # Read a tuple of our table from a heap page.
 #
@@ -96,8 +154,9 @@ use constant HEAPTUPLE_PACK_LENGTH => 58;    # Total size
 #
 sub read_tuple
 {
-	my ($fh, $offset) = @_;
+	my ($fh, $offset, $raw) = @_;
 	my ($buffer, %tup);
+
 	sysseek($fh, $offset, 0)
 	  or BAIL_OUT("sysseek failed: $!");
 	defined(sysread($fh, $buffer, HEAPTUPLE_PACK_LENGTH))
@@ -133,6 +192,18 @@ sub read_tuple
 		c_va_toastrelid => shift);
 	# Stitch together the text for column 'b'
 	$tup{b} = join('', map { chr($tup{"b_body$_"}) } (1 .. 7));
+
+	if (!$raw)
+	{
+		my $special = read_special_data($fh, $offset);
+
+		$tup{t_xmin} += $special->{pd_xid_base};
+		my $is_multi = $tup{t_infomask} & HEAP_XMAX_IS_MULTI;
+		$tup{t_xmax} += !$is_multi ?
+			$special->{pd_xid_base} :
+			$special->{pd_multi_base};
+	}
+
 	return \%tup;
 }
 
@@ -148,7 +219,39 @@ sub read_tuple
 #
 sub write_tuple
 {
-	my ($fh, $offset, $tup) = @_;
+	my ($fh, $offset, $tup, $raw) = @_;
+
+	if (!$raw)
+	{
+		my $special = read_special_data($fh, $offset);
+
+		if ($tup->{t_xmin} >= 3)
+		{
+			my $xmin = $tup->{t_xmin} - $special->{pd_xid_base};
+			die "tuple x_min $tup->{t_xmin} is too smal for pd_xid_base $special->{pd_xid_base}"
+				if $xmin < 3;
+			$tup->{t_xmin} = $xmin;
+		}
+
+		if ($tup->{t_xmax} >= 3)
+		{
+			if (($tup->{t_infomask} & HEAP_XMAX_IS_MULTI) == 0)
+			{
+				my $xmax = $tup->{t_xmax} - $special->{pd_xid_base};
+				die "tuple x_max $tup->{t_xmax} is too smal for pd_xid_base $special->{pd_xid_base}"
+					if $xmax < 3;
+				$tup->{t_xmax} = $xmax;
+			}
+			else
+			{
+				my $xmax = $tup->{t_xmax} - $special->{pd_multi_base};
+				die "tuple multi x_max $tup->{t_xmax} is too smal for pd_multi_base $special->{pd_multi_base}"
+					if $xmax < 3;
+				$tup->{t_xmax} = $xmax;
+			}
+		}
+	}
+
 	my $buffer = pack(
 		HEAPTUPLE_PACK_CODE,
 		$tup->{t_xmin}, $tup->{t_xmax},
@@ -169,6 +272,42 @@ sub write_tuple
 	defined(syswrite($fh, $buffer, HEAPTUPLE_PACK_LENGTH))
 	  or BAIL_OUT("syswrite failed: $!");
 	return;
+}
+
+# move pd_xid_base and pd_multi_base to more suitable position for tests.
+sub fixup_page
+{
+	my ($fh, $page, $xid_base, $multi_base, $lp_off) = @_;
+	my $offset = $page * HEAPPAGE_SIZE;
+	my $special = read_special_data($fh, $offset);
+
+	die "xid_base $xid_base should be lesser than existed $special->{pd_xid_base}"
+		if ($xid_base > $special->{pd_xid_base});
+	die "multi_base $multi_base should be lesser than existed $special->{pd_multi_base}"
+		if ($multi_base > $special->{pd_multi_base} && $special->{pd_multi_base} != 0);
+	return if ($xid_base == $special->{pd_xid_base} &&
+			$multi_base == $special->{pd_multi_base});
+
+	my $xid_delta = $special->{pd_xid_base} - $xid_base;
+	my $multi_delta = $special->{pd_multi_base} - $multi_base;
+
+	for my $off (@$lp_off)
+	{
+		# change only tuples on this page.
+		next if ($off < $offset && $off > $offset + HEAPPAGE_SIZE);
+		next if ($off == -1);
+
+		my $tup = read_tuple($fh, $off, 1);
+		$tup->{t_xmin} += $xid_delta;
+		my $is_multi = $tup->{t_infomask} & HEAP_XMAX_IS_MULTI;
+		$tup->{t_xmax} += !$is_multi ? $xid_delta : $multi_delta;
+		write_tuple($fh, $off, $tup, 1);
+	}
+
+	$special->{pd_xid_base} = $xid_base;
+	$special->{pd_multi_base} = $multi_base;
+
+	write_special_data($fh, $offset, $special);
 }
 
 # Set umask so test directories and files are created with default permissions
@@ -320,6 +459,10 @@ my $relfrozenxid = $node->safe_psql('postgres',
 	q(select relfrozenxid from pg_class where relname = 'test'));
 my $datfrozenxid = $node->safe_psql('postgres',
 	q(select datfrozenxid from pg_database where datname = 'postgres'));
+my $datminmxid = $node->safe_psql('postgres',
+	q(select datminmxid from pg_database where datname = 'postgres'));
+my $txid_current = $node->safe_psql('postgres',
+	q(select txid_current()));
 
 # Sanity check that our 'test' table has a relfrozenxid newer than the
 # datfrozenxid for the database, and that the datfrozenxid is greater than the
@@ -348,7 +491,7 @@ scalar @lp_off == $ROWCOUNT or BAIL_OUT("row offset counts mismatch");
 $node->stop;
 my $file;
 open($file, '+<', $relpath)
-  or BAIL_OUT("open failed: $!");
+	or BAIL_OUT("open failed: $!");
 binmode $file;
 
 my $ENDIANNESS;
@@ -377,8 +520,13 @@ for (my $tupidx = 0; $tupidx < $ROWCOUNT; $tupidx++)
 	# Determine endianness of current platform from the 1-byte varlena header
 	$ENDIANNESS = $tup->{b_header} == 0x11 ? "little" : "big";
 }
+
+# Set 64bit xid bases a bit in the past therefore we can set xmin/xmax a bit
+# in the past
+fixup_page($file, 0, $datfrozenxid - 100, $datminmxid - 100, \@lp_off);
+
 close($file)
-  or BAIL_OUT("close failed: $!");
+	or BAIL_OUT("close failed: $!");
 $node->start;
 
 # Ok, Xids and page layout look ok.  We can run corruption tests.
@@ -431,7 +579,7 @@ sub header
 #
 my @expected;
 open($file, '+<', $relpath)
-  or BAIL_OUT("open failed: $!");
+	or BAIL_OUT("open failed: $!");
 binmode $file;
 
 for (my $tupidx = 0; $tupidx < $ROWCOUNT; $tupidx++)
@@ -442,6 +590,8 @@ for (my $tupidx = 0; $tupidx < $ROWCOUNT; $tupidx++)
 
 	# Read tuple, if there is one.
 	my $tup = $offset == -1 ? undef : read_tuple($file, $offset);
+	# Read page special, if there is one.
+	my $special = $offset == -1 ? undef : read_special_data($file, $offset);
 
 	if ($offnum == 1)
 	{
@@ -458,7 +608,7 @@ for (my $tupidx = 0; $tupidx < $ROWCOUNT; $tupidx++)
 	elsif ($offnum == 2)
 	{
 		# Corruptly set xmin < datfrozenxid
-		my $xmin = 3;
+		my $xmin = $datfrozenxid - 12;
 		$tup->{t_xmin} = $xmin;
 		$tup->{t_infomask} &= ~HEAP_XMIN_COMMITTED;
 		$tup->{t_infomask} &= ~HEAP_XMIN_INVALID;
@@ -468,25 +618,24 @@ for (my $tupidx = 0; $tupidx < $ROWCOUNT; $tupidx++)
 	}
 	elsif ($offnum == 3)
 	{
-		# Corruptly set xmin < datfrozenxid, further back, noting circularity
-		# of xid comparison.
-		my $xmin = 4026531839;
+		# Corruptly set xmin > next transaction id.
+		my $xmin = $relfrozenxid + 1000000;
 		$tup->{t_xmin} = $xmin;
 		$tup->{t_infomask} &= ~HEAP_XMIN_COMMITTED;
 		$tup->{t_infomask} &= ~HEAP_XMIN_INVALID;
 
 		push @expected,
-		  qr/${$header}xmin ${xmin} precedes oldest valid transaction ID \d+/;
+		  qr/${$header}xmin ${xmin} equals or exceeds next valid transaction ID \d+/;
 	}
 	elsif ($offnum == 4)
 	{
 		# Corruptly set xmax < relminmxid;
-		my $xmax = 4026531839;
+		my $xmax = $relfrozenxid + 1000000;
 		$tup->{t_xmax} = $xmax;
 		$tup->{t_infomask} &= ~HEAP_XMAX_INVALID;
 
 		push @expected,
-		  qr/${$header}xmax ${xmax} precedes oldest valid transaction ID \d+/;
+		  qr/${$header}xmax ${xmax} equals or exceeds next valid transaction ID \d+/;
 	}
 	elsif ($offnum == 5)
 	{
@@ -494,8 +643,8 @@ for (my $tupidx = 0; $tupidx < $ROWCOUNT; $tupidx++)
 		$tup->{t_hoff} += 128;
 
 		push @expected,
-		  qr/${$header}data begins at offset 152 beyond the tuple length 58/,
-		  qr/${$header}tuple data should begin at byte 24, but actually begins at byte 152 \(3 attributes, no nulls\)/;
+			qr/${$header}data begins at offset 152 beyond the tuple length 58/,
+			qr/${$header}tuple data should begin at byte 24, but actually begins at byte 152 \(3 attributes, no nulls\)/;
 	}
 	elsif ($offnum == 6)
 	{
@@ -503,7 +652,7 @@ for (my $tupidx = 0; $tupidx < $ROWCOUNT; $tupidx++)
 		$tup->{t_hoff} += 3;
 
 		push @expected,
-		  qr/${$header}tuple data should begin at byte 24, but actually begins at byte 27 \(3 attributes, no nulls\)/;
+			qr/${$header}tuple data should begin at byte 24, but actually begins at byte 27 \(3 attributes, no nulls\)/;
 	}
 	elsif ($offnum == 7)
 	{
@@ -511,7 +660,7 @@ for (my $tupidx = 0; $tupidx < $ROWCOUNT; $tupidx++)
 		$tup->{t_hoff} -= 8;
 
 		push @expected,
-		  qr/${$header}tuple data should begin at byte 24, but actually begins at byte 16 \(3 attributes, no nulls\)/;
+			qr/${$header}tuple data should begin at byte 24, but actually begins at byte 16 \(3 attributes, no nulls\)/;
 	}
 	elsif ($offnum == 8)
 	{
@@ -519,7 +668,7 @@ for (my $tupidx = 0; $tupidx < $ROWCOUNT; $tupidx++)
 		$tup->{t_hoff} -= 3;
 
 		push @expected,
-		  qr/${$header}tuple data should begin at byte 24, but actually begins at byte 21 \(3 attributes, no nulls\)/;
+			qr/${$header}tuple data should begin at byte 24, but actually begins at byte 21 \(3 attributes, no nulls\)/;
 	}
 	elsif ($offnum == 9)
 	{
@@ -527,7 +676,7 @@ for (my $tupidx = 0; $tupidx < $ROWCOUNT; $tupidx++)
 		$tup->{t_infomask2} |= HEAP_NATTS_MASK;
 
 		push @expected,
-		  qr/${$header}number of attributes 2047 exceeds maximum expected for table 3/;
+			qr/${$header}number of attributes 2047 exceeds maximum expected for table 3/;
 	}
 	elsif ($offnum == 10)
 	{
@@ -539,7 +688,7 @@ for (my $tupidx = 0; $tupidx < $ROWCOUNT; $tupidx++)
 		$tup->{t_bits} = 0xAA;
 
 		push @expected,
-		  qr/${$header}tuple data should begin at byte 280, but actually begins at byte 24 \(2047 attributes, has nulls\)/;
+			qr/${$header}tuple data should begin at byte 280, but actually begins at byte 24 \(2047 attributes, has nulls\)/;
 	}
 	elsif ($offnum == 11)
 	{
@@ -550,7 +699,7 @@ for (my $tupidx = 0; $tupidx < $ROWCOUNT; $tupidx++)
 		$tup->{t_hoff} = 32;
 
 		push @expected,
-		  qr/${$header}number of attributes 67 exceeds maximum expected for table 3/;
+			qr/${$header}number of attributes 67 exceeds maximum expected for table 3/;
 	}
 	elsif ($offnum == 12)
 	{
@@ -574,7 +723,7 @@ for (my $tupidx = 0; $tupidx < $ROWCOUNT; $tupidx++)
 
 		$header = header(0, $offnum, 1);
 		push @expected,
-		  qr/${header}attribute with length \d+ ends at offset \d+ beyond total tuple length \d+/;
+			qr/${header}attribute with length \d+ ends at offset \d+ beyond total tuple length \d+/;
 	}
 	elsif ($offnum == 13)
 	{
@@ -589,31 +738,33 @@ for (my $tupidx = 0; $tupidx < $ROWCOUNT; $tupidx++)
 		# Set both HEAP_XMAX_COMMITTED and HEAP_XMAX_IS_MULTI
 		$tup->{t_infomask} |= HEAP_XMAX_COMMITTED;
 		$tup->{t_infomask} |= HEAP_XMAX_IS_MULTI;
-		$tup->{t_xmax} = 4;
+		my $xmax = $datminmxid + 1000000;
+		$tup->{t_xmax} = $xmax;
 
 		push @expected,
-		  qr/${header}multitransaction ID 4 equals or exceeds next valid multitransaction ID 1/;
+			qr/${header}multitransaction ID $xmax equals or exceeds next valid multitransaction ID \d+/;
 	}
 	elsif ($offnum == 15)
 	{
 		# Set both HEAP_XMAX_COMMITTED and HEAP_XMAX_IS_MULTI
 		$tup->{t_infomask} |= HEAP_XMAX_COMMITTED;
 		$tup->{t_infomask} |= HEAP_XMAX_IS_MULTI;
-		$tup->{t_xmax} = 4000000000;
+		my $xmax = $datminmxid - 10;
+		$tup->{t_xmax} = $xmax;
 
 		push @expected,
-		  qr/${header}multitransaction ID 4000000000 precedes relation minimum multitransaction ID threshold 1/;
+			qr/${header}multitransaction ID $xmax precedes relation minimum multitransaction ID threshold \d+/;
 	}
 	elsif ($offnum == 16)    # Last offnum must equal ROWCOUNT
 	{
 		# Corruptly set xmin > next_xid to be in the future.
-		my $xmin = 123456;
+		my $xmin = 123456 + $special->{pd_xid_base};;
 		$tup->{t_xmin} = $xmin;
 		$tup->{t_infomask} &= ~HEAP_XMIN_COMMITTED;
 		$tup->{t_infomask} &= ~HEAP_XMIN_INVALID;
 
 		push @expected,
-		  qr/${$header}xmin ${xmin} equals or exceeds next valid transaction ID \d+/;
+		  qr/${$header}xmin $xmin equals or exceeds next valid transaction ID \d+/;
 	}
 	elsif ($offnum == 17)
 	{
@@ -747,7 +898,7 @@ for (my $tupidx = 0; $tupidx < $ROWCOUNT; $tupidx++)
 	write_tuple($file, $offset, $tup) if defined $tup;
 }
 close($file)
-  or BAIL_OUT("close failed: $!");
+	or BAIL_OUT("close failed: $!");
 $node->start;
 
 # Run pg_amcheck against the corrupt table with epoch=0, comparing actual
