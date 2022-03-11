@@ -93,6 +93,14 @@ extern PGDLLIMPORT TransactionId start_xid;
 extern PGDLLIMPORT MultiXactId start_mxid;
 extern PGDLLIMPORT MultiXactOffset start_mxoff;
 
+/*
+ * these parameters specifies starting xid, multixact id and multixact offset
+ *             for testing 64 bit xids
+ */
+extern TransactionId start_xid;
+extern MultiXactId start_mx_id;
+extern MultiXactOffset start_mx_offset;
+
 /* Is WAL archiving enabled (always or only while server is running normally)? */
 #define XLogArchivingActive() \
 	(AssertMacro(XLogArchiveMode == ARCHIVE_MODE_OFF || wal_level >= WAL_LEVEL_REPLICA), XLogArchiveMode > ARCHIVE_MODE_OFF)

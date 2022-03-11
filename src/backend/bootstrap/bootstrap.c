@@ -120,7 +120,7 @@ static const struct typinfo TypInfo[] = {
 	F_OIDIN, F_OIDOUT},
 	{"tid", TIDOID, 0, 6, false, TYPALIGN_SHORT, TYPSTORAGE_PLAIN, InvalidOid,
 	F_TIDIN, F_TIDOUT},
-	{"xid", XIDOID, 0, 4, true, TYPALIGN_INT, TYPSTORAGE_PLAIN, InvalidOid,
+	{"xid", XIDOID, 0, 8, FLOAT8PASSBYVAL, TYPALIGN_XID, TYPSTORAGE_PLAIN, InvalidOid,
 	F_XIDIN, F_XIDOUT},
 	{"cid", CIDOID, 0, 4, true, TYPALIGN_INT, TYPSTORAGE_PLAIN, InvalidOid,
 	F_CIDIN, F_CIDOUT},
@@ -252,15 +252,15 @@ BootstrapModeMain(int argc, char *argv[], bool check_only)
 				break;
 			case 'm':
 				{
-					unsigned long	value;
-					char		   *endptr;
+					unsigned long long	value;
+					char			   *endptr;
 
 					errno = 0;
-					value = strtoul(optarg, &endptr, 0);
+					value = strtoull(optarg, &endptr, 0);
 					start_mxid = value;
 
 					if (endptr == optarg || *endptr != '\0' || errno != 0 ||
-						value != start_mxid) /* overflow */
+						!StartMultiXactIdIsValid(start_mxid))
 					{
 						ereport(ERROR,
 								(errcode(ERRCODE_SYNTAX_ERROR),
@@ -270,15 +270,15 @@ BootstrapModeMain(int argc, char *argv[], bool check_only)
 				break;
 			case 'o':
 				{
-					unsigned long	value;
-					char		   *endptr;
+					unsigned long long	value;
+					char			   *endptr;
 
 					errno = 0;
-					value = strtoul(optarg, &endptr, 0);
+					value = strtoull(optarg, &endptr, 0);
 					start_mxoff = value;
 
 					if (endptr == optarg || *endptr != '\0' || errno != 0 ||
-						value != start_mxoff) /* overflow */
+						!StartMultiXactOffsetIsValid(start_mxoff))
 					{
 						ereport(ERROR,
 								(errcode(ERRCODE_SYNTAX_ERROR),
@@ -288,6 +288,13 @@ BootstrapModeMain(int argc, char *argv[], bool check_only)
 				break;
 			case 'r':
 				strlcpy(OutputFileName, optarg, MAXPGPATH);
+				break;
+			case 'Z':
+				if (sscanf(optarg, "%" INT64_MODIFIER "u", &start_xid) != 1
+					|| !StartTransactionIdIsValid(start_xid))
+					ereport(ERROR,
+							(errcode(ERRCODE_SYNTAX_ERROR),
+							 errmsg("invalid start xid value")));
 				break;
 			case 'X':
 				{
