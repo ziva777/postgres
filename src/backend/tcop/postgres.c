@@ -3732,15 +3732,13 @@ process_postgres_switches(int argc, char *argv[], GucContext ctx,
 
 			case 'm':
 				{
-					unsigned long	value;
-					char		   *endptr;
+					char	   *endptr;
 
 					errno = 0;
-					value = strtoul(optarg, &endptr, 0);
-					start_mxid = value;
+					start_mxid = strtoull(optarg, &endptr, 0);
 
 					if (endptr == optarg || *endptr != '\0' || errno != 0 ||
-						value != start_mxid) /* overflow */
+						!StartMultiXactIdIsValid(start_mxid))
 					{
 						ereport(ERROR,
 								(errcode(ERRCODE_SYNTAX_ERROR),
@@ -3763,15 +3761,13 @@ process_postgres_switches(int argc, char *argv[], GucContext ctx,
 
 			case 'o':
 				{
-					unsigned long	value;
-					char		   *endptr;
+					char	   *endptr;
 
 					errno = 0;
-					value = strtoul(optarg, &endptr, 0);
-					start_mxoff = value;
+					start_mxoff = strtoull(optarg, &endptr, 0);
 
 					if (endptr == optarg || *endptr != '\0' || errno != 0 ||
-						value != start_mxoff) /* overflow */
+						!StartMultiXactOffsetIsValid(start_mxoff))
 					{
 						ereport(ERROR,
 								(errcode(ERRCODE_SYNTAX_ERROR),
@@ -3836,15 +3832,13 @@ process_postgres_switches(int argc, char *argv[], GucContext ctx,
 
 			case 'x':
 				{
-					unsigned long	value;
-					char		   *endptr;
+					char	   *endptr;
 
 					errno = 0;
-					value = strtoul(optarg, &endptr, 0);
-					start_xid = value;
+					start_xid = strtoull(optarg, &endptr, 0);
 
 					if (endptr == optarg || *endptr != '\0' || errno != 0 ||
-						value != start_xid) /* overflow */
+						!StartTransactionIdIsValid(start_xid))
 					{
 						ereport(ERROR,
 								(errcode(ERRCODE_SYNTAX_ERROR),
@@ -4030,7 +4024,6 @@ PostgresSingleUserMain(int argc, char *argv[],
 	 */
 	PostgresMain(dbname, username);
 }
-
 
 /* ----------------------------------------------------------------
  * PostgresMain
