@@ -768,7 +768,7 @@ handle_streamed_transaction(LogicalRepMsgType action, StringInfo s)
 	 * We should have received XID of the subxact as the first part of the
 	 * message, so extract it.
 	 */
-	current_xid = pq_getmsgint(s, 4);
+	current_xid = pq_getmsgint64(s);
 
 	if (!TransactionIdIsValid(current_xid))
 		ereport(ERROR,
@@ -3195,7 +3195,7 @@ IsIndexUsableForFindingDeletedTuple(Oid localindexoid,
 	 * TransactionIdPrecedes() manages it internally, treating it as falling
 	 * behind the conflict_detection_xmin.
 	 */
-	index_xmin = HeapTupleHeaderGetXmin(index_tuple->t_data);
+	index_xmin = HeapTupleGetXmin(index_tuple);
 
 	ReleaseSysCache(index_tuple);
 
@@ -4038,8 +4038,8 @@ LogicalRepApplyLoop(XLogRecPtr last_received)
 					else if (c == PqReplMsg_PrimaryStatusUpdate)
 					{
 						rdt_data.remote_lsn = pq_getmsgint64(&s);
-						rdt_data.remote_oldestxid = FullTransactionIdFromU64((uint64) pq_getmsgint64(&s));
-						rdt_data.remote_nextxid = FullTransactionIdFromU64((uint64) pq_getmsgint64(&s));
+						rdt_data.remote_oldestxid = FullTransactionIdFromXid((uint64) pq_getmsgint64(&s));
+						rdt_data.remote_nextxid = FullTransactionIdFromXid((uint64) pq_getmsgint64(&s));
 						rdt_data.reply_time = pq_getmsgint64(&s);
 
 						/*
@@ -4587,7 +4587,7 @@ wait_for_local_flush(RetainDeadTuplesData *rdt_data)
 	MyLogicalRepWorker->oldest_nonremovable_xid = rdt_data->candidate_xid;
 	SpinLockRelease(&MyLogicalRepWorker->relmutex);
 
-	elog(DEBUG2, "confirmed flush up to remote lsn %X/%08X: new oldest_nonremovable_xid %u",
+	elog(DEBUG2, "confirmed flush up to remote lsn %X/%08X: new oldest_nonremovable_xid %" PRIu64,
 		 LSN_FORMAT_ARGS(rdt_data->remote_lsn),
 		 rdt_data->candidate_xid);
 
