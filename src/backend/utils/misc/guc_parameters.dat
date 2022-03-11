@@ -3219,7 +3219,7 @@
   max => '10000',
 },
 
-{ name => 'vacuum_failsafe_age', type => 'int', context => 'PGC_USERSET', group => 'VACUUM_FREEZING',
+{ name => 'vacuum_failsafe_age', type => 'int64', context => 'PGC_USERSET', group => 'VACUUM_FREEZING',
   short_desc => 'Age at which VACUUM should trigger failsafe to avoid a wraparound outage.',
   variable => 'vacuum_failsafe_age',
   boot_val => '1600000000',
