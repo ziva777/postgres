@@ -130,7 +130,8 @@ static void CreateDatabaseUsingWalLog(Oid src_dboid, Oid dboid, Oid src_tsid,
 static List *ScanSourceDatabasePgClass(Oid srctbid, Oid srcdbid, char *srcpath);
 static List *ScanSourceDatabasePgClassPage(Page page, Buffer buf, Oid tbid,
 										   Oid dbid, char *srcpath,
-										   List *rlocatorlist, Snapshot snapshot);
+										   List *rlocatorlist, Snapshot snapshot,
+										   bool is_toast);
 static CreateDBRelInfo *ScanSourceDatabasePgClassTuple(HeapTupleData *tuple,
 													   Oid tbid, Oid dbid,
 													   char *srcpath);
@@ -315,9 +316,10 @@ ScanSourceDatabasePgClass(Oid tbid, Oid dbid, char *srcpath)
 		}
 
 		/* Append relevant pg_class tuples for current page to rlocatorlist. */
+		/* No toast is expected in sys tables */
 		rlocatorlist = ScanSourceDatabasePgClassPage(page, buf, tbid, dbid,
 													 srcpath, rlocatorlist,
-													 snapshot);
+													 snapshot, false);
 
 		UnlockReleaseBuffer(buf);
 	}
@@ -335,7 +337,7 @@ ScanSourceDatabasePgClass(Oid tbid, Oid dbid, char *srcpath)
 static List *
 ScanSourceDatabasePgClassPage(Page page, Buffer buf, Oid tbid, Oid dbid,
 							  char *srcpath, List *rlocatorlist,
-							  Snapshot snapshot)
+							  Snapshot snapshot, bool is_toast)
 {
 	BlockNumber blkno = BufferGetBlockNumber(buf);
 	OffsetNumber offnum;
@@ -365,6 +367,7 @@ ScanSourceDatabasePgClassPage(Page page, Buffer buf, Oid tbid, Oid dbid,
 		tuple.t_data = (HeapTupleHeader) PageGetItem(page, itemid);
 		tuple.t_len = ItemIdGetLength(itemid);
 		tuple.t_tableOid = RelationRelationId;
+		HeapTupleCopyBaseFromPage(&tuple, page, is_toast);
 
 		/* Skip tuples that are not visible to this snapshot. */
 		if (HeapTupleSatisfiesVisibility(&tuple, snapshot, buf))
