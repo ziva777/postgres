@@ -63,13 +63,12 @@
 /*
  * GUC parameters
  */
-int			vacuum_freeze_min_age;
-int			vacuum_freeze_table_age;
-int			vacuum_multixact_freeze_min_age;
-int			vacuum_multixact_freeze_table_age;
-int			vacuum_failsafe_age;
-int			vacuum_multixact_failsafe_age;
-
+int64		vacuum_freeze_min_age;
+int64		vacuum_freeze_table_age;
+int64		vacuum_multixact_freeze_min_age;
+int64		vacuum_multixact_freeze_table_age;
+int64		vacuum_failsafe_age;
+int64		vacuum_multixact_failsafe_age;
 
 /* A few variables that don't seem worth passing around as parameters */
 static MemoryContext vac_context = NULL;
@@ -956,23 +955,25 @@ get_all_vacuum_rels(int options)
  */
 bool
 vacuum_set_xid_limits(Relation rel,
-					  int freeze_min_age,
-					  int freeze_table_age,
-					  int multixact_freeze_min_age,
-					  int multixact_freeze_table_age,
+					  int64 freeze_min_age,
+					  int64 freeze_table_age,
+					  int64 multixact_freeze_min_age,
+					  int64 multixact_freeze_table_age,
 					  TransactionId *oldestXmin,
 					  TransactionId *freezeLimit,
 					  MultiXactId *multiXactCutoff)
 {
-	int			freezemin;
-	int			mxid_freezemin;
-	int			effective_multixact_freeze_max_age;
+	int64		freezemin;
+	int64		mxid_freezemin;
+	int64		effective_multixact_freeze_max_age;
 	TransactionId limit;
 	TransactionId safeLimit;
 	MultiXactId oldestMxact;
 	MultiXactId mxactLimit;
 	MultiXactId safeMxactLimit;
-	int			freezetable;
+	int64		freezetable;
+	TransactionId nextXid;
+	TransactionId nextMxactId;
 
 	/*
 	 * We can always ignore processes running lazy vacuum.  This is because we
@@ -1021,8 +1022,10 @@ vacuum_set_xid_limits(Relation rel,
 	/*
 	 * Compute the cutoff XID, being careful not to generate a "permanent" XID
 	 */
-	limit = *oldestXmin - freezemin;
-	if (!TransactionIdIsNormal(limit))
+	limit = *oldestXmin;
+	if (limit > FirstNormalTransactionId + freezemin)
+		limit -= freezemin;
+	else
 		limit = FirstNormalTransactionId;
 
 	/*
@@ -1030,8 +1033,10 @@ vacuum_set_xid_limits(Relation rel,
 	 * autovacuum_freeze_max_age / 2 XIDs old), complain and force a minimum
 	 * freeze age of zero.
 	 */
-	safeLimit = ReadNextTransactionId() - autovacuum_freeze_max_age;
-	if (!TransactionIdIsNormal(safeLimit))
+	nextXid = ReadNextTransactionId();
+	if (nextXid > FirstNormalTransactionId + autovacuum_freeze_max_age)
+		safeLimit = nextXid - autovacuum_freeze_max_age;
+	else
 		safeLimit = FirstNormalTransactionId;
 
 	if (TransactionIdPrecedes(limit, safeLimit))
@@ -1050,7 +1055,7 @@ vacuum_set_xid_limits(Relation rel,
 	 * normally autovacuum_multixact_freeze_max_age, but may be less if we are
 	 * short of multixact member space.
 	 */
-	effective_multixact_freeze_max_age = MultiXactMemberFreezeThreshold();
+	effective_multixact_freeze_max_age = autovacuum_multixact_freeze_max_age;
 
 	/*
 	 * Determine the minimum multixact freeze age to use: as specified by
@@ -1067,20 +1072,29 @@ vacuum_set_xid_limits(Relation rel,
 
 	/* compute the cutoff multi, being careful to generate a valid value */
 	oldestMxact = GetOldestMultiXactId();
-	mxactLimit = oldestMxact - mxid_freezemin;
-	if (mxactLimit < FirstMultiXactId)
+	if (oldestMxact > FirstMultiXactId + mxid_freezemin)
+		mxactLimit = oldestMxact - mxid_freezemin;
+	else
 		mxactLimit = FirstMultiXactId;
 
-	safeMxactLimit =
-		ReadNextMultiXactId() - effective_multixact_freeze_max_age;
-	if (safeMxactLimit < FirstMultiXactId)
+	nextMxactId = ReadNextMultiXactId();
+	if (nextMxactId > FirstMultiXactId + effective_multixact_freeze_max_age)
+		safeMxactLimit = nextMxactId - effective_multixact_freeze_max_age;
+	else
 		safeMxactLimit = FirstMultiXactId;
 
 	if (MultiXactIdPrecedes(mxactLimit, safeMxactLimit))
 	{
 		ereport(WARNING,
-				(errmsg("oldest multixact is far in the past"),
-				 errhint("Close open transactions with multixacts soon to avoid wraparound problems.")));
+				(errmsg("oldest multixact is far in the past: %lld %lld %llu %lld %llu %llu %lld ",
+						(long long) multixact_freeze_min_age,
+						(long long) vacuum_multixact_freeze_min_age,
+						(unsigned long long) mxactLimit,
+						(long long) mxid_freezemin,
+						(unsigned long long) oldestMxact,
+						(unsigned long long) safeMxactLimit,
+						(long long) effective_multixact_freeze_max_age),
+				 errhint("Close open transactions with multixacts soon to enable SLRU truncation.")));
 		/* Use the safe limit, unless an older mxact is still running */
 		if (MultiXactIdPrecedes(oldestMxact, safeMxactLimit))
 			mxactLimit = oldestMxact;
@@ -1110,8 +1124,10 @@ vacuum_set_xid_limits(Relation rel,
 	 * Compute XID limit causing an aggressive vacuum, being careful not to
 	 * generate a "permanent" XID
 	 */
-	limit = ReadNextTransactionId() - freezetable;
-	if (!TransactionIdIsNormal(limit))
+	limit = ReadNextTransactionId();
+	if (limit > FirstNormalTransactionId + freezetable)
+		limit -= freezetable;
+	else
 		limit = FirstNormalTransactionId;
 	if (TransactionIdPrecedesOrEquals(rel->rd_rel->relfrozenxid,
 									  limit))
@@ -1136,8 +1152,10 @@ vacuum_set_xid_limits(Relation rel,
 	 * Compute MultiXact limit causing an aggressive vacuum, being careful to
 	 * generate a valid MultiXact value
 	 */
-	mxactLimit = ReadNextMultiXactId() - freezetable;
-	if (mxactLimit < FirstMultiXactId)
+	mxactLimit = ReadNextMultiXactId();
+	if (mxactLimit > FirstMultiXactId + freezetable)
+		mxactLimit -= freezetable;
+	else
 		mxactLimit = FirstMultiXactId;
 	if (MultiXactIdPrecedesOrEquals(rel->rd_rel->relminmxid,
 									mxactLimit))
@@ -1401,6 +1419,9 @@ vac_update_relstats(Relation relation,
 	 */
 	if (frozenxid_updated)
 		*frozenxid_updated = false;
+
+	Assert(TransactionIdPrecedesOrEquals(frozenxid, ReadNextTransactionId()));
+
 	if (TransactionIdIsNormal(frozenxid) &&
 		pgcform->relfrozenxid != frozenxid &&
 		(TransactionIdPrecedes(pgcform->relfrozenxid, frozenxid) ||
@@ -1416,6 +1437,9 @@ vac_update_relstats(Relation relation,
 	/* Similarly for relminmxid */
 	if (minmulti_updated)
 		*minmulti_updated = false;
+
+	Assert(MultiXactIdPrecedesOrEquals(minmulti, ReadNextMultiXactId()));
+
 	if (MultiXactIdIsValid(minmulti) &&
 		pgcform->relminmxid != minmulti &&
 		(MultiXactIdPrecedes(pgcform->relminmxid, minmulti) ||

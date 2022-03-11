@@ -45,7 +45,7 @@ xlog_desc(StringInfo buf, XLogReaderState *record)
 		CheckPoint *checkpoint = (CheckPoint *) rec;
 
 		appendStringInfo(buf, "redo %X/%X; "
-						 "tli %u; prev tli %u; fpw %s; xid %llu; oid %u; multi %llu; offset %u; "
+						 "tli %u; prev tli %u; fpw %s; xid %llu; oid %u; multi %llu; offset %llu; "
 						 "oldest xid %llu in DB %u; oldest multi %llu in DB %u; "
 						 "oldest/newest commit timestamp xid: %llu/%llu; "
 						 "oldest running xid %llu; %s",
@@ -56,7 +56,7 @@ xlog_desc(StringInfo buf, XLogReaderState *record)
 						 (unsigned long long) U64FromFullTransactionId(checkpoint->nextXid),
 						 checkpoint->nextOid,
 						 (unsigned long long) checkpoint->nextMulti,
-						 checkpoint->nextMultiOffset,
+						 (unsigned long long) checkpoint->nextMultiOffset,
 						 (unsigned long long) checkpoint->oldestXid,
 						 checkpoint->oldestXidDB,
 						 (unsigned long long) checkpoint->oldestMulti,
