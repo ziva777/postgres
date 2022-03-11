@@ -833,8 +833,8 @@ InitWalRecovery(ControlFileData *ControlFile, bool *wasShutdown_ptr,
 							 LSN_FORMAT_ARGS(checkPoint.redo),
 							 wasShutdown ? "true" : "false")));
 	ereport(DEBUG1,
-			(errmsg_internal("next transaction ID: " UINT64_FORMAT "; next OID: %u",
-							 U64FromFullTransactionId(checkPoint.nextXid),
+			(errmsg_internal("next transaction ID: %llu; next OID: %u",
+							 (unsigned long long) XidFromFullTransactionId(checkPoint.nextXid),
 							 checkPoint.nextOid)));
 	ereport(DEBUG1,
 			(errmsg_internal("next MultiXactId: %llu; next MultiXactOffset: %llu",

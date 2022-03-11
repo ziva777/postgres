@@ -19,6 +19,7 @@
 #include "access/hio.h"
 #include "access/htup_details.h"
 #include "access/visibilitymap.h"
+#include "catalog/catalog.h"
 #include "storage/bufmgr.h"
 #include "storage/freespace.h"
 #include "storage/lmgr.h"
@@ -58,6 +59,9 @@ RelationPutHeapTuple(Relation relation,
 
 	/* Add the tuple to the page */
 	pageHeader = BufferGetPage(buffer);
+
+	HeapTupleHeaderStoreXmin(pageHeader, tuple, IsToastRelation(relation));
+	HeapTupleHeaderStoreXmax(pageHeader, tuple, IsToastRelation(relation));
 
 	offnum = PageAddItem(pageHeader, (Item) tuple->t_data,
 						 tuple->t_len, InvalidOffsetNumber, false, true);
@@ -361,7 +365,17 @@ RelationAddBlocks(Relation relation, BulkInsertState bistate,
 			 first_block,
 			 RelationGetRelationName(relation));
 
-	PageInit(page, BufferGetPageSize(buffer), 0);
+	if (IsToastRelation(relation))
+	{
+		PageInit(page, BufferGetPageSize(buffer), sizeof(ToastPageSpecialData));
+		ToastPageGetSpecial(page)->pd_xid_base = RecentXmin - FirstNormalTransactionId;
+	}
+	else
+	{
+		PageInit(page, BufferGetPageSize(buffer), sizeof(HeapPageSpecialData));
+		HeapPageGetSpecial(page)->pd_xid_base = RecentXmin - FirstNormalTransactionId;
+	}
+
 	MarkBufferDirty(buffer);
 
 	/*
@@ -394,7 +408,7 @@ RelationAddBlocks(Relation relation, BulkInsertState bistate,
 		if (use_fsm && i >= not_in_fsm_pages)
 		{
 			Size		freespace = BufferGetPageSize(victim_buffers[i]) -
-				SizeOfPageHeaderData;
+				SizeOfPageHeaderData - MAXALIGN(sizeof(HeapPageSpecialData));
 
 			RecordPageWithFreeSpace(relation, curBlock, freespace);
 		}
@@ -685,6 +699,9 @@ loop:
 		/*
 		 * Now we can check to see if there's enough free space here. If so,
 		 * we're done.
+		 *
+		 * "Double xmax" page is not suitable for any new tuple, since xmin
+		 * can't be set there.
 		 */
 		page = BufferGetPage(buffer);
 
@@ -696,12 +713,23 @@ loop:
 		 */
 		if (PageIsNew(page))
 		{
-			PageInit(page, BufferGetPageSize(buffer), 0);
+			if (IsToastRelation(relation))
+			{
+				PageInit(page, BufferGetPageSize(buffer), sizeof(ToastPageSpecialData));
+				ToastPageGetSpecial(page)->pd_xid_base = RecentXmin - FirstNormalTransactionId;
+			}
+			else
+			{
+				PageInit(page, BufferGetPageSize(buffer), sizeof(HeapPageSpecialData));
+				HeapPageGetSpecial(page)->pd_xid_base = RecentXmin - FirstNormalTransactionId;
+			}
+
 			MarkBufferDirty(buffer);
 		}
 
 		pageFreeSpace = PageGetHeapFreeSpace(page);
-		if (targetFreeSpace <= pageFreeSpace)
+		if (targetFreeSpace <= pageFreeSpace &&
+			!HeapPageIsDoubleXmax(page))
 		{
 			/* use this page as future insert target, too */
 			RelationSetTargetBlock(relation, targetBlock);
