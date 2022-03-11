@@ -2166,9 +2166,7 @@ RestoreBlockImage(XLogReaderState *record, uint8 block_id, char *page)
 FullTransactionId
 XLogRecGetFullXid(XLogReaderState *record)
 {
-	TransactionId xid,
-				next_xid;
-	uint32		epoch;
+	TransactionId xid;
 
 	/*
 	 * This function is only safe during replay, because it depends on the
@@ -2177,17 +2175,8 @@ XLogRecGetFullXid(XLogReaderState *record)
 	Assert(AmStartupProcess() || !IsUnderPostmaster);
 
 	xid = XLogRecGetXid(record);
-	next_xid = XidFromFullTransactionId(TransamVariables->nextXid);
-	epoch = EpochFromFullTransactionId(TransamVariables->nextXid);
 
-	/*
-	 * If xid is numerically greater than next_xid, it has to be from the last
-	 * epoch.
-	 */
-	if (unlikely(xid > next_xid))
-		--epoch;
-
-	return FullTransactionIdFromEpochAndXid(epoch, xid);
+	return FullTransactionIdFromXid(xid);
 }
 
 #endif

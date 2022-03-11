@@ -53,7 +53,7 @@ xlog_desc(StringInfo buf, XLogReaderState *record)
 						 checkpoint->ThisTimeLineID,
 						 checkpoint->PrevTimeLineID,
 						 checkpoint->fullPageWrites ? "true" : "false",
-						 (unsigned long long) U64FromFullTransactionId(checkpoint->nextXid),
+						 (unsigned long long) XidFromFullTransactionId(checkpoint->nextXid),
 						 checkpoint->nextOid,
 						 (unsigned long long) checkpoint->nextMulti,
 						 (unsigned long long) checkpoint->nextMultiOffset,

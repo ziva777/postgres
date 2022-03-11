@@ -5045,8 +5045,7 @@ BootStrapXLOG(void)
 	checkPoint.ThisTimeLineID = BootstrapTimeLineID;
 	checkPoint.PrevTimeLineID = BootstrapTimeLineID;
 	checkPoint.fullPageWrites = fullPageWrites;
-	checkPoint.nextXid =
-		FullTransactionIdFromEpochAndXid(0, FirstNormalTransactionId);
+	checkPoint.nextXid = FullTransactionIdFromXid(FirstNormalTransactionId);
 	checkPoint.nextOid = FirstGenbkiObjectId;
 	checkPoint.nextMulti = FirstMultiXactId;
 	checkPoint.nextMultiOffset = 0;
@@ -7202,7 +7201,7 @@ CreateCheckPoint(int flags)
 	UpdateControlFile();
 	LWLockRelease(ControlFileLock);
 
-	/* Update shared-memory copy of checkpoint XID/epoch */
+	/* Update shared-memory copy of checkpoint XID/base */
 	SpinLockAcquire(&XLogCtl->info_lck);
 	XLogCtl->ckptFullXid = checkPoint.nextXid;
 	SpinLockRelease(&XLogCtl->info_lck);
@@ -8273,7 +8272,7 @@ xlog_redo(XLogReaderState *record)
 		ControlFile->checkPointCopy.nextXid = checkPoint.nextXid;
 		LWLockRelease(ControlFileLock);
 
-		/* Update shared-memory copy of checkpoint XID/epoch */
+		/* Update shared-memory copy of checkpoint XID/base */
 		SpinLockAcquire(&XLogCtl->info_lck);
 		XLogCtl->ckptFullXid = checkPoint.nextXid;
 		SpinLockRelease(&XLogCtl->info_lck);
@@ -8334,7 +8333,7 @@ xlog_redo(XLogReaderState *record)
 		ControlFile->checkPointCopy.nextXid = checkPoint.nextXid;
 		LWLockRelease(ControlFileLock);
 
-		/* Update shared-memory copy of checkpoint XID/epoch */
+		/* Update shared-memory copy of checkpoint XID/base */
 		SpinLockAcquire(&XLogCtl->info_lck);
 		XLogCtl->ckptFullXid = checkPoint.nextXid;
 		SpinLockRelease(&XLogCtl->info_lck);
