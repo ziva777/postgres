@@ -429,8 +429,8 @@ BackendIdGetTransactionIds(int backendID, TransactionId *xid,
 
 		if (proc != NULL)
 		{
-			*xid = proc->xid;
-			*xmin = proc->xmin;
+			*xid = pg_atomic_read_u64(&proc->xid);
+			*xmin = pg_atomic_read_u64(&proc->xmin);
 			*nsubxid = proc->subxidStatus.count;
 			*overflowed = proc->subxidStatus.overflowed;
 		}

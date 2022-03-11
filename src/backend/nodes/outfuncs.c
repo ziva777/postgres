@@ -816,7 +816,6 @@ _outConstraint(StringInfo str, const Constraint *node)
 	}
 }
 
-
 /*
  * outNode -
  *	  converts a Node into ascii string and append it to 'str'
