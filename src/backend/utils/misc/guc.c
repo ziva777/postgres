@@ -940,6 +940,14 @@ build_guc_variables(void)
 		num_vars++;
 	}
 
+	for (i = 0; ConfigureNamesInt64[i].gen.name; i++)
+	{
+		struct config_int64 *conf = &ConfigureNamesInt64[i];
+
+		conf->gen.vartype = PGC_INT64;
+		num_vars++;
+	}
+
 	for (i = 0; ConfigureNamesReal[i].gen.name; i++)
 	{
 		struct config_real *conf = &ConfigureNamesReal[i];
