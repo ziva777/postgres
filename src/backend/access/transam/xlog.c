@@ -5135,8 +5135,7 @@ BootStrapXLOG(uint32 data_checksum_version)
 	checkPoint.PrevTimeLineID = BootstrapTimeLineID;
 	checkPoint.fullPageWrites = fullPageWrites;
 	checkPoint.wal_level = wal_level;
-	checkPoint.nextXid =
-		FullTransactionIdFromEpochAndXid(0, FirstNormalTransactionId);
+	checkPoint.nextXid = FullTransactionIdFromXid(FirstNormalTransactionId);
 	checkPoint.nextOid = FirstGenbkiObjectId;
 	checkPoint.nextMulti = FirstMultiXactId;
 	checkPoint.nextMultiOffset = 0;

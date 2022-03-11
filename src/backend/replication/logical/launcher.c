@@ -1511,7 +1511,7 @@ update_conflict_slot_xmin(TransactionId new_xmin)
 	MyReplicationSlot->data.xmin = new_xmin;
 	SpinLockRelease(&MyReplicationSlot->mutex);
 
-	elog(DEBUG1, "updated xmin: %u", MyReplicationSlot->data.xmin);
+	elog(DEBUG1, "updated xmin: %" PRIu64, MyReplicationSlot->data.xmin);
 
 	ReplicationSlotMarkDirty();
 	ReplicationSlotsComputeRequiredXmin(false);
