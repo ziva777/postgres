@@ -4545,14 +4545,14 @@ BootStrapXLOG(void)
 	checkPoint.PrevTimeLineID = BootstrapTimeLineID;
 	checkPoint.fullPageWrites = fullPageWrites;
 	checkPoint.nextXid =
-		FullTransactionIdFromEpochAndXid(0, Max(FirstNormalTransactionId,
-												start_xid));
+		FullTransactionIdFromXid(Max(FirstNormalTransactionId + 1,
+									 start_xid));
 	checkPoint.nextOid = FirstGenbkiObjectId;
-	checkPoint.nextMulti = Max(FirstMultiXactId, start_mxid);
+	checkPoint.nextMulti = Max(FirstMultiXactId + 1, start_mxid);
 	checkPoint.nextMultiOffset = start_mxoff;
-	checkPoint.oldestXid = XidFromFullTransactionId(checkPoint.nextXid);
+	checkPoint.oldestXid = XidFromFullTransactionId(checkPoint.nextXid) - 1;
 	checkPoint.oldestXidDB = Template1DbOid;
-	checkPoint.oldestMulti = checkPoint.nextMulti;
+	checkPoint.oldestMulti = checkPoint.nextMulti - 1;
 	checkPoint.oldestMultiDB = Template1DbOid;
 	checkPoint.oldestCommitTsXid = InvalidTransactionId;
 	checkPoint.newestCommitTsXid = InvalidTransactionId;
@@ -6634,7 +6634,7 @@ CreateCheckPoint(int flags)
 	UpdateControlFile();
 	LWLockRelease(ControlFileLock);
 
-	/* Update shared-memory copy of checkpoint XID/epoch */
+	/* Update shared-memory copy of checkpoint XID/base */
 	SpinLockAcquire(&XLogCtl->info_lck);
 	XLogCtl->ckptFullXid = checkPoint.nextXid;
 	SpinLockRelease(&XLogCtl->info_lck);
@@ -7660,7 +7660,7 @@ xlog_redo(XLogReaderState *record)
 		ControlFile->checkPointCopy.nextXid = checkPoint.nextXid;
 		LWLockRelease(ControlFileLock);
 
-		/* Update shared-memory copy of checkpoint XID/epoch */
+		/* Update shared-memory copy of checkpoint XID/base */
 		SpinLockAcquire(&XLogCtl->info_lck);
 		XLogCtl->ckptFullXid = checkPoint.nextXid;
 		SpinLockRelease(&XLogCtl->info_lck);
@@ -7721,7 +7721,7 @@ xlog_redo(XLogReaderState *record)
 		ControlFile->checkPointCopy.nextXid = checkPoint.nextXid;
 		LWLockRelease(ControlFileLock);
 
-		/* Update shared-memory copy of checkpoint XID/epoch */
+		/* Update shared-memory copy of checkpoint XID/base */
 		SpinLockAcquire(&XLogCtl->info_lck);
 		XLogCtl->ckptFullXid = checkPoint.nextXid;
 		SpinLockRelease(&XLogCtl->info_lck);
