@@ -3265,7 +3265,7 @@ intset_leaf_node
 intset_node
 intvKEY
 itemIdCompact
-itemIdCompactData
+ItemIdCompactData
 iterator
 jmp_buf
 join_search_hook_type
