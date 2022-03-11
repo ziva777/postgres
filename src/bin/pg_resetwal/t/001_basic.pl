@@ -95,15 +95,6 @@ command_fails_like(
 	[ 'pg_resetwal', '-c', '10,1', $node->data_dir ],
 	qr/greater than/,
 	'fails with -c value 1 part 2');
-# -e
-command_fails_like(
-	[ 'pg_resetwal', '-e', 'foo', $node->data_dir ],
-	qr/error: invalid argument for option -e/,
-	'fails with incorrect -e option');
-command_fails_like(
-	[ 'pg_resetwal', '-e', '-1', $node->data_dir ],
-	qr/must not be -1/,
-	'fails with -e value -1');
 # -l
 command_fails_like(
 	[ 'pg_resetwal', '-l', 'foo', $node->data_dir ],
@@ -181,7 +172,6 @@ my $blcksz = $1;
 my @cmd = ('pg_resetwal', '-D', $node->data_dir);
 
 # some not-so-critical hardcoded values
-push @cmd, '-e', 1;
 push @cmd, '-l', '00000001000000320000004B';
 push @cmd, '-o', 100_000;
 push @cmd, '--wal-segsize', 1;
@@ -205,8 +195,10 @@ push @cmd,
   '-c',
   sprintf("%d,%d", hex($files[0]) == 0 ? 3 : hex($files[0]), hex($files[-1]));
 
+my $A = 2;
+my $B = 1;
 @files = get_slru_files('pg_multixact/offsets');
-$mult = 32 * $blcksz / 4;
+$mult = $A * $blcksz / $B;
 # -m argument is "new,old"
 push @cmd, '-m',
   sprintf("%d,%d",
@@ -214,11 +206,11 @@ push @cmd, '-m',
 	hex($files[0]) == 0 ? 1 : hex($files[0] * $mult));
 
 @files = get_slru_files('pg_multixact/members');
-$mult = 32 * int($blcksz / 20) * 4;
+$mult = $A * int($blcksz / 20) * $B;
 push @cmd, '-O', (hex($files[-1]) + 1) * $mult;
 
 @files = get_slru_files('pg_xact');
-$mult = 32 * $blcksz * 4;
+$mult = $A * $blcksz * $B;
 push @cmd,
   '-u', (hex($files[0]) == 0 ? 3 : hex($files[0]) * $mult),
   '-x', ((hex($files[-1]) + 1) * $mult);
