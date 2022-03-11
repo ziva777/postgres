@@ -2715,65 +2715,6 @@ struct config_int ConfigureNamesInt[] =
 		NULL, NULL, NULL
 	},
 
-	{
-		{"vacuum_freeze_min_age", PGC_USERSET, CLIENT_CONN_STATEMENT,
-			gettext_noop("Minimum age at which VACUUM should freeze a table row."),
-			NULL
-		},
-		&vacuum_freeze_min_age,
-		50000000, 0, 1000000000,
-		NULL, NULL, NULL
-	},
-
-	{
-		{"vacuum_freeze_table_age", PGC_USERSET, CLIENT_CONN_STATEMENT,
-			gettext_noop("Age at which VACUUM should scan whole table to freeze tuples."),
-			NULL
-		},
-		&vacuum_freeze_table_age,
-		150000000, 0, 2000000000,
-		NULL, NULL, NULL
-	},
-
-	{
-		{"vacuum_multixact_freeze_min_age", PGC_USERSET, CLIENT_CONN_STATEMENT,
-			gettext_noop("Minimum age at which VACUUM should freeze a MultiXactId in a table row."),
-			NULL
-		},
-		&vacuum_multixact_freeze_min_age,
-		5000000, 0, 1000000000,
-		NULL, NULL, NULL
-	},
-
-	{
-		{"vacuum_multixact_freeze_table_age", PGC_USERSET, CLIENT_CONN_STATEMENT,
-			gettext_noop("Multixact age at which VACUUM should scan whole table to freeze tuples."),
-			NULL
-		},
-		&vacuum_multixact_freeze_table_age,
-		150000000, 0, 2000000000,
-		NULL, NULL, NULL
-	},
-
-	{
-		{"vacuum_failsafe_age", PGC_USERSET, CLIENT_CONN_STATEMENT,
-			gettext_noop("Age at which VACUUM should trigger failsafe to avoid a wraparound outage."),
-			NULL
-		},
-		&vacuum_failsafe_age,
-		1600000000, 0, 2100000000,
-		NULL, NULL, NULL
-	},
-	{
-		{"vacuum_multixact_failsafe_age", PGC_USERSET, CLIENT_CONN_STATEMENT,
-			gettext_noop("Multixact age at which VACUUM should trigger failsafe to avoid a wraparound outage."),
-			NULL
-		},
-		&vacuum_multixact_failsafe_age,
-		1600000000, 0, 2100000000,
-		NULL, NULL, NULL
-	},
-
 	/*
 	 * See also CheckRequiredParameterValues() if this parameter changes
 	 */
@@ -3426,28 +3367,6 @@ struct config_int ConfigureNamesInt[] =
 		NULL, NULL, NULL
 	},
 	{
-		/* see varsup.c for why this is PGC_POSTMASTER not PGC_SIGHUP */
-		{"autovacuum_freeze_max_age", PGC_POSTMASTER, AUTOVACUUM,
-			gettext_noop("Age at which to autovacuum a table to prevent transaction ID wraparound."),
-			NULL
-		},
-		&autovacuum_freeze_max_age,
-
-		/* see vacuum_failsafe_age if you change the upper-limit value. */
-		200000000, 100000, 2000000000,
-		NULL, NULL, NULL
-	},
-	{
-		/* see multixact.c for why this is PGC_POSTMASTER not PGC_SIGHUP */
-		{"autovacuum_multixact_freeze_max_age", PGC_POSTMASTER, AUTOVACUUM,
-			gettext_noop("Multixact age at which to autovacuum a table to prevent multixact wraparound."),
-			NULL
-		},
-		&autovacuum_multixact_freeze_max_age,
-		400000000, 10000, 2000000000,
-		NULL, NULL, NULL
-	},
-	{
 		/* see max_connections */
 		{"autovacuum_max_workers", PGC_POSTMASTER, AUTOVACUUM,
 			gettext_noop("Sets the maximum number of simultaneously running autovacuum worker processes."),
@@ -3724,11 +3643,93 @@ struct config_int ConfigureNamesInt[] =
 
 struct config_int64 ConfigureNamesInt64[] =
 {
+	{
+		{"vacuum_freeze_min_age", PGC_USERSET, CLIENT_CONN_STATEMENT,
+			gettext_noop("Minimum age at which VACUUM should freeze a table row."),
+			NULL
+		},
+		&vacuum_freeze_min_age,
+		INT64CONST(50000000), INT64CONST(0), INT64CONST(0x7FFFFFFFFFFFFFFF),
+		NULL, NULL, NULL
+	},
+
+	{
+		{"vacuum_freeze_table_age", PGC_USERSET, CLIENT_CONN_STATEMENT,
+			gettext_noop("Age at which VACUUM should scan whole table to freeze tuples."),
+			NULL
+		},
+		&vacuum_freeze_table_age,
+		INT64CONST(150000000), INT64CONST(0), INT64CONST(0x7FFFFFFFFFFFFFFF),
+		NULL, NULL, NULL
+	},
+
+	{
+		{"vacuum_multixact_freeze_min_age", PGC_USERSET, CLIENT_CONN_STATEMENT,
+			gettext_noop("Minimum age at which VACUUM should freeze a MultiXactId in a table row."),
+			NULL
+		},
+		&vacuum_multixact_freeze_min_age,
+		INT64CONST(5000000), INT64CONST(0), INT64CONST(0x7FFFFFFFFFFFFFFF),
+		NULL, NULL, NULL
+	},
+
+	{
+		{"vacuum_multixact_freeze_table_age", PGC_USERSET, CLIENT_CONN_STATEMENT,
+			gettext_noop("Multixact age at which VACUUM should scan whole table to freeze tuples."),
+			NULL
+		},
+		&vacuum_multixact_freeze_table_age,
+		INT64CONST(150000000), INT64CONST(0), INT64CONST(0x7FFFFFFFFFFFFFFF),
+		NULL, NULL, NULL
+	},
+
+	{
+		{"vacuum_failsafe_age", PGC_USERSET, CLIENT_CONN_STATEMENT,
+			gettext_noop("Age at which VACUUM should trigger failsafe to avoid a wraparound outage."),
+			NULL
+		},
+		&vacuum_failsafe_age,
+		INT64CONST(1600000000), INT64CONST(0), INT64CONST(2100000000),
+		NULL, NULL, NULL
+	},
+	{
+		{"vacuum_multixact_failsafe_age", PGC_USERSET, CLIENT_CONN_STATEMENT,
+			gettext_noop("Multixact age at which VACUUM should trigger failsafe to avoid a wraparound outage."),
+			NULL
+		},
+		&vacuum_multixact_failsafe_age,
+		INT64CONST(1600000000), INT64CONST(0), INT64CONST(2100000000),
+		NULL, NULL, NULL
+	},
+	{
+		/* see varsup.c for why this is PGC_POSTMASTER not PGC_SIGHUP */
+		{"autovacuum_freeze_max_age", PGC_POSTMASTER, AUTOVACUUM,
+			gettext_noop("Age at which to autovacuum a table to prevent transaction ID wraparound."),
+			NULL
+		},
+		&autovacuum_freeze_max_age,
+
+		/* see vacuum_failsafe_age if you change the upper-limit value. */
+		INT64CONST(10000000000), INT64CONST(100000), INT64CONST(0x7FFFFFFFFFFFFFFF),
+		NULL, NULL, NULL
+	},
+	{
+		/* see multixact.c for why this is PGC_POSTMASTER not PGC_SIGHUP */
+		{"autovacuum_multixact_freeze_max_age", PGC_POSTMASTER, AUTOVACUUM,
+			gettext_noop("Multixact age at which to autovacuum a table to prevent multixact wraparound."),
+			NULL
+		},
+		&autovacuum_multixact_freeze_max_age,
+		INT64CONST(20000000000), INT64CONST(10000), INT64CONST(0x7FFFFFFFFFFFFFFF),
+		NULL, NULL, NULL
+	},
+
 	/* End-of-list marker */
 	{
 		{NULL, 0, 0, NULL, NULL}, NULL, 0, 0, 0, NULL, NULL, NULL
 	}
 };
+
 
 
 struct config_real ConfigureNamesReal[] =
