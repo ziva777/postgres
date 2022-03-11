@@ -64,13 +64,12 @@
 /*
  * GUC parameters
  */
-int			vacuum_freeze_min_age;
-int			vacuum_freeze_table_age;
-int			vacuum_multixact_freeze_min_age;
-int			vacuum_multixact_freeze_table_age;
-int			vacuum_failsafe_age;
-int			vacuum_multixact_failsafe_age;
-
+int64		vacuum_freeze_min_age;
+int64		vacuum_freeze_table_age;
+int64		vacuum_multixact_freeze_min_age;
+int64		vacuum_multixact_freeze_table_age;
+int64		vacuum_failsafe_age;
+int64		vacuum_multixact_failsafe_age;
 
 /* A few variables that don't seem worth passing around as parameters */
 static MemoryContext vac_context = NULL;
@@ -958,7 +957,7 @@ bool
 vacuum_get_cutoffs(Relation rel, const VacuumParams *params,
 				   struct VacuumCutoffs *cutoffs)
 {
-	int			freeze_min_age,
+	int64		freeze_min_age,
 				multixact_freeze_min_age,
 				freeze_table_age,
 				multixact_freeze_table_age,
@@ -1027,7 +1026,7 @@ vacuum_get_cutoffs(Relation rel, const VacuumParams *params,
 	 * normally autovacuum_multixact_freeze_max_age, but may be less if we are
 	 * short of multixact member space.
 	 */
-	effective_multixact_freeze_max_age = MultiXactMemberFreezeThreshold();
+	effective_multixact_freeze_max_age = autovacuum_multixact_freeze_max_age;
 
 	/*
 	 * Almost ready to set freeze output parameters; check if OldestXmin or
@@ -1386,6 +1385,9 @@ vac_update_relstats(Relation relation,
 	futurexid = false;
 	if (frozenxid_updated)
 		*frozenxid_updated = false;
+
+	Assert(TransactionIdPrecedesOrEquals(frozenxid, ReadNextTransactionId()));
+
 	if (TransactionIdIsNormal(frozenxid) && oldfrozenxid != frozenxid)
 	{
 		bool		update = false;
@@ -1409,6 +1411,9 @@ vac_update_relstats(Relation relation,
 	futuremxid = false;
 	if (minmulti_updated)
 		*minmulti_updated = false;
+
+	Assert(MultiXactIdPrecedesOrEquals(minmulti, ReadNextMultiXactId()));
+
 	if (MultiXactIdIsValid(minmulti) && oldminmulti != minmulti)
 	{
 		bool		update = false;
