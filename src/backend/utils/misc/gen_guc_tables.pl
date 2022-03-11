@@ -71,11 +71,21 @@ sub print_table
 		printf $ofh "\t\t.vartype = %s,\n", ('PGC_' . uc($entry->{type}));
 		printf $ofh "\t\t._%s = {\n", $entry->{type};
 		printf $ofh "\t\t\t.variable = &%s,\n", $entry->{variable};
-		printf $ofh "\t\t\t.boot_val = %s,\n", $entry->{boot_val};
-		printf $ofh "\t\t\t.min = %s,\n", $entry->{min}
-		  if $entry->{type} eq 'int' || $entry->{type} eq 'real';
-		printf $ofh "\t\t\t.max = %s,\n", $entry->{max}
-		  if $entry->{type} eq 'int' || $entry->{type} eq 'real';
+
+		if ($entry->{type} eq 'int64')
+		{
+			printf $ofh "\t\t\t.boot_val = INT64CONST(%s),\n", $entry->{boot_val};
+			printf $ofh "\t\t\t.min = INT64CONST(%s),\n", $entry->{min};
+			printf $ofh "\t\t\t.max = INT64CONST(%s),\n", $entry->{max};
+		}
+		else
+		{
+			printf $ofh "\t\t\t.boot_val = %s,\n", $entry->{boot_val};
+			printf $ofh "\t\t\t.min = %s,\n", $entry->{min}
+			  if $entry->{type} eq 'int' || $entry->{type} eq 'real';
+			printf $ofh "\t\t\t.max = %s,\n", $entry->{max}
+			  if $entry->{type} eq 'int' || $entry->{type} eq 'real';
+		}
 		printf $ofh "\t\t\t.options = %s,\n", $entry->{options}
 		  if $entry->{type} eq 'enum';
 		printf $ofh "\t\t\t.check_hook = %s,\n", $entry->{check_hook}
