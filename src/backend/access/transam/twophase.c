@@ -458,8 +458,8 @@ MarkAsPreparingGuts(GlobalTransaction gxact, TransactionId xid, const char *gid,
 		proc->vxid.lxid = xid;
 		proc->vxid.procNumber = INVALID_PROC_NUMBER;
 	}
-	proc->xid = xid;
-	Assert(proc->xmin == InvalidTransactionId);
+	pg_atomic_write_u64(&proc->xid, xid);
+	Assert(pg_atomic_read_u64(&proc->xmin) == InvalidTransactionId);
 	proc->delayChkptFlags = 0;
 	proc->statusFlags = 0;
 	proc->pid = 0;
@@ -774,7 +774,7 @@ pg_prepared_xact(PG_FUNCTION_ARGS)
 		 * Form tuple with appropriate data.
 		 */
 
-		values[0] = TransactionIdGetDatum(proc->xid);
+		values[0] = TransactionIdGetDatum(pg_atomic_read_u64(&proc->xid));
 		values[1] = CStringGetTextDatum(gxact->gid);
 		values[2] = TimestampTzGetDatum(gxact->prepared_at);
 		values[3] = ObjectIdGetDatum(gxact->owner);
@@ -927,29 +927,11 @@ TwoPhaseGetDummyProc(TransactionId xid, bool lock_held)
 /* State file support													*/
 /************************************************************************/
 
-/*
- * Compute the FullTransactionId for the given TransactionId.
- *
- * This is safe if the xid has not yet reached COMMIT PREPARED or ROLLBACK
- * PREPARED.  After those commands, concurrent vac_truncate_clog() may make
- * the xid cease to qualify as allowable.  XXX Not all callers limit their
- * calls accordingly.
- */
-static inline FullTransactionId
-AdjustToFullTransactionId(TransactionId xid)
-{
-	Assert(TransactionIdIsValid(xid));
-	return FullTransactionIdFromAllowableAt(ReadNextFullTransactionId(), xid);
-}
-
 static inline int
 TwoPhaseFilePath(char *path, TransactionId xid)
 {
-	FullTransactionId fxid = AdjustToFullTransactionId(xid);
-
-	return snprintf(path, MAXPGPATH, TWOPHASE_DIR "/%08X%08X",
-					EpochFromFullTransactionId(fxid),
-					XidFromFullTransactionId(fxid));
+	return snprintf(path, MAXPGPATH, TWOPHASE_DIR "/%016llX",
+					(unsigned long long) xid);
 }
 
 /*
@@ -1899,12 +1881,9 @@ restoreTwoPhaseData(void)
 			strspn(clde->d_name, "0123456789ABCDEF") == 16)
 		{
 			TransactionId xid;
-			FullTransactionId fxid;
 			char	   *buf;
 
-			fxid = FullTransactionIdFromU64(strtou64(clde->d_name, NULL, 16));
-			xid = XidFromFullTransactionId(fxid);
-
+			xid = (TransactionId) strtou64(clde->d_name, NULL, 16);
 			buf = ProcessTwoPhaseBuffer(xid, InvalidXLogRecPtr,
 										true, false, false);
 			if (buf == NULL)
@@ -2198,15 +2177,15 @@ ProcessTwoPhaseBuffer(TransactionId xid,
 		if (fromdisk)
 		{
 			ereport(WARNING,
-					(errmsg("removing stale two-phase state file for transaction %u",
-							xid)));
+					(errmsg("removing stale two-phase state file for transaction %llu",
+							(unsigned long long) xid)));
 			RemoveTwoPhaseFile(xid, true);
 		}
 		else
 		{
 			ereport(WARNING,
-					(errmsg("removing stale two-phase state from memory for transaction %u",
-							xid)));
+					(errmsg("removing stale two-phase state from memory for transaction %llu",
+							(unsigned long long) xid)));
 			PrepareRedoRemove(xid, true);
 		}
 		return NULL;
@@ -2218,15 +2197,15 @@ ProcessTwoPhaseBuffer(TransactionId xid,
 		if (fromdisk)
 		{
 			ereport(WARNING,
-					(errmsg("removing future two-phase state file for transaction %u",
-							xid)));
+					(errmsg("removing future two-phase state file for transaction %llu",
+							(unsigned long long) xid)));
 			RemoveTwoPhaseFile(xid, true);
 		}
 		else
 		{
 			ereport(WARNING,
-					(errmsg("removing future two-phase state from memory for transaction %u",
-							xid)));
+					(errmsg("removing future two-phase state from memory for transaction %llu",
+							(unsigned long long) xid)));
 			PrepareRedoRemove(xid, true);
 		}
 		return NULL;
@@ -2234,7 +2213,6 @@ ProcessTwoPhaseBuffer(TransactionId xid,
 
 	if (fromdisk)
 	{
-		/* Read and validate file */
 		buf = ReadTwoPhaseFile(xid, false);
 	}
 	else
