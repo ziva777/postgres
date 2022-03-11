@@ -845,7 +845,7 @@ BootStrapCLOG(void)
 	SimpleLruWritePage(XactCtl, slotno);
 	Assert(!XactCtl->shared->page_dirty[slotno]);
 
-	pageno = TransactionIdToPage(XidFromFullTransactionId(ShmemVariableCache->nextXid));
+	pageno = TransactionIdToPage(XidFromFullTransactionId(TransamVariables->nextXid));
 	if (pageno != 0)
 	{
 		LWLock *nextlock = SimpleLruGetBankLock(XactCtl, pageno);
