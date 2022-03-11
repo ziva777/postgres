@@ -2087,6 +2087,7 @@ CatalogCacheCreateEntry(CatCache *cache, HeapTuple ntp, SysScanDesc scandesc,
 		memcpy((char *) ct->tuple.t_data,
 			   (const char *) dtp->t_data,
 			   dtp->t_len);
+		HeapTupleCopyXids(&ct->tuple, dtp);
 		MemoryContextSwitchTo(oldcxt);
 
 		if (dtp != ntp)

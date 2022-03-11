@@ -116,6 +116,11 @@ extern char *output_files[];
 #define MULTIXACT_FORMATCHANGE_CAT_VER 201301231
 
 /*
+ * xid format changed from 32-bit to 64-bit.
+ */
+#define XID_FORMATCHANGE_CAT_VER 999999999
+
+/*
  * large object chunk size added to pg_controldata,
  * commit 5f93c37805e7485488480916b4585e098d3cc883
  */
@@ -228,13 +233,13 @@ typedef struct
 	uint32		ctrl_ver;
 	uint32		cat_ver;
 	char		nextxlogfile[25];
-	uint32		chkpnt_nxtxid;
-	uint32		chkpnt_nxtepoch;
+	uint64		chkpnt_nxtxid;
+	uint32		chkpnt_nxtepoch;	/* for 32bit xids only */
 	uint32		chkpnt_nxtoid;
-	uint32		chkpnt_nxtmulti;
-	uint32		chkpnt_nxtmxoff;
-	uint32		chkpnt_oldstMulti;
-	uint32		chkpnt_oldstxid;
+	uint64		chkpnt_nxtmulti;
+	uint64		chkpnt_nxtmxoff;
+	uint64		chkpnt_oldstMulti;
+	uint64		chkpnt_oldstxid;
 	uint32		align;
 	uint32		blocksz;
 	uint32		largesz;
@@ -368,7 +373,7 @@ extern OSInfo os_info;
 /* check.c */
 
 void		output_check_banner(bool live_check);
-void		check_and_dump_old_cluster(bool live_check);
+void		check_and_dump_old_cluster(bool live_check, bool *is_wraparound);
 void		check_new_cluster(void);
 void		report_clusters_compatible(void);
 void		issue_warnings_and_set_wal_level(void);
@@ -411,7 +416,10 @@ void		copyFileByRange(const char *src, const char *dst,
 void		linkFile(const char *src, const char *dst,
 					 const char *schemaName, const char *relName);
 void		rewriteVisibilityMap(const char *fromfile, const char *tofile,
-								 const char *schemaName, const char *relName);
+								 const char *schemaName, const char *relName,
+								 bool update_version);
+void		updateSegmentPagesVersion(const char *fromfile, const char *tofile,
+									  const char *schemaName, const char *relName);
 void		check_file_clone(void);
 void		check_copy_file_range(void);
 void		check_hard_link(void);
@@ -483,10 +491,15 @@ unsigned int str2uint(const char *str);
 /* version.c */
 
 bool		jsonb_9_4_check_applicable(ClusterInfo *cluster);
+bool		xid_check_applicable(ClusterInfo *cluster);
 void		old_9_6_invalidate_hash_indexes(ClusterInfo *cluster,
 											bool check_mode);
 
 void		report_extension_updates(ClusterInfo *cluster);
+
+void		invalidate_spgist_indexes(ClusterInfo *cluster, bool check_mode);
+void		invalidate_gin_indexes(ClusterInfo *cluster, bool check_mode);
+void		invalidate_external_indexes(ClusterInfo *cluster, bool check_mode);
 
 /* parallel.c */
 void		parallel_exec_prog(const char *log_file, const char *opt_log_file,
@@ -495,3 +508,9 @@ void		parallel_transfer_all_new_dbs(DbInfoArr *old_db_arr, DbInfoArr *new_db_arr
 										  char *old_pgdata, char *new_pgdata,
 										  char *old_tablespace);
 bool		reap_child(bool wait_for_child);
+
+/* segresize.c */
+void		convert_xact(const char *olddir, const char *newdir);
+MultiXactOffset convert_multixact_offsets(const char *olddir, const char *newdir);
+void		convert_multixact_members(const char *olddir, const char *newdir,
+									  MultiXactOffset oldest_mxoff);
