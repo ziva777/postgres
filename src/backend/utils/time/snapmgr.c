@@ -927,15 +927,15 @@ SnapshotResetXmin(void)
 
 	if (pairingheap_is_empty(&RegisteredSnapshots))
 	{
-		MyProc->xmin = InvalidTransactionId;
+		pg_atomic_write_u64(&MyProc->xmin, InvalidTransactionId);
 		return;
 	}
 
 	minSnapshot = pairingheap_container(SnapshotData, ph_node,
 										pairingheap_first(&RegisteredSnapshots));
 
-	if (TransactionIdPrecedes(MyProc->xmin, minSnapshot->xmin))
-		MyProc->xmin = minSnapshot->xmin;
+	if (TransactionIdPrecedes(pg_atomic_read_u64(&MyProc->xmin), minSnapshot->xmin))
+		pg_atomic_write_u64(&MyProc->xmin, minSnapshot->xmin);
 }
 
 /*
@@ -1088,7 +1088,7 @@ AtEOXact_Snapshot(bool isCommit, bool resetXmin)
 	if (resetXmin)
 		SnapshotResetXmin();
 
-	Assert(resetXmin || MyProc->xmin == 0);
+	Assert(resetXmin || pg_atomic_read_u64(&MyProc->xmin) == 0);
 }
 
 
@@ -1153,8 +1153,9 @@ ExportSnapshot(Snapshot snapshot)
 	 * Generate file path for the snapshot.  We start numbering of snapshots
 	 * inside the transaction from 1.
 	 */
-	snprintf(path, sizeof(path), SNAPSHOT_EXPORT_DIR "/%08X-%08X-%d",
-			 MyProc->backendId, MyProc->lxid, list_length(exportedSnapshots) + 1);
+	snprintf(path, sizeof(path), SNAPSHOT_EXPORT_DIR "/%08X-%08X%08X-%d",
+			 MyProc->backendId, (uint32) (MyProc->lxid >> 32),
+			 (uint32) MyProc->lxid, list_length(exportedSnapshots) + 1);
 
 	/*
 	 * Copy the snapshot into TopTransactionContext, add it to the
@@ -1330,7 +1331,7 @@ parseXidFromText(const char *prefix, char **s, const char *filename)
 				(errcode(ERRCODE_INVALID_TEXT_REPRESENTATION),
 				 errmsg("invalid snapshot data in file \"%s\"", filename)));
 	ptr += prefixlen;
-	if (sscanf(ptr, "%u", &val) != 1)
+	if (sscanf(ptr, "%" INT64_MODIFIER "u", &val) != 1)
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_TEXT_REPRESENTATION),
 				 errmsg("invalid snapshot data in file \"%s\"", filename)));
@@ -1355,7 +1356,7 @@ parseVxidFromText(const char *prefix, char **s, const char *filename,
 				(errcode(ERRCODE_INVALID_TEXT_REPRESENTATION),
 				 errmsg("invalid snapshot data in file \"%s\"", filename)));
 	ptr += prefixlen;
-	if (sscanf(ptr, "%d/%u", &vxid->backendId, &vxid->localTransactionId) != 2)
+	if (sscanf(ptr, "%d/%" INT64_MODIFIER "u", &vxid->backendId, &vxid->localTransactionId) != 2)
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_TEXT_REPRESENTATION),
 				 errmsg("invalid snapshot data in file \"%s\"", filename)));
@@ -1896,7 +1897,7 @@ XidInMVCCSnapshot(TransactionId xid, Snapshot snapshot)
 		if (!snapshot->suboverflowed)
 		{
 			/* we have full data, so search subxip */
-			if (pg_lfind32(xid, snapshot->subxip, snapshot->subxcnt))
+			if (pg_lfind64(xid, snapshot->subxip, snapshot->subxcnt))
 				return true;
 
 			/* not there, fall through to search xip[] */
@@ -1918,7 +1919,7 @@ XidInMVCCSnapshot(TransactionId xid, Snapshot snapshot)
 				return false;
 		}
 
-		if (pg_lfind32(xid, snapshot->xip, snapshot->xcnt))
+		if (pg_lfind64(xid, snapshot->xip, snapshot->xcnt))
 			return true;
 	}
 	else
@@ -1952,7 +1953,7 @@ XidInMVCCSnapshot(TransactionId xid, Snapshot snapshot)
 		 * indeterminate xid. We don't know whether it's top level or subxact
 		 * but it doesn't matter. If it's present, the xid is visible.
 		 */
-		if (pg_lfind32(xid, snapshot->subxip, snapshot->subxcnt))
+		if (pg_lfind64(xid, snapshot->subxip, snapshot->subxcnt))
 			return true;
 	}
 
