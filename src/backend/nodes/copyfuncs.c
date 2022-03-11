@@ -5982,6 +5982,7 @@ copyObjectImpl(const void *from)
 			 * perform a shallow copy via list_copy()
 			 */
 		case T_IntList:
+		case T_XidList:
 		case T_OidList:
 			retval = list_copy(from);
 			break;
