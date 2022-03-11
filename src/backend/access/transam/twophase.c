@@ -458,8 +458,8 @@ MarkAsPreparingGuts(GlobalTransaction gxact, TransactionId xid, const char *gid,
 		proc->vxid.lxid = xid;
 		proc->vxid.procNumber = INVALID_PROC_NUMBER;
 	}
-	proc->xid = xid;
-	Assert(proc->xmin == InvalidTransactionId);
+	pg_atomic_write_u64(&proc->xid, xid);
+	Assert(pg_atomic_read_u64(&proc->xmin) == InvalidTransactionId);
 	proc->delayChkptFlags = 0;
 	proc->statusFlags = 0;
 	proc->pid = 0;
@@ -774,7 +774,7 @@ pg_prepared_xact(PG_FUNCTION_ARGS)
 		 * Form tuple with appropriate data.
 		 */
 
-		values[0] = TransactionIdGetDatum(proc->xid);
+		values[0] = TransactionIdGetDatum(pg_atomic_read_u64(&proc->xid));
 		values[1] = CStringGetTextDatum(gxact->gid);
 		values[2] = TimestampTzGetDatum(gxact->prepared_at);
 		values[3] = ObjectIdGetDatum(gxact->owner);
@@ -927,45 +927,11 @@ TwoPhaseGetDummyProc(TransactionId xid, bool lock_held)
 /* State file support													*/
 /************************************************************************/
 
-/*
- * Compute the FullTransactionId for the given TransactionId.
- *
- * The wrap logic is safe here because the span of active xids cannot exceed one
- * epoch at any given time.
- */
-static inline FullTransactionId
-AdjustToFullTransactionId(TransactionId xid)
-{
-	FullTransactionId nextFullXid;
-	TransactionId nextXid;
-	uint32		epoch;
-
-	Assert(TransactionIdIsValid(xid));
-
-	LWLockAcquire(XidGenLock, LW_SHARED);
-	nextFullXid = TransamVariables->nextXid;
-	LWLockRelease(XidGenLock);
-
-	nextXid = XidFromFullTransactionId(nextFullXid);
-	epoch = EpochFromFullTransactionId(nextFullXid);
-	if (unlikely(xid > nextXid))
-	{
-		/* Wraparound occurred, must be from a prev epoch. */
-		Assert(epoch > 0);
-		epoch--;
-	}
-
-	return FullTransactionIdFromEpochAndXid(epoch, xid);
-}
-
 static inline int
 TwoPhaseFilePath(char *path, TransactionId xid)
 {
-	FullTransactionId fxid = AdjustToFullTransactionId(xid);
-
-	return snprintf(path, MAXPGPATH, TWOPHASE_DIR "/%08X%08X",
-					EpochFromFullTransactionId(fxid),
-					XidFromFullTransactionId(fxid));
+	return snprintf(path, MAXPGPATH, TWOPHASE_DIR "/%016llX",
+					(unsigned long long) xid);
 }
 
 /*
@@ -1909,11 +1875,9 @@ restoreTwoPhaseData(void)
 			strspn(clde->d_name, "0123456789ABCDEF") == 16)
 		{
 			TransactionId xid;
-			FullTransactionId fxid;
 			char	   *buf;
 
-			fxid = FullTransactionIdFromU64(strtou64(clde->d_name, NULL, 16));
-			xid = XidFromFullTransactionId(fxid);
+			xid = (TransactionId) strtou64(clde->d_name, NULL, 16);
 
 			buf = ProcessTwoPhaseBuffer(xid, InvalidXLogRecPtr,
 										true, false, false);
@@ -2245,7 +2209,6 @@ ProcessTwoPhaseBuffer(TransactionId xid,
 
 	if (fromdisk)
 	{
-		/* Read and validate file */
 		buf = ReadTwoPhaseFile(xid, false);
 	}
 	else

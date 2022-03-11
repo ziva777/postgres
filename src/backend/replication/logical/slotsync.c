@@ -214,11 +214,11 @@ update_local_synced_slot(RemoteSlot *remote_slot, Oid remote_dbid,
 		ereport(slot->data.persistency == RS_TEMPORARY ? LOG : DEBUG1,
 				errmsg("could not sync slot \"%s\" as remote slot precedes local slot",
 					   remote_slot->name),
-				errdetail("Remote slot has LSN %X/%X and catalog xmin %u, but local slot has LSN %X/%X and catalog xmin %u.",
+				errdetail("Remote slot has LSN %X/%X and catalog xmin %llu, but local slot has LSN %X/%X and catalog xmin %llu.",
 						  LSN_FORMAT_ARGS(remote_slot->restart_lsn),
-						  remote_slot->catalog_xmin,
+						  (unsigned long long) remote_slot->catalog_xmin,
 						  LSN_FORMAT_ARGS(slot->data.restart_lsn),
-						  slot->data.catalog_xmin));
+						  (unsigned long long) slot->data.catalog_xmin));
 
 		if (remote_slot_precedes)
 			*remote_slot_precedes = true;
