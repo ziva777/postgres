@@ -1555,6 +1555,30 @@ WaitReadBuffers(ReadBuffersOperation *operation)
 									relpath(operation->smgr->smgr_rlocator, forknum))));
 			}
 
+			if (PageGetPageLayoutVersion(bufBlock) != PG_PAGE_LAYOUT_VERSION &&
+				!PageIsNew((Page) bufBlock))
+			{
+				Buffer		buf = BufferDescriptorGetBuffer(bufHdr);
+
+				/*
+				 * All the forks but MAIN_FORKNUM should be converted to the
+				 * actual page layout version in pg_upgrade.
+				 */
+				if (forknum != MAIN_FORKNUM)
+					ereport(ERROR,
+						(errcode(ERRCODE_DATA_CORRUPTED),
+						 errmsg("invalid fork type (%d) in block %u of relation %s",
+								forknum, blocknum,
+								relpath(operation->smgr->smgr_rlocator, forknum))));
+
+				LWLockAcquire(BufferDescriptorGetContentLock(bufHdr), LW_EXCLUSIVE);
+				/* Check for no concurrent changes */
+				if (PageGetPageLayoutVersion(bufBlock) != PG_PAGE_LAYOUT_VERSION)
+					convert_page(operation->rel, bufBlock, buf, blocknum);
+
+				LWLockRelease(BufferDescriptorGetContentLock(bufHdr));
+			}
+
 			/* Terminate I/O and set BM_VALID. */
 			if (persistence == RELPERSISTENCE_TEMP)
 			{
@@ -5118,6 +5142,64 @@ MarkBufferDirtyHint(Buffer buffer, bool buffer_std)
 }
 
 /*
+ * Mark buffer as converted - ie its format is changed without logical changes.
+ *
+ * It will override `full_page_write` GUC setting in XLogRecordAssemble.
+ */
+void
+MarkBufferConverted(Buffer buffer, bool converted)
+{
+	BufferDesc *bufHdr;
+	uint32		buf_state;
+	bool		has_mark;
+
+	if (!BufferIsValid(buffer))
+		elog(ERROR, "bad buffer ID: %d", buffer);
+
+	Assert(!BufferIsLocal(buffer));
+
+	bufHdr = GetBufferDescriptor(buffer - 1);
+
+	Assert(GetPrivateRefCount(buffer) > 0);
+	if (converted)
+	{
+		/* here, either share or exclusive lock is OK */
+		Assert(LWLockHeldByMe(BufferDescriptorGetContentLock(bufHdr)));
+	}
+
+	buf_state = pg_atomic_read_u32(&bufHdr->state);
+	has_mark = (buf_state & BM_CONVERTED) != 0;
+	if (converted == has_mark)
+		return;
+
+	buf_state = LockBufHdr(bufHdr);
+	buf_state &= ~BM_CONVERTED;
+	if (converted)
+		buf_state |= BM_CONVERTED;
+	UnlockBufHdr(bufHdr, buf_state);
+}
+
+bool
+IsBufferConverted(Buffer buffer)
+{
+
+	BufferDesc *bufHdr;
+	uint32		buf_state;
+
+	if (!BufferIsValid(buffer))
+		elog(ERROR, "bad buffer ID: %d", buffer);
+
+	Assert(!BufferIsLocal(buffer));
+
+	bufHdr = GetBufferDescriptor(buffer - 1);
+
+	Assert(GetPrivateRefCount(buffer) > 0);
+
+	buf_state = pg_atomic_read_u32(&bufHdr->state);
+	return (buf_state & BM_CONVERTED) != 0;
+}
+
+/*
  * Release buffer content locks for shared buffers.
  *
  * Used to clean up after errors.
@@ -5149,6 +5231,47 @@ UnlockBuffers(void)
 
 		PinCountWaitBuf = NULL;
 	}
+}
+
+/*
+ * Is shared buffer is locked?
+ */
+bool
+IsBufferLocked(Buffer buffer)
+{
+	BufferDesc *buf;
+
+	if (buffer == InvalidBuffer)
+		return true;
+
+	Assert(BufferIsPinned(buffer));
+	if (BufferIsLocal(buffer))
+		return true;					/* local buffers need no lock */
+
+	buf = GetBufferDescriptor(buffer - 1);
+
+	return LWLockHeldByMe(BufferDescriptorGetContentLock(buf));
+}
+
+/*
+ * Is shared buffer is locked exclusive?
+ */
+bool
+IsBufferLockedExclusive(Buffer buffer)
+{
+	BufferDesc *buf;
+
+	if (buffer == InvalidBuffer)
+		return true;
+
+	Assert(BufferIsPinned(buffer));
+	if (BufferIsLocal(buffer))
+		return true;					/* local buffers need no lock */
+
+	buf = GetBufferDescriptor(buffer - 1);
+
+	return LWLockHeldByMeInMode(BufferDescriptorGetContentLock(buf),
+								LW_EXCLUSIVE);
 }
 
 /*

@@ -52,7 +52,7 @@ logicalrep_write_begin(StringInfo out, ReorderBufferTXN *txn)
 	/* fixed fields */
 	pq_sendint64(out, txn->final_lsn);
 	pq_sendint64(out, txn->xact_time.commit_time);
-	pq_sendint32(out, txn->xid);
+	pq_sendint64(out, txn->xid);
 }
 
 /*
@@ -66,7 +66,7 @@ logicalrep_read_begin(StringInfo in, LogicalRepBeginData *begin_data)
 	if (begin_data->final_lsn == InvalidXLogRecPtr)
 		elog(ERROR, "final_lsn not set in begin message");
 	begin_data->committime = pq_getmsgint64(in);
-	begin_data->xid = pq_getmsgint(in, 4);
+	begin_data->xid = pq_getmsgint64(in);
 }
 
 
@@ -120,7 +120,7 @@ logicalrep_write_begin_prepare(StringInfo out, ReorderBufferTXN *txn)
 	pq_sendint64(out, txn->final_lsn);
 	pq_sendint64(out, txn->end_lsn);
 	pq_sendint64(out, txn->xact_time.prepare_time);
-	pq_sendint32(out, txn->xid);
+	pq_sendint64(out, txn->xid);
 
 	/* send gid */
 	pq_sendstring(out, txn->gid);
@@ -140,7 +140,7 @@ logicalrep_read_begin_prepare(StringInfo in, LogicalRepPreparedTxnData *begin_da
 	if (begin_data->end_lsn == InvalidXLogRecPtr)
 		elog(ERROR, "end_lsn not set in begin prepare message");
 	begin_data->prepare_time = pq_getmsgint64(in);
-	begin_data->xid = pq_getmsgint(in, 4);
+	begin_data->xid = pq_getmsgint64(in);
 
 	/* read gid (copy it into a pre-allocated buffer) */
 	strlcpy(begin_data->gid, pq_getmsgstring(in), sizeof(begin_data->gid));
@@ -173,7 +173,7 @@ logicalrep_write_prepare_common(StringInfo out, LogicalRepMsgType type,
 	pq_sendint64(out, prepare_lsn);
 	pq_sendint64(out, txn->end_lsn);
 	pq_sendint64(out, txn->xact_time.prepare_time);
-	pq_sendint32(out, txn->xid);
+	pq_sendint64(out, txn->xid);
 
 	/* send gid */
 	pq_sendstring(out, txn->gid);
@@ -212,7 +212,7 @@ logicalrep_read_prepare_common(StringInfo in, char *msgtype,
 	if (prepare_data->end_lsn == InvalidXLogRecPtr)
 		elog(ERROR, "end_lsn is not set in %s message", msgtype);
 	prepare_data->prepare_time = pq_getmsgint64(in);
-	prepare_data->xid = pq_getmsgint(in, 4);
+	prepare_data->xid = pq_getmsgint64(in);
 	if (prepare_data->xid == InvalidTransactionId)
 		elog(ERROR, "invalid two-phase transaction ID in %s message", msgtype);
 
@@ -253,7 +253,7 @@ logicalrep_write_commit_prepared(StringInfo out, ReorderBufferTXN *txn,
 	pq_sendint64(out, commit_lsn);
 	pq_sendint64(out, txn->end_lsn);
 	pq_sendint64(out, txn->xact_time.commit_time);
-	pq_sendint32(out, txn->xid);
+	pq_sendint64(out, txn->xid);
 
 	/* send gid */
 	pq_sendstring(out, txn->gid);
@@ -279,7 +279,7 @@ logicalrep_read_commit_prepared(StringInfo in, LogicalRepCommitPreparedTxnData *
 	if (prepare_data->end_lsn == InvalidXLogRecPtr)
 		elog(ERROR, "end_lsn is not set in commit prepared message");
 	prepare_data->commit_time = pq_getmsgint64(in);
-	prepare_data->xid = pq_getmsgint(in, 4);
+	prepare_data->xid = pq_getmsgint64(in);
 
 	/* read gid (copy it into a pre-allocated buffer) */
 	strlcpy(prepare_data->gid, pq_getmsgstring(in), sizeof(prepare_data->gid));
@@ -311,7 +311,7 @@ logicalrep_write_rollback_prepared(StringInfo out, ReorderBufferTXN *txn,
 	pq_sendint64(out, txn->end_lsn);
 	pq_sendint64(out, prepare_time);
 	pq_sendint64(out, txn->xact_time.commit_time);
-	pq_sendint32(out, txn->xid);
+	pq_sendint64(out, txn->xid);
 
 	/* send gid */
 	pq_sendstring(out, txn->gid);
@@ -339,7 +339,7 @@ logicalrep_read_rollback_prepared(StringInfo in,
 		elog(ERROR, "rollback_end_lsn is not set in rollback prepared message");
 	rollback_data->prepare_time = pq_getmsgint64(in);
 	rollback_data->rollback_time = pq_getmsgint64(in);
-	rollback_data->xid = pq_getmsgint(in, 4);
+	rollback_data->xid = pq_getmsgint64(in);
 
 	/* read gid (copy it into a pre-allocated buffer) */
 	strlcpy(rollback_data->gid, pq_getmsgstring(in), sizeof(rollback_data->gid));
@@ -407,7 +407,7 @@ logicalrep_write_insert(StringInfo out, TransactionId xid, Relation rel,
 
 	/* transaction ID (if not valid, we're not streaming) */
 	if (TransactionIdIsValid(xid))
-		pq_sendint32(out, xid);
+		pq_sendint64(out, xid);
 
 	/* use Oid as relation identifier */
 	pq_sendint32(out, RelationGetRelid(rel));
@@ -456,7 +456,7 @@ logicalrep_write_update(StringInfo out, TransactionId xid, Relation rel,
 
 	/* transaction ID (if not valid, we're not streaming) */
 	if (TransactionIdIsValid(xid))
-		pq_sendint32(out, xid);
+		pq_sendint64(out, xid);
 
 	/* use Oid as relation identifier */
 	pq_sendint32(out, RelationGetRelid(rel));
@@ -532,7 +532,7 @@ logicalrep_write_delete(StringInfo out, TransactionId xid, Relation rel,
 
 	/* transaction ID (if not valid, we're not streaming) */
 	if (TransactionIdIsValid(xid))
-		pq_sendint32(out, xid);
+		pq_sendint64(out, xid);
 
 	/* use Oid as relation identifier */
 	pq_sendint32(out, RelationGetRelid(rel));
@@ -586,7 +586,7 @@ logicalrep_write_truncate(StringInfo out,
 
 	/* transaction ID (if not valid, we're not streaming) */
 	if (TransactionIdIsValid(xid))
-		pq_sendint32(out, xid);
+		pq_sendint64(out, xid);
 
 	pq_sendint32(out, nrelids);
 
@@ -644,7 +644,7 @@ logicalrep_write_message(StringInfo out, TransactionId xid, XLogRecPtr lsn,
 
 	/* transaction ID (if not valid, we're not streaming) */
 	if (TransactionIdIsValid(xid))
-		pq_sendint32(out, xid);
+		pq_sendint64(out, xid);
 
 	pq_sendint8(out, flags);
 	pq_sendint64(out, lsn);
@@ -666,7 +666,7 @@ logicalrep_write_rel(StringInfo out, TransactionId xid, Relation rel,
 
 	/* transaction ID (if not valid, we're not streaming) */
 	if (TransactionIdIsValid(xid))
-		pq_sendint32(out, xid);
+		pq_sendint64(out, xid);
 
 	/* use Oid as relation identifier */
 	pq_sendint32(out, RelationGetRelid(rel));
@@ -722,7 +722,7 @@ logicalrep_write_typ(StringInfo out, TransactionId xid, Oid typoid)
 
 	/* transaction ID (if not valid, we're not streaming) */
 	if (TransactionIdIsValid(xid))
-		pq_sendint32(out, xid);
+		pq_sendint64(out, xid);
 
 	tup = SearchSysCache1(TYPEOID, ObjectIdGetDatum(basetypoid));
 	if (!HeapTupleIsValid(tup))
@@ -1053,7 +1053,7 @@ logicalrep_write_stream_start(StringInfo out,
 	Assert(TransactionIdIsValid(xid));
 
 	/* transaction ID (we're starting to stream, so must be valid) */
-	pq_sendint32(out, xid);
+	pq_sendint64(out, xid);
 
 	/* 1 if this is the first streaming segment for this xid */
 	pq_sendbyte(out, first_segment ? 1 : 0);
@@ -1069,7 +1069,7 @@ logicalrep_read_stream_start(StringInfo in, bool *first_segment)
 
 	Assert(first_segment);
 
-	xid = pq_getmsgint(in, 4);
+	xid = pq_getmsgint64(in);
 	*first_segment = (pq_getmsgbyte(in) == 1);
 
 	return xid;
@@ -1098,7 +1098,7 @@ logicalrep_write_stream_commit(StringInfo out, ReorderBufferTXN *txn,
 	Assert(TransactionIdIsValid(txn->xid));
 
 	/* transaction ID */
-	pq_sendint32(out, txn->xid);
+	pq_sendint64(out, txn->xid);
 
 	/* send the flags field (unused for now) */
 	pq_sendbyte(out, flags);
@@ -1118,7 +1118,7 @@ logicalrep_read_stream_commit(StringInfo in, LogicalRepCommitData *commit_data)
 	TransactionId xid;
 	uint8		flags;
 
-	xid = pq_getmsgint(in, 4);
+	xid = pq_getmsgint64(in);
 
 	/* read flags (unused for now) */
 	flags = pq_getmsgbyte(in);
@@ -1151,8 +1151,8 @@ logicalrep_write_stream_abort(StringInfo out, TransactionId xid,
 	Assert(TransactionIdIsValid(xid) && TransactionIdIsValid(subxid));
 
 	/* transaction ID */
-	pq_sendint32(out, xid);
-	pq_sendint32(out, subxid);
+	pq_sendint64(out, xid);
+	pq_sendint64(out, subxid);
 
 	if (write_abort_info)
 	{
@@ -1174,8 +1174,8 @@ logicalrep_read_stream_abort(StringInfo in,
 {
 	Assert(abort_data);
 
-	abort_data->xid = pq_getmsgint(in, 4);
-	abort_data->subxid = pq_getmsgint(in, 4);
+	abort_data->xid = pq_getmsgint64(in);
+	abort_data->subxid = pq_getmsgint64(in);
 
 	if (read_abort_info)
 	{

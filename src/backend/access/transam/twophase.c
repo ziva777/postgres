@@ -458,8 +458,8 @@ MarkAsPreparingGuts(GlobalTransaction gxact, TransactionId xid, const char *gid,
 		proc->vxid.lxid = xid;
 		proc->vxid.procNumber = INVALID_PROC_NUMBER;
 	}
-	proc->xid = xid;
-	Assert(proc->xmin == InvalidTransactionId);
+	pg_atomic_write_u64(&proc->xid, xid);
+	Assert(pg_atomic_read_u64(&proc->xmin) == InvalidTransactionId);
 	proc->delayChkptFlags = 0;
 	proc->statusFlags = 0;
 	proc->pid = 0;
@@ -774,7 +774,7 @@ pg_prepared_xact(PG_FUNCTION_ARGS)
 		 * Form tuple with appropriate data.
 		 */
 
-		values[0] = TransactionIdGetDatum(proc->xid);
+		values[0] = TransactionIdGetDatum(pg_atomic_read_u64(&proc->xid));
 		values[1] = CStringGetTextDatum(gxact->gid);
 		values[2] = TimestampTzGetDatum(gxact->prepared_at);
 		values[3] = ObjectIdGetDatum(gxact->owner);
@@ -934,23 +934,14 @@ TwoPhaseGetDummyProc(TransactionId xid, bool lock_held)
 static inline FullTransactionId
 FullTransactionIdFromCurrentEpoch(TransactionId xid)
 {
-	FullTransactionId fxid;
-	FullTransactionId nextFullXid;
-	uint32		epoch;
-
-	nextFullXid = ReadNextFullTransactionId();
-	epoch = EpochFromFullTransactionId(nextFullXid);
-
-	fxid = FullTransactionIdFromEpochAndXid(epoch, xid);
-	return fxid;
+	return FullTransactionIdFromXid(xid);
 }
 
 static inline int
 TwoPhaseFilePath(char *path, FullTransactionId fxid)
 {
-	return snprintf(path, MAXPGPATH, TWOPHASE_DIR "/%08X%08X",
-					EpochFromFullTransactionId(fxid),
-					XidFromFullTransactionId(fxid));
+	return snprintf(path, MAXPGPATH, TWOPHASE_DIR "/%016llX",
+					(unsigned long long) xid);
 }
 
 /*
@@ -1918,9 +1909,11 @@ restoreTwoPhaseData(void)
 			strspn(clde->d_name, "0123456789ABCDEF") == 16)
 		{
 			FullTransactionId fxid;
+			TransactionId xid;
 			char	   *buf;
 
-			fxid = FullTransactionIdFromU64(strtou64(clde->d_name, NULL, 16));
+			xid = (TransactionId) strtou64(clde->d_name, NULL, 16);
+			fxid = FullTransactionIdFromXid(xid);
 			buf = ProcessTwoPhaseBuffer(fxid, InvalidXLogRecPtr,
 										true, false, false);
 			if (buf == NULL)
@@ -2304,7 +2297,6 @@ ProcessTwoPhaseBuffer(FullTransactionId fxid,
 
 	if (fromdisk)
 	{
-		/* Read and validate file */
 		buf = ReadTwoPhaseFile(xid, false);
 	}
 	else
