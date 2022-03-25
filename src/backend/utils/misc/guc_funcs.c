@@ -704,6 +704,31 @@ GetConfigOptionValues(const struct config_generic *conf, const char **values)
 			}
 			break;
 
+		case PGC_INT_64:
+			{
+				const struct config_int64 *lconf = &conf->_int_64;
+
+				/* min_val */
+				snprintf(buffer, sizeof(buffer), "%" PRId64, lconf->min);
+				values[9] = pstrdup(buffer);
+
+				/* max_val */
+				snprintf(buffer, sizeof(buffer), "%" PRId64, lconf->max);
+				values[10] = pstrdup(buffer);
+
+				/* enumvals */
+				values[11] = NULL;
+
+				/* boot_val */
+				snprintf(buffer, sizeof(buffer), "%" PRId64, lconf->boot_val);
+				values[12] = pstrdup(buffer);
+
+				/* reset_val */
+				snprintf(buffer, sizeof(buffer), "%" PRId64, lconf->reset_val);
+				values[13] = pstrdup(buffer);
+			}
+			break;
+
 		case PGC_REAL:
 			{
 				const struct config_real *lconf = &conf->_real;

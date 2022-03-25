@@ -65,6 +65,8 @@
 #define XLOG_HEAP2_LOCK_UPDATED 0x60
 #define XLOG_HEAP2_NEW_CID		0x70
 
+#define XLOG_HEAP3_BASE_SHIFT	0x00
+
 /*
  * xl_heap_insert/xl_heap_multi_insert flag values, 8 bits are available.
  */
@@ -284,6 +286,7 @@ typedef struct xl_heap_update
  * other fields require only 2-byte alignment.  This is also the reason that
  * 'frz_offsets' is stored separately from the xlhp_freeze_plan structs.
  */
+
 typedef struct xl_heap_prune
 {
 	uint16		flags;
@@ -340,6 +343,9 @@ typedef struct xl_heap_prune
  */
 #define		XLHP_VM_ALL_VISIBLE			(1 << 8)
 #define		XLHP_VM_ALL_FROZEN			(1 << 9)
+
+#define		XLHP_TOAST_RELATION				(1 << 10)
+#define		XLHP_REPAIR_FRAGMENTATION			(1 << 11)
 
 /*
  * xlhp_freeze_plan describes how to freeze a group of one or more heap tuples
@@ -476,7 +482,19 @@ typedef struct xl_heap_rewrite_mapping
 	XLogRecPtr	start_lsn;		/* Insert LSN at begin of rewrite */
 } xl_heap_rewrite_mapping;
 
-extern void HeapTupleHeaderAdvanceConflictHorizon(HeapTupleHeader tuple,
+#define XLH_BASE_SHIFT_ON_TOAST_RELATION	0x01
+
+/* shift the base of xids on heap page */
+typedef struct xl_heap_base_shift
+{
+	int64		delta;			/* delta value to shift the base */
+	bool		multi;			/* true to shift multixact base */
+	uint8		flags;
+}			xl_heap_base_shift;
+
+#define SizeOfHeapBaseShift (offsetof(xl_heap_base_shift, flags) + sizeof(uint8))
+
+extern void HeapTupleHeaderAdvanceConflictHorizon(HeapTuple tuple,
 												  TransactionId *snapshotConflictHorizon);
 
 extern void heap_redo(XLogReaderState *record);
@@ -486,6 +504,9 @@ extern void heap_mask(char *pagedata, BlockNumber blkno);
 extern void heap2_redo(XLogReaderState *record);
 extern void heap2_desc(StringInfo buf, XLogReaderState *record);
 extern const char *heap2_identify(uint8 info);
+extern void heap3_redo(XLogReaderState *record);
+extern void heap3_desc(StringInfo buf, XLogReaderState *record);
+extern const char *heap3_identify(uint8 info);
 extern void heap_xlog_logical_rewrite(XLogReaderState *r);
 
 /* in heapdesc.c, so it can be shared between frontend/backend code */

@@ -327,7 +327,7 @@ TransactionIdSetPageStatus(TransactionId xid, int nsubxids,
 	 * sub-XIDs and all of the XIDs for which we're adjusting clog should be
 	 * on the same page.  Check those conditions, too.
 	 */
-	if (all_xact_same_page && xid == MyProc->xid &&
+	if (all_xact_same_page && xid == pg_atomic_read_u64(&MyProc->xid) &&
 		nsubxids <= THRESHOLD_SUBTRANS_CLOG_OPT &&
 		nsubxids == MyProc->subxidStatus.count &&
 		(nsubxids == 0 ||
@@ -812,7 +812,7 @@ CLOGShmemRequest(void *arg)
 	SimpleLruRequest(.desc = &XactSlruDesc,
 					 .name = "transaction",
 					 .Dir = "pg_xact",
-					 .long_segment_names = false,
+					 .long_segment_names = true,
 
 					 .nslots = CLOGShmemBuffers(),
 					 .nlsns = CLOG_LSNS_PER_PAGE,
@@ -850,8 +850,14 @@ check_transaction_buffers(int *newval, void **extra, GucSource source)
 void
 BootStrapCLOG(void)
 {
+	int64	pageno;
+
 	/* Zero the initial page and flush it to disk */
 	SimpleLruZeroAndWritePage(XactCtl, 0);
+
+	pageno = TransactionIdToPage(XidFromFullTransactionId(TransamVariables->nextXid));
+	if (pageno)
+		SimpleLruZeroAndWritePage(XactCtl, pageno);
 }
 
 /*
@@ -1018,24 +1024,11 @@ TruncateCLOG(TransactionId oldestXact, Oid oldestxid_datoid)
 	SimpleLruTruncate(XactCtl, cutoffPage);
 }
 
-
 /*
  * Decide whether a CLOG page number is "older" for truncation purposes.
  *
- * We need to use comparison of TransactionIds here in order to do the right
- * thing with wraparound XID arithmetic.  However, TransactionIdPrecedes()
- * would get weird about permanent xact IDs.  So, offset both such that xid1,
- * xid2, and xid2 + CLOG_XACTS_PER_PAGE - 1 are all normal XIDs; this offset
- * is relevant to page 0 and to the page preceding page 0.
- *
- * The page containing oldestXact-2^31 is the important edge case.  The
- * portion of that page equaling or following oldestXact-2^31 is expendable,
- * but the portion preceding oldestXact-2^31 is not.  When oldestXact-2^31 is
- * the first XID of a page and segment, the entire page and segment is
- * expendable, and we could truncate the segment.  Recognizing that case would
- * require making oldestXact, not just the page containing oldestXact,
- * available to this callback.  The benefit would be rare and small, so we
- * don't optimize that edge case.
+ * With 64xid this function is just "<", but we left it as a function in order
+ * for its calls remain "vanilla" like.
  */
 static bool
 CLOGPagePrecedes(int64 page1, int64 page2)
@@ -1057,7 +1050,8 @@ clog_errdetail_for_io_error(const void *opaque_data)
 {
 	TransactionId xid = *(const TransactionId *) opaque_data;
 
-	return errdetail("Could not access commit status of transaction %u.", xid);
+	return errdetail("Could not access commit status of transaction %" PRIu64 ".",
+					 xid);
 }
 
 

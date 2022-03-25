@@ -80,7 +80,8 @@ CommitTs
 ReplicationOrigin
 Generic
 LogicalMessage
-XLOG2$/,
+XLOG2
+Heap3$/,
 	'rmgr list');
 
 

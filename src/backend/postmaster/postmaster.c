@@ -598,7 +598,7 @@ PostmasterMain(int argc, char *argv[])
 	 * tcop/postgres.c (the option sets should not conflict) and with the
 	 * common help() function in main/main.c.
 	 */
-	pg_getopt_start(&optctx, argc, argv, "B:bC:c:D:d:EeFf:h:ijk:lN:OPp:r:S:sTt:W:-:");
+	pg_getopt_start(&optctx, argc, argv, "B:bC:c:D:d:EeFf:h:ijk:lm:N:Oo:Pp:r:S:sTt:W:x:-:");
 	optctx.opterr = 1;
 	while ((opt = pg_getopt_next(&optctx)) != -1)
 	{
@@ -710,8 +710,16 @@ PostmasterMain(int argc, char *argv[])
 				SetConfigOption("max_connections", optctx.optarg, PGC_POSTMASTER, PGC_S_ARGV);
 				break;
 
+			case 'm':
+				/* only used by single-user backend */
+				break;
+
 			case 'O':
 				SetConfigOption("allow_system_table_mods", "true", PGC_POSTMASTER, PGC_S_ARGV);
+				break;
+
+			case 'o':
+				/* only used by single-user backend */
 				break;
 
 			case 'P':
@@ -762,6 +770,10 @@ PostmasterMain(int argc, char *argv[])
 
 			case 'W':
 				SetConfigOption("post_auth_delay", optctx.optarg, PGC_POSTMASTER, PGC_S_ARGV);
+				break;
+
+			case 'x':
+				/* only used by single-user backend */
 				break;
 
 			default:
