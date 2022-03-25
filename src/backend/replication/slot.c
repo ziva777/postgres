@@ -1269,8 +1269,8 @@ ReportSlotInvalidation(ReplicationSlotInvalidationCause cause,
 							 (unsigned long long) (oldestLSN - restart_lsn));
 			break;
 		case RS_INVAL_HORIZON:
-			appendStringInfo(&err_detail, _("The slot conflicted with xid horizon %u."),
-							 snapshotConflictHorizon);
+			appendStringInfo(&err_detail, _("The slot conflicted with xid horizon %llu."),
+							 (unsigned long long) snapshotConflictHorizon);
 			break;
 
 		case RS_INVAL_WAL_LEVEL:
