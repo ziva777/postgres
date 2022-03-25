@@ -340,9 +340,9 @@ static SlruDesc SerialSlruDesc;
 
 #define SerialValue(slotno, xid) (*((SerCommitSeqNo *) \
 	(SerialSlruCtl->shared->page_buffer[slotno] + \
-	((((uint32) (xid)) % SERIAL_ENTRIESPERPAGE) * SERIAL_ENTRYSIZE))))
+	((((uint64) (xid)) % SERIAL_ENTRIESPERPAGE) * SERIAL_ENTRYSIZE))))
 
-#define SerialPage(xid)	(((uint32) (xid)) / SERIAL_ENTRIESPERPAGE)
+#define SerialPage(xid)		((int64) (((uint64) (xid)) / SERIAL_ENTRIESPERPAGE))
 
 typedef struct SerialControlData
 {
@@ -761,7 +761,8 @@ serial_errdetail_for_io_error(const void *opaque_data)
 {
 	TransactionId xid = *(const TransactionId *) opaque_data;
 
-	return errdetail("Could not access serializable CSN of transaction %u.", xid);
+	return errdetail("Could not access serializable CSN of transaction %" PRIu64 ".",
+					 xid);
 }
 
 #ifdef USE_ASSERT_CHECKING
@@ -1058,31 +1059,6 @@ CheckPointPredicate(void)
 		/*----------
 		 * The SLRU is no longer needed. Truncate to head before we set head
 		 * invalid.
-		 *
-		 * XXX: It's possible that the SLRU is not needed again until XID
-		 * wrap-around has happened, so that the segment containing headPage
-		 * that we leave behind will appear to be new again. In that case it
-		 * won't be removed until XID horizon advances enough to make it
-		 * current again.
-		 *
-		 * XXX: This should happen in vac_truncate_clog(), not in checkpoints.
-		 * Consider this scenario, starting from a system with no in-progress
-		 * transactions and VACUUM FREEZE having maximized oldestXact:
-		 * - Start a SERIALIZABLE transaction.
-		 * - Start, finish, and summarize a SERIALIZABLE transaction, creating
-		 *   one SLRU page.
-		 * - Consume XIDs to reach xidStopLimit.
-		 * - Finish all transactions.  Due to the long-running SERIALIZABLE
-		 *   transaction, earlier checkpoints did not touch headPage.  The
-		 *   next checkpoint will change it, but that checkpoint happens after
-		 *   the end of the scenario.
-		 * - VACUUM to advance XID limits.
-		 * - Consume ~2M XIDs, crossing the former xidWrapLimit.
-		 * - Start, finish, and summarize a SERIALIZABLE transaction.
-		 *   SerialAdd() declines to create the targetPage, because headPage
-		 *   is not regarded as in the past relative to that targetPage.  The
-		 *   transaction instigating the summarize fails in
-		 *   SimpleLruReadPage().
 		 */
 		truncateCutoffPage = serialControl->headPage;
 		serialControl->headPage = -1;
@@ -1218,7 +1194,7 @@ PredicateLockShmemRequest(void *arg)
 	SimpleLruRequest(.desc = &SerialSlruDesc,
 					 .name = "serializable",
 					 .Dir = "pg_serial",
-					 .long_segment_names = false,
+					 .long_segment_names = true,
 
 					 .nslots = serializable_buffers,
 
@@ -3358,9 +3334,6 @@ ReleasePredicateLocks(bool isCommit, bool isReadOnlySafe)
 	topLevelIsDeclaredReadOnly = SxactIsReadOnly(MySerializableXact);
 
 	/*
-	 * We don't hold XidGenLock lock here, assuming that TransactionId is
-	 * atomic!
-	 *
 	 * If this value is changing, we don't care that much whether we get the
 	 * old or new value -- it is just used to determine how far
 	 * SxactGlobalXmin must advance before this transaction can be fully
@@ -3368,7 +3341,9 @@ ReleasePredicateLocks(bool isCommit, bool isReadOnlySafe)
 	 * transaction to complete before freeing some RAM; correctness of visible
 	 * behavior is not affected.
 	 */
+	LWLockAcquire(XidGenLock, LW_SHARED);
 	MySerializableXact->finishedBefore = XidFromFullTransactionId(TransamVariables->nextXid);
+	LWLockRelease(XidGenLock);
 
 	/*
 	 * If it's not a commit it's either a rollback or a read-only transaction
@@ -3913,7 +3888,7 @@ XidIsConcurrent(TransactionId xid)
 	if (TransactionIdFollowsOrEquals(xid, snap->xmax))
 		return true;
 
-	return pg_lfind32(xid, snap->xip, snap->xcnt);
+	return pg_lfind64(xid, snap->xip, snap->xcnt);
 }
 
 bool
@@ -3997,7 +3972,8 @@ CheckForSerializableConflictOut(Relation relation, TransactionId xid, Snapshot s
 				ereport(ERROR,
 						(errcode(ERRCODE_T_R_SERIALIZATION_FAILURE),
 						 errmsg("could not serialize access due to read/write dependencies among transactions"),
-						 errdetail_internal("Reason code: Canceled on conflict out to old pivot %u.", xid),
+						 errdetail_internal("Reason code: Canceled on conflict out to old pivot %" PRIu64 ".",
+											xid),
 						 errhint("The transaction might succeed if retried.")));
 
 			if (SxactHasSummaryConflictIn(MySerializableXact)
@@ -4005,7 +3981,8 @@ CheckForSerializableConflictOut(Relation relation, TransactionId xid, Snapshot s
 				ereport(ERROR,
 						(errcode(ERRCODE_T_R_SERIALIZATION_FAILURE),
 						 errmsg("could not serialize access due to read/write dependencies among transactions"),
-						 errdetail_internal("Reason code: Canceled on identification as a pivot, with conflict out to old committed transaction %u.", xid),
+						 errdetail_internal("Reason code: Canceled on identification as a pivot, with conflict out to old committed transaction %" PRIu64 ".",
+											xid),
 						 errhint("The transaction might succeed if retried.")));
 
 			MySerializableXact->flags |= SXACT_FLAG_SUMMARY_CONFLICT_OUT;
@@ -4605,7 +4582,8 @@ OnConflict_CheckForSerializationFailure(const SERIALIZABLEXACT *reader,
 			ereport(ERROR,
 					(errcode(ERRCODE_T_R_SERIALIZATION_FAILURE),
 					 errmsg("could not serialize access due to read/write dependencies among transactions"),
-					 errdetail_internal("Reason code: Canceled on conflict out to pivot %u, during read.", writer->topXid),
+					 errdetail_internal("Reason code: Canceled on conflict out to pivot %" PRIu64 ", during read.",
+										writer->topXid),
 					 errhint("The transaction might succeed if retried.")));
 		}
 		writer->flags |= SXACT_FLAG_DOOMED;

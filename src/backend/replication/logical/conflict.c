@@ -285,24 +285,24 @@ errdetail_apply_conflict(EState *estate, ResultRelInfo *relinfo,
 				if (localorigin == InvalidReplOriginId)
 				{
 					if (tuple_buf.len)
-						appendStringInfo(&err_detail, _("Key already exists in unique index \"%s\", modified locally in transaction %u at %s: %s."),
+						appendStringInfo(&err_detail, _("Key already exists in unique index \"%s\", modified locally in transaction %" PRIu64 " at %s: %s."),
 										 get_rel_name(indexoid),
 										 localxmin, timestamptz_to_str(localts),
 										 tuple_buf.data);
 					else
-						appendStringInfo(&err_detail, _("Key already exists in unique index \"%s\", modified locally in transaction %u at %s."),
+						appendStringInfo(&err_detail, _("Key already exists in unique index \"%s\", modified locally in transaction %" PRIu64 " at %s."),
 										 get_rel_name(indexoid),
 										 localxmin, timestamptz_to_str(localts));
 				}
 				else if (replorigin_by_oid(localorigin, true, &origin_name))
 				{
 					if (tuple_buf.len)
-						appendStringInfo(&err_detail, _("Key already exists in unique index \"%s\", modified by origin \"%s\" in transaction %u at %s: %s."),
+						appendStringInfo(&err_detail, _("Key already exists in unique index \"%s\", modified by origin \"%s\" in transaction %" PRIu64 " at %s: %s."),
 										 get_rel_name(indexoid), origin_name,
 										 localxmin, timestamptz_to_str(localts),
 										 tuple_buf.data);
 					else
-						appendStringInfo(&err_detail, _("Key already exists in unique index \"%s\", modified by origin \"%s\" in transaction %u at %s."),
+						appendStringInfo(&err_detail, _("Key already exists in unique index \"%s\", modified by origin \"%s\" in transaction %" PRIu64 " at %s."),
 										 get_rel_name(indexoid), origin_name,
 										 localxmin, timestamptz_to_str(localts));
 				}
@@ -317,12 +317,12 @@ errdetail_apply_conflict(EState *estate, ResultRelInfo *relinfo,
 				else
 				{
 					if (tuple_buf.len)
-						appendStringInfo(&err_detail, _("Key already exists in unique index \"%s\", modified by a non-existent origin in transaction %u at %s: %s."),
+						appendStringInfo(&err_detail, _("Key already exists in unique index \"%s\", modified by a non-existent origin in transaction %" PRIu64 " at %s: %s."),
 										 get_rel_name(indexoid),
 										 localxmin, timestamptz_to_str(localts),
 										 tuple_buf.data);
 					else
-						appendStringInfo(&err_detail, _("Key already exists in unique index \"%s\", modified by a non-existent origin in transaction %u at %s."),
+						appendStringInfo(&err_detail, _("Key already exists in unique index \"%s\", modified by a non-existent origin in transaction %" PRIu64 " at %s."),
 										 get_rel_name(indexoid),
 										 localxmin, timestamptz_to_str(localts));
 				}
@@ -330,11 +330,11 @@ errdetail_apply_conflict(EState *estate, ResultRelInfo *relinfo,
 			else
 			{
 				if (tuple_buf.len)
-					appendStringInfo(&err_detail, _("Key already exists in unique index \"%s\", modified in transaction %u: %s."),
+					appendStringInfo(&err_detail, _("Key already exists in unique index \"%s\", modified in transaction %" PRIu64 ": %s."),
 									 get_rel_name(indexoid), localxmin,
 									 tuple_buf.data);
 				else
-					appendStringInfo(&err_detail, _("Key already exists in unique index \"%s\", modified in transaction %u."),
+					appendStringInfo(&err_detail, _("Key already exists in unique index \"%s\", modified in transaction %" PRIu64 "."),
 									 get_rel_name(indexoid), localxmin);
 			}
 
@@ -348,22 +348,22 @@ errdetail_apply_conflict(EState *estate, ResultRelInfo *relinfo,
 			if (localorigin == InvalidReplOriginId)
 			{
 				if (tuple_buf.len)
-					appendStringInfo(&err_detail, _("Updating the row that was modified locally in transaction %u at %s: %s."),
+					appendStringInfo(&err_detail, _("Updating the row that was modified locally in transaction %" PRIu64 " at %s: %s."),
 									 localxmin, timestamptz_to_str(localts),
 									 tuple_buf.data);
 				else
-					appendStringInfo(&err_detail, _("Updating the row that was modified locally in transaction %u at %s."),
+					appendStringInfo(&err_detail, _("Updating the row that was modified locally in transaction %" PRIu64 " at %s."),
 									 localxmin, timestamptz_to_str(localts));
 			}
 			else if (replorigin_by_oid(localorigin, true, &origin_name))
 			{
 				if (tuple_buf.len)
-					appendStringInfo(&err_detail, _("Updating the row that was modified by a different origin \"%s\" in transaction %u at %s: %s."),
+					appendStringInfo(&err_detail, _("Updating the row that was modified by a different origin \"%s\" in transaction %" PRIu64 " at %s: %s."),
 									 origin_name, localxmin,
 									 timestamptz_to_str(localts),
 									 tuple_buf.data);
 				else
-					appendStringInfo(&err_detail, _("Updating the row that was modified by a different origin \"%s\" in transaction %u at %s."),
+					appendStringInfo(&err_detail, _("Updating the row that was modified by a different origin \"%s\" in transaction %" PRIu64 " at %s."),
 									 origin_name, localxmin,
 									 timestamptz_to_str(localts));
 			}
@@ -372,11 +372,11 @@ errdetail_apply_conflict(EState *estate, ResultRelInfo *relinfo,
 			else
 			{
 				if (tuple_buf.len)
-					appendStringInfo(&err_detail, _("Updating the row that was modified by a non-existent origin in transaction %u at %s: %s."),
+					appendStringInfo(&err_detail, _("Updating the row that was modified by a non-existent origin in transaction %" PRIu64 " at %s: %s."),
 									 localxmin, timestamptz_to_str(localts),
 									 tuple_buf.data);
 				else
-					appendStringInfo(&err_detail, _("Updating the row that was modified by a non-existent origin in transaction %u at %s."),
+					appendStringInfo(&err_detail, _("Updating the row that was modified by a non-existent origin in transaction %" PRIu64 " at %s."),
 									 localxmin, timestamptz_to_str(localts));
 			}
 
@@ -395,15 +395,15 @@ errdetail_apply_conflict(EState *estate, ResultRelInfo *relinfo,
 			if (localts)
 			{
 				if (localorigin == InvalidReplOriginId)
-					appendStringInfo(&err_detail, _("The row to be updated was deleted locally in transaction %u at %s"),
+					appendStringInfo(&err_detail, _("The row to be updated was deleted locally in transaction %" PRIu64 " at %s"),
 									 localxmin, timestamptz_to_str(localts));
 				else if (replorigin_by_oid(localorigin, true, &origin_name))
-					appendStringInfo(&err_detail, _("The row to be updated was deleted by a different origin \"%s\" in transaction %u at %s"),
+					appendStringInfo(&err_detail, _("The row to be updated was deleted by a different origin \"%s\" in transaction %" PRIu64 " at %s"),
 									 origin_name, localxmin, timestamptz_to_str(localts));
 
 				/* The origin that modified this row has been removed. */
 				else
-					appendStringInfo(&err_detail, _("The row to be updated was deleted by a non-existent origin in transaction %u at %s"),
+					appendStringInfo(&err_detail, _("The row to be updated was deleted by a non-existent origin in transaction %" PRIu64 " at %s"),
 									 localxmin, timestamptz_to_str(localts));
 			}
 			else
@@ -431,22 +431,22 @@ errdetail_apply_conflict(EState *estate, ResultRelInfo *relinfo,
 			if (localorigin == InvalidReplOriginId)
 			{
 				if (tuple_buf.len)
-					appendStringInfo(&err_detail, _("Deleting the row that was modified locally in transaction %u at %s: %s."),
+					appendStringInfo(&err_detail, _("Deleting the row that was modified locally in transaction %" PRIu64 " at %s: %s."),
 									 localxmin, timestamptz_to_str(localts),
 									 tuple_buf.data);
 				else
-					appendStringInfo(&err_detail, _("Deleting the row that was modified locally in transaction %u at %s."),
+					appendStringInfo(&err_detail, _("Deleting the row that was modified locally in transaction %" PRIu64 " at %s."),
 									 localxmin, timestamptz_to_str(localts));
 			}
 			else if (replorigin_by_oid(localorigin, true, &origin_name))
 			{
 				if (tuple_buf.len)
-					appendStringInfo(&err_detail, _("Deleting the row that was modified by a different origin \"%s\" in transaction %u at %s: %s."),
+					appendStringInfo(&err_detail, _("Deleting the row that was modified by a different origin \"%s\" in transaction %" PRIu64 " at %s: %s."),
 									 origin_name, localxmin,
 									 timestamptz_to_str(localts),
 									 tuple_buf.data);
 				else
-					appendStringInfo(&err_detail, _("Deleting the row that was modified by a different origin \"%s\" in transaction %u at %s."),
+					appendStringInfo(&err_detail, _("Deleting the row that was modified by a different origin \"%s\" in transaction %" PRIu64 " at %s."),
 									 origin_name, localxmin,
 									 timestamptz_to_str(localts));
 			}
@@ -455,11 +455,11 @@ errdetail_apply_conflict(EState *estate, ResultRelInfo *relinfo,
 			else
 			{
 				if (tuple_buf.len)
-					appendStringInfo(&err_detail, _("Deleting the row that was modified by a non-existent origin in transaction %u at %s: %s."),
+					appendStringInfo(&err_detail, _("Deleting the row that was modified by a non-existent origin in transaction %" PRIu64 " at %s: %s."),
 									 localxmin, timestamptz_to_str(localts),
 									 tuple_buf.data);
 				else
-					appendStringInfo(&err_detail, _("Deleting the row that was modified by a non-existent origin in transaction %u at %s."),
+					appendStringInfo(&err_detail, _("Deleting the row that was modified by a non-existent origin in transaction %" PRIu64 " at %s."),
 									 localxmin, timestamptz_to_str(localts));
 			}
 

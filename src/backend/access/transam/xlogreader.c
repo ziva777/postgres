@@ -2213,8 +2213,7 @@ XLogRecGetFullXid(XLogReaderState *record)
 	 */
 	Assert(AmStartupProcess() || !IsUnderPostmaster);
 
-	return FullTransactionIdFromAllowableAt(TransamVariables->nextXid,
-											XLogRecGetXid(record));
+	return FullTransactionIdFromXid(XLogRecGetXid(record));
 }
 
 #endif

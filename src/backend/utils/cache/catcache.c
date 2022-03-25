@@ -2246,6 +2246,7 @@ CatalogCacheCreateEntry(CatCache *cache, HeapTuple ntp, Datum *arguments,
 		memcpy((char *) ct->tuple.t_data,
 			   (const char *) dtp->t_data,
 			   dtp->t_len);
+		HeapTupleCopyXids(&ct->tuple, dtp);
 
 		if (dtp != ntp)
 			heap_freetuple(dtp);

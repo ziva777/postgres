@@ -113,6 +113,8 @@ heap_hot_search_buffer(ItemPointer tid, Relation relation, Buffer buffer,
 	Assert(TransactionIdIsValid(RecentXmin));
 	Assert(BufferGetBlockNumber(buffer) == blkno);
 
+	heapTuple->t_self = *tid;
+
 	/* Scan through possible multiple members of HOT-chain */
 	for (;;)
 	{
@@ -148,6 +150,7 @@ heap_hot_search_buffer(ItemPointer tid, Relation relation, Buffer buffer,
 		heapTuple->t_data = (HeapTupleHeader) PageGetItem(page, lp);
 		heapTuple->t_len = ItemIdGetLength(lp);
 		heapTuple->t_tableOid = RelationGetRelid(relation);
+		HeapTupleCopyXidsFromPage(buffer, heapTuple, page);
 		ItemPointerSet(&heapTuple->t_self, blkno, offnum);
 
 		/*
@@ -162,7 +165,7 @@ heap_hot_search_buffer(ItemPointer tid, Relation relation, Buffer buffer,
 		 */
 		if (TransactionIdIsValid(prev_xmax) &&
 			!TransactionIdEquals(prev_xmax,
-								 HeapTupleHeaderGetXmin(heapTuple->t_data)))
+								 HeapTupleGetXmin(heapTuple)))
 			break;
 
 		/*
@@ -183,7 +186,7 @@ heap_hot_search_buffer(ItemPointer tid, Relation relation, Buffer buffer,
 			{
 				ItemPointerSetOffsetNumber(tid, offnum);
 				PredicateLockTID(relation, &heapTuple->t_self, snapshot,
-								 HeapTupleHeaderGetXmin(heapTuple->t_data));
+								 HeapTupleGetXmin(heapTuple));
 				if (all_dead)
 					*all_dead = false;
 				return true;
@@ -218,7 +221,7 @@ heap_hot_search_buffer(ItemPointer tid, Relation relation, Buffer buffer,
 				   blkno);
 			offnum = ItemPointerGetOffsetNumber(&heapTuple->t_data->t_ctid);
 			at_chain_start = false;
-			prev_xmax = HeapTupleHeaderGetUpdateXid(heapTuple->t_data);
+			prev_xmax = HeapTupleGetUpdateXidAny(heapTuple);
 		}
 		else
 			break;				/* end of chain */

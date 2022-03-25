@@ -119,8 +119,7 @@ pg_control_checkpoint(PG_FUNCTION_ARGS)
 	values[6] = BoolGetDatum(ControlFile->checkPointCopy.logicalDecodingEnabled);
 	nulls[6] = false;
 
-	values[7] = CStringGetTextDatum(psprintf("%u:%u",
-											 EpochFromFullTransactionId(ControlFile->checkPointCopy.nextXid),
+	values[7] = CStringGetTextDatum(psprintf("%" PRIu64,
 											 XidFromFullTransactionId(ControlFile->checkPointCopy.nextXid)));
 	nulls[7] = false;
 

@@ -188,7 +188,7 @@ SubTransGetTopmostTransaction(TransactionId xid)
 		 * structure that could lead to an infinite loop, so exit.
 		 */
 		if (!TransactionIdPrecedes(parentXid, previousXid))
-			elog(ERROR, "pg_subtrans contains invalid entry: xid %u points to parent xid %u",
+			elog(ERROR, "pg_subtrans contains invalid entry: xid %" PRIu64 " points to parent xid %" PRIu64,
 				 previousXid, parentXid);
 	}
 
@@ -246,7 +246,7 @@ SUBTRANSShmemRequest(void *arg)
 	SimpleLruRequest(.desc = &SubTransSlruDesc,
 					 .name = "subtransaction",
 					 .Dir = "pg_subtrans",
-					 .long_segment_names = false,
+					 .long_segment_names = true,
 
 					 .nslots = SUBTRANSShmemBuffers(),
 
@@ -287,8 +287,14 @@ check_subtrans_buffers(int *newval, void **extra, GucSource source)
 void
 BootStrapSUBTRANS(void)
 {
+	int64	pageno;
+
 	/* Zero the initial page and flush it to disk */
 	SimpleLruZeroAndWritePage(SubTransCtl, 0);
+
+	pageno = TransactionIdToPage(XidFromFullTransactionId(TransamVariables->nextXid));
+	if (pageno)
+		SimpleLruZeroAndWritePage(SubTransCtl, pageno);
 }
 
 /*
@@ -333,9 +339,6 @@ StartupSUBTRANS(TransactionId oldestActiveXID)
 			break;
 
 		startPage++;
-		/* must account for wraparound */
-		if (startPage > TransactionIdToPage(MaxTransactionId))
-			startPage = 0;
 	}
 
 	LWLockRelease(lock);
@@ -413,6 +416,7 @@ TruncateSUBTRANS(TransactionId oldestXact)
 	 * a page and oldestXact == next XID.  In that case, if we didn't subtract
 	 * one, we'd trigger SimpleLruTruncate's wraparound detection.
 	 */
+
 	TransactionIdRetreat(oldestXact);
 	cutoffPage = TransactionIdToPage(oldestXact);
 
@@ -444,5 +448,6 @@ subtrans_errdetail_for_io_error(const void *opaque_data)
 {
 	TransactionId xid = *(const TransactionId *) opaque_data;
 
-	return errdetail("Could not access subtransaction status of transaction %u.", xid);
+	return errdetail("Could not access subtransaction status of transaction %" PRIu64 ".",
+					 xid);
 }

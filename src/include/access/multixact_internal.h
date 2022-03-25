@@ -52,10 +52,10 @@ MultiXactIdToOffsetSegment(MultiXactId multi)
 /*
  * The situation for members is a bit more complex: we store one byte of
  * additional flag bits for each TransactionId.  To do this without getting
- * into alignment issues, we store four bytes of flags, and then the
- * corresponding 4 Xids.  Each such 5-word (20-byte) set we call a "group", and
- * are stored as a whole in pages.  Thus, with 8kB BLCKSZ, we keep 409 groups
- * per page.  This wastes 12 bytes per page, but that's OK -- simplicity (and
+ * into alignment issues, we store eight bytes of flags, and then the
+ * corresponding 8 Xids.  Each such 9-word (72-byte) set we call a "group", and
+ * are stored as a whole in pages.  Thus, with 8kB BLCKSZ, we keep 113 groups
+ * per page.  This wastes 56 bytes per page, but that's OK -- simplicity (and
  * performance) trumps space efficiency here.
  *
  * Note that the "offset" macros work with byte offset, not array indexes, so
@@ -67,7 +67,7 @@ MultiXactIdToOffsetSegment(MultiXactId multi)
 #define MXACT_MEMBER_XACT_BITMASK	((1 << MXACT_MEMBER_BITS_PER_XACT) - 1)
 
 /* how many full bytes of flags are there in a group? */
-#define MULTIXACT_FLAGBYTES_PER_GROUP		4
+#define MULTIXACT_FLAGBYTES_PER_GROUP		8
 #define MULTIXACT_MEMBERS_PER_MEMBERGROUP	\
 	(MULTIXACT_FLAGBYTES_PER_GROUP * MXACT_MEMBER_FLAGS_PER_BYTE)
 /* size in bytes of a complete group */

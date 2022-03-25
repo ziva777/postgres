@@ -1461,7 +1461,7 @@ compile_pltcl_function(Oid fn_oid, Oid tgreloid,
 	 ************************************************************/
 	if (prodesc != NULL &&
 		prodesc->internal_proname != NULL &&
-		prodesc->fn_xmin == HeapTupleHeaderGetRawXmin(procTup->t_data) &&
+		prodesc->fn_xmin == HeapTupleGetRawXmin(procTup) &&
 		ItemPointerEquals(&prodesc->fn_tid, &procTup->t_self))
 	{
 		/* It's still up-to-date, so we can use it */
@@ -1595,7 +1595,7 @@ compile_pltcl_function(Oid fn_oid, Oid tgreloid,
 		prodesc->internal_proname = pstrdup(internal_proname);
 		prodesc->fn_cxt = proc_cxt;
 		prodesc->fn_refcount = 0;
-		prodesc->fn_xmin = HeapTupleHeaderGetRawXmin(procTup->t_data);
+		prodesc->fn_xmin = HeapTupleGetRawXmin(procTup);
 		prodesc->fn_tid = procTup->t_self;
 		prodesc->nargs = procStruct->pronargs;
 		prodesc->arg_out_func = palloc0_array(FmgrInfo, prodesc->nargs);

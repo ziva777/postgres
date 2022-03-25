@@ -51,6 +51,7 @@ my @tests = (
 		# so the large update stays inline.
 		setup => q{CREATE TABLE vm_update_test (id INT, val TEXT);
 			ALTER TABLE vm_update_test ALTER COLUMN val SET STORAGE PLAIN;
+			ALTER TABLE vm_update_test SET (fillfactor = 90);
 			INSERT INTO vm_update_test VALUES (1, 'same page'), (2, 'cross page');
 			INSERT INTO vm_update_test SELECT i, repeat('a', 200)
 				FROM generate_series(3, 70) i;},

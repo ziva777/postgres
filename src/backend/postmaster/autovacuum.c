@@ -132,8 +132,8 @@ int			autovacuum_vac_ins_thresh;
 double		autovacuum_vac_ins_scale;
 int			autovacuum_anl_thresh;
 double		autovacuum_anl_scale;
-int			autovacuum_freeze_max_age;
-int			autovacuum_multixact_freeze_max_age;
+int64		autovacuum_freeze_max_age;
+int64		autovacuum_multixact_freeze_max_age;
 double		autovacuum_freeze_score_weight = 1.0;
 double		autovacuum_multixact_freeze_score_weight = 1.0;
 double		autovacuum_vacuum_score_weight = 1.0;
@@ -169,10 +169,10 @@ static TransactionId recentXid;
 static MultiXactId recentMulti;
 
 /* Default freeze ages to use for autovacuum (varies by database) */
-static int	default_freeze_min_age;
-static int	default_freeze_table_age;
-static int	default_multixact_freeze_min_age;
-static int	default_multixact_freeze_table_age;
+static int64 default_freeze_min_age;
+static int64 default_freeze_table_age;
+static int64 default_multixact_freeze_min_age;
+static int64 default_multixact_freeze_table_age;
 
 /* Memory context for long-lived data */
 static MemoryContext AutovacMemCxt;
@@ -380,10 +380,10 @@ static void FreeWorkerInfo(int code, Datum arg);
 
 static autovac_table *table_recheck_autovac(Oid relid, HTAB *table_toast_map,
 											TupleDesc pg_class_desc,
-											int effective_multixact_freeze_max_age);
+											int64 effective_multixact_freeze_max_age);
 static void relation_needs_vacanalyze(Oid relid, AutoVacOpts *relopts,
 									  Form_pg_class classForm,
-									  int effective_multixact_freeze_max_age,
+									  int64 effective_multixact_freeze_max_age,
 									  int elevel,
 									  bool *dovacuum, bool *doanalyze, bool *wraparound,
 									  AutoVacuumScores *scores);
@@ -1141,6 +1141,7 @@ do_start_worker(void)
 	ListCell   *cell;
 	TransactionId xidForceLimit;
 	MultiXactId multiForceLimit;
+	int64		multiMembersThreshold;
 	bool		for_xid_wrap;
 	bool		for_multi_wrap;
 	avw_dbase  *avdb;
@@ -1177,17 +1178,18 @@ do_start_worker(void)
 	 * particular tables, but not loosened.)
 	 */
 	recentXid = ReadNextTransactionId();
-	xidForceLimit = recentXid - autovacuum_freeze_max_age;
-	/* ensure it's a "normal" XID, else TransactionIdPrecedes misbehaves */
-	/* this can cause the limit to go backwards by 3, but that's OK */
-	if (xidForceLimit < FirstNormalTransactionId)
-		xidForceLimit -= FirstNormalTransactionId;
+	if (recentXid > FirstNormalTransactionId + autovacuum_freeze_max_age)
+		xidForceLimit = recentXid - autovacuum_freeze_max_age;
+	else
+		xidForceLimit = FirstNormalTransactionId;
 
 	/* Also determine the oldest datminmxid we will consider. */
 	recentMulti = ReadNextMultiXactId();
-	multiForceLimit = recentMulti - MultiXactMemberFreezeThreshold();
-	if (multiForceLimit < FirstMultiXactId)
-		multiForceLimit -= FirstMultiXactId;
+	multiMembersThreshold = autovacuum_multixact_freeze_max_age;
+	if (recentMulti > FirstMultiXactId + multiMembersThreshold)
+		multiForceLimit = recentMulti - multiMembersThreshold;
+	else
+		multiForceLimit = FirstMultiXactId;
 
 	/*
 	 * Choose a database to connect to.  We pick the database that was least
@@ -1937,7 +1939,7 @@ do_autovacuum(void)
 	BufferAccessStrategy bstrategy;
 	ScanKeyData key;
 	TupleDesc	pg_class_desc;
-	int			effective_multixact_freeze_max_age;
+	int64		effective_multixact_freeze_max_age;
 	bool		did_vacuum = false;
 	bool		found_concurrent_worker = false;
 	int			i;
@@ -1966,7 +1968,7 @@ do_autovacuum(void)
 	 * normally autovacuum_multixact_freeze_max_age, but may be less if
 	 * multixact members are bloated.
 	 */
-	effective_multixact_freeze_max_age = MultiXactMemberFreezeThreshold();
+	effective_multixact_freeze_max_age = autovacuum_multixact_freeze_max_age;
 
 	/*
 	 * Find the pg_database entry and select the default freeze ages. We use
@@ -2818,7 +2820,7 @@ extract_autovac_opts(HeapTuple tup, TupleDesc pg_class_desc)
 static autovac_table *
 table_recheck_autovac(Oid relid, HTAB *table_toast_map,
 					  TupleDesc pg_class_desc,
-					  int effective_multixact_freeze_max_age)
+					  int64 effective_multixact_freeze_max_age)
 {
 	Form_pg_class classForm;
 	HeapTuple	classTup;
@@ -2863,10 +2865,10 @@ table_recheck_autovac(Oid relid, HTAB *table_toast_map,
 	/* OK, it needs something done */
 	if (doanalyze || dovacuum)
 	{
-		int			freeze_min_age;
-		int			freeze_table_age;
-		int			multixact_freeze_min_age;
-		int			multixact_freeze_table_age;
+		int64		freeze_min_age;
+		int64		freeze_table_age;
+		int64		multixact_freeze_min_age;
+		int64		multixact_freeze_table_age;
 		int			log_vacuum_min_duration;
 		int			log_analyze_min_duration;
 
@@ -3072,7 +3074,7 @@ static void
 relation_needs_vacanalyze(Oid relid,
 						  AutoVacOpts *relopts,
 						  Form_pg_class classForm,
-						  int effective_multixact_freeze_max_age,
+						  int64 effective_multixact_freeze_max_age,
 						  int elevel,
  /* output params below */
 						  bool *dovacuum,
@@ -3105,16 +3107,16 @@ relation_needs_vacanalyze(Oid relid,
 				anltuples;
 
 	/* freeze parameters */
-	int			freeze_max_age;
-	int			multixact_freeze_max_age;
+	int64		freeze_max_age;
+	int64		multixact_freeze_max_age;
 	TransactionId xidForceLimit;
 	TransactionId relfrozenxid;
 	MultiXactId relminmxid;
 	MultiXactId multiForceLimit;
-	uint32		xid_age;
-	uint32		mxid_age;
-	int			effective_xid_failsafe_age;
-	int			effective_mxid_failsafe_age;
+	uint64		xid_age;
+	uint64		mxid_age;
+	int64		effective_xid_failsafe_age;
+	int64		effective_mxid_failsafe_age;
 
 	float4		pcnt_unfrozen = 1;
 	float4		reltuples = classForm->reltuples;
@@ -3180,16 +3182,19 @@ relation_needs_vacanalyze(Oid relid,
 	relminmxid = classForm->relminmxid;
 
 	/* Force vacuum if table is at risk of wraparound */
-	xidForceLimit = recentXid - freeze_max_age;
-	if (xidForceLimit < FirstNormalTransactionId)
-		xidForceLimit -= FirstNormalTransactionId;
+	if (recentXid > FirstNormalTransactionId + freeze_max_age)
+		xidForceLimit = recentXid - freeze_max_age;
+	else
+		xidForceLimit = FirstNormalTransactionId;
 	force_vacuum = (TransactionIdIsNormal(relfrozenxid) &&
-					TransactionIdPrecedes(relfrozenxid, xidForceLimit));
+					TransactionIdPrecedes(relfrozenxid,
+										  xidForceLimit));
 	if (!force_vacuum)
 	{
-		multiForceLimit = recentMulti - multixact_freeze_max_age;
-		if (multiForceLimit < FirstMultiXactId)
-			multiForceLimit -= FirstMultiXactId;
+		if (recentMulti > FirstMultiXactId + multixact_freeze_max_age)
+			multiForceLimit = recentMulti - multixact_freeze_max_age;
+		else
+			multiForceLimit = FirstMultiXactId;
 		force_vacuum = MultiXactIdIsValid(relminmxid) &&
 			MultiXactIdPrecedes(relminmxid, multiForceLimit);
 	}
@@ -3656,7 +3661,7 @@ pg_stat_get_autovacuum_scores(PG_FUNCTION_ARGS)
 	InitMaterializedSRF(fcinfo, 0);
 
 	/* some prerequisite initialization */
-	effective_multixact_freeze_max_age = MultiXactMemberFreezeThreshold();
+	effective_multixact_freeze_max_age = autovacuum_multixact_freeze_max_age;
 	recentXid = ReadNextTransactionId();
 	recentMulti = ReadNextMultiXactId();
 
