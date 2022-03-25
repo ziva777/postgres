@@ -313,6 +313,8 @@ extern void BufferGetTag(Buffer buffer, RelFileLocator *rlocator,
 						 ForkNumber *forknum, BlockNumber *blknum);
 
 extern void MarkBufferDirtyHint(Buffer buffer, bool buffer_std);
+extern void MarkBufferConverted(Buffer buffer, bool converted);
+extern bool IsBufferConverted(Buffer buffer);
 
 extern bool BufferSetHintBits16(uint16 *ptr, uint16 val, Buffer buffer);
 extern bool BufferBeginSetHintBits(Buffer buffer);
@@ -337,6 +339,8 @@ LockBuffer(Buffer buffer, BufferLockMode mode)
 		LockBufferInternal(buffer, mode);
 }
 
+extern bool IsBufferLocked(Buffer buffer);
+extern bool IsBufferLockedExclusive(Buffer buffer);
 extern bool ConditionalLockBuffer(Buffer buffer);
 extern void LockBufferForCleanup(Buffer buffer);
 extern bool ConditionalLockBufferForCleanup(Buffer buffer);
@@ -386,6 +390,8 @@ extern int	GetAccessStrategyPinLimit(BufferAccessStrategy strategy);
 
 extern void FreeAccessStrategy(BufferAccessStrategy strategy);
 
+/* old tuple format support */
+extern void convert_page(Relation rel, Page orig_page, Buffer buf, BlockNumber blkno);
 
 /* inline functions */
 

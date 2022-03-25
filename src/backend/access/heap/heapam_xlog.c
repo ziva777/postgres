@@ -125,7 +125,9 @@ heap_xlog_prune_freeze(XLogReaderState *record)
 									(xlrec.flags & XLHP_CLEANUP_LOCK) == 0,
 									redirected, nredirected,
 									nowdead, ndead,
-									nowunused, nunused);
+									nowunused, nunused,
+									(xlrec.flags & XLHP_REPAIR_FRAGMENTATION) != 0,
+									(xlrec.flags & XLHP_TOAST_RELATION) != 0);
 
 		/* Freeze tuples */
 		for (int p = 0; p < nplans; p++)
@@ -144,13 +146,13 @@ heap_xlog_prune_freeze(XLogReaderState *record)
 
 			for (int i = 0; i < plans[p].ntuples; i++)
 			{
-				OffsetNumber offset = *(frz_offsets++);
-				ItemId		lp;
+				OffsetNumber	offset = *(frz_offsets++);
+				ItemId			lp;
 				HeapTupleHeader tuple;
 
 				lp = PageGetItemId(page, offset);
 				tuple = (HeapTupleHeader) PageGetItem(page, lp);
-				heap_execute_freeze_tuple(tuple, &frz);
+				heap_execute_freeze_tuple_page(page, tuple, &frz);
 			}
 		}
 
@@ -279,9 +281,6 @@ fix_infomask_from_infobits(uint8 infobits, uint16 *infomask, uint16 *infomask2)
 		*infomask2 |= HEAP_KEYS_UPDATED;
 }
 
-/*
- * Replay XLOG_HEAP_DELETE records.
- */
 static void
 heap_xlog_delete(XLogReaderState *record)
 {
@@ -316,6 +315,8 @@ heap_xlog_delete(XLogReaderState *record)
 
 	if (XLogReadBufferForRedo(record, 0, &buffer) == BLK_NEEDS_REDO)
 	{
+		HeapTupleData tuple;
+
 		page = BufferGetPage(buffer);
 
 		if (xlrec->offnum < 1 || xlrec->offnum > PageGetMaxOffsetNumber(page))
@@ -331,10 +332,12 @@ heap_xlog_delete(XLogReaderState *record)
 		HeapTupleHeaderClearHotUpdated(htup);
 		fix_infomask_from_infobits(xlrec->infobits_set,
 								   &htup->t_infomask, &htup->t_infomask2);
+		tuple.t_data = htup;
+
 		if (!(xlrec->flags & XLH_DELETE_IS_SUPER))
-			HeapTupleHeaderSetXmax(htup, xlrec->xmax);
+			HeapTupleAndHeaderSetXmax(page, &tuple, xlrec->xmax);
 		else
-			HeapTupleHeaderSetXmin(htup, InvalidTransactionId);
+			HeapTupleAndHeaderSetXmin(page, &tuple, InvalidTransactionId);
 		HeapTupleHeaderSetCmax(htup, FirstCommandId, false);
 
 		/* Mark the page as a candidate for pruning */
@@ -355,14 +358,11 @@ heap_xlog_delete(XLogReaderState *record)
 		UnlockReleaseBuffer(buffer);
 }
 
-/*
- * Replay XLOG_HEAP_INSERT records.
- */
 static void
 heap_xlog_insert(XLogReaderState *record)
 {
 	XLogRecPtr	lsn = record->EndRecPtr;
-	xl_heap_insert *xlrec = (xl_heap_insert *) XLogRecGetData(record);
+	xl_heap_insert *xlrec;
 	Buffer		buffer;
 	Page		page;
 	union
@@ -378,6 +378,20 @@ heap_xlog_insert(XLogReaderState *record)
 	BlockNumber blkno;
 	ItemPointerData target_tid;
 	XLogRedoAction action;
+	bool		isinit = (XLogRecGetInfo(record) & XLOG_HEAP_INIT_PAGE) != 0;
+	char	   *rec_data = (Pointer) XLogRecGetData(record);
+	TransactionId xid_base = InvalidTransactionId;
+	TransactionId multi_base = InvalidTransactionId;
+
+	if (isinit)
+	{
+		xid_base = *((TransactionId *) rec_data);
+		rec_data += sizeof(TransactionId);
+		multi_base = *((TransactionId *) rec_data);
+		rec_data += sizeof(TransactionId);
+	}
+
+	xlrec = (xl_heap_insert *) rec_data;
 
 	XLogRecGetBlockTag(record, 0, &target_locator, NULL, &blkno);
 	ItemPointerSetBlockNumber(&target_tid, blkno);
@@ -405,11 +419,28 @@ heap_xlog_insert(XLogReaderState *record)
 	 * If we inserted the first and only tuple on the page, re-initialize the
 	 * page from scratch.
 	 */
-	if (XLogRecGetInfo(record) & XLOG_HEAP_INIT_PAGE)
+	if (isinit)
 	{
 		buffer = XLogInitBufferForRedo(record, 0);
 		page = BufferGetPage(buffer);
-		PageInit(page, BufferGetPageSize(buffer), 0);
+
+		if (xlrec->flags & XLH_INSERT_ON_TOAST_RELATION)
+		{
+			PageInit(page, BufferGetPageSize(buffer),
+					 sizeof(ToastPageSpecialData));
+			ToastPageGetSpecial(page)->pd_xid_base = xid_base;
+		}
+		else
+		{
+			HeapPageSpecial		special;
+
+			PageInit(page, BufferGetPageSize(buffer),
+					 sizeof(HeapPageSpecialData));
+			special = HeapPageGetSpecial(page);
+			special->pd_xid_base = xid_base;
+			special->pd_multi_base = multi_base;
+		}
+
 		action = BLK_NEEDS_REDO;
 	}
 	else
@@ -418,6 +449,7 @@ heap_xlog_insert(XLogReaderState *record)
 	{
 		Size		datalen;
 		char	   *data;
+		HeapTupleData tuple;
 
 		page = BufferGetPage(buffer);
 
@@ -441,7 +473,8 @@ heap_xlog_insert(XLogReaderState *record)
 		htup->t_infomask2 = xlhdr.t_infomask2;
 		htup->t_infomask = xlhdr.t_infomask;
 		htup->t_hoff = xlhdr.t_hoff;
-		HeapTupleHeaderSetXmin(htup, XLogRecGetXid(record));
+		tuple.t_data = htup;
+		HeapTupleAndHeaderSetXmin(page, &tuple, XLogRecGetXid(record));
 		HeapTupleHeaderSetCmin(htup, FirstCommandId);
 		htup->t_ctid = target_tid;
 
@@ -474,7 +507,7 @@ heap_xlog_insert(XLogReaderState *record)
 }
 
 /*
- * Replay XLOG_HEAP2_MULTI_INSERT records.
+ * Handles MULTI_INSERT record type.
  */
 static void
 heap_xlog_multi_insert(XLogReaderState *record)
@@ -497,12 +530,22 @@ heap_xlog_multi_insert(XLogReaderState *record)
 	bool		isinit = (XLogRecGetInfo(record) & XLOG_HEAP_INIT_PAGE) != 0;
 	XLogRedoAction action;
 	Buffer		vmbuffer = InvalidBuffer;
+	TransactionId	xid_base = InvalidTransactionId,
+					multi_base = InvalidTransactionId;
+	char	   *rec_data = (Pointer) XLogRecGetData(record);
 
 	/*
 	 * Insertion doesn't overwrite MVCC data, so no conflict processing is
 	 * required.
 	 */
-	xlrec = (xl_heap_multi_insert *) XLogRecGetData(record);
+	if (isinit)
+	{
+		xid_base = *((TransactionId *) rec_data);
+		rec_data += sizeof(TransactionId);
+		multi_base = *((TransactionId *) rec_data);
+		rec_data += sizeof(TransactionId);
+	}
+	xlrec = (xl_heap_multi_insert *) rec_data;
 
 	XLogRecGetBlockTag(record, 0, &rlocator, NULL, &blkno);
 
@@ -529,7 +572,22 @@ heap_xlog_multi_insert(XLogReaderState *record)
 	{
 		buffer = XLogInitBufferForRedo(record, 0);
 		page = BufferGetPage(buffer);
-		PageInit(page, BufferGetPageSize(buffer), 0);
+
+		if ((xlrec->flags & XLH_INSERT_ON_TOAST_RELATION) != 0)
+		{
+			PageInit(page, BufferGetPageSize(buffer), sizeof(ToastPageSpecialData));
+			ToastPageGetSpecial(page)->pd_xid_base = xid_base;
+		}
+		else
+		{
+			HeapPageSpecial special;
+
+			PageInit(page, BufferGetPageSize(buffer), sizeof(HeapPageSpecialData));
+			special = HeapPageGetSpecial(page);
+			special->pd_xid_base = xid_base;
+			special->pd_multi_base = multi_base;
+		}
+
 		action = BLK_NEEDS_REDO;
 	}
 	else
@@ -550,6 +608,7 @@ heap_xlog_multi_insert(XLogReaderState *record)
 		{
 			OffsetNumber offnum;
 			xl_multi_insert_tuple *xlhdr;
+			HeapTupleData tuple;
 
 			/*
 			 * If we're reinitializing the page, the tuples are stored in
@@ -580,7 +639,8 @@ heap_xlog_multi_insert(XLogReaderState *record)
 			htup->t_infomask2 = xlhdr->t_infomask2;
 			htup->t_infomask = xlhdr->t_infomask;
 			htup->t_hoff = xlhdr->t_hoff;
-			HeapTupleHeaderSetXmin(htup, XLogRecGetXid(record));
+			tuple.t_data = htup;
+			HeapTupleAndHeaderSetXmin(page, &tuple, XLogRecGetXid(record));
 			HeapTupleHeaderSetCmin(htup, FirstCommandId);
 			ItemPointerSetBlockNumber(&htup->t_ctid, blkno);
 			ItemPointerSetOffsetNumber(&htup->t_ctid, offnum);
@@ -672,14 +732,14 @@ heap_xlog_multi_insert(XLogReaderState *record)
 }
 
 /*
- * Replay XLOG_HEAP_UPDATE and XLOG_HEAP_HOT_UPDATE records.
+ * Handles UPDATE and HOT_UPDATE
  */
 static void
 heap_xlog_update(XLogReaderState *record, bool hot_update)
 {
 	XLogRecPtr	lsn = record->EndRecPtr;
-	xl_heap_update *xlrec = (xl_heap_update *) XLogRecGetData(record);
 	RelFileLocator rlocator;
+	xl_heap_update *xlrec;
 	BlockNumber oldblk;
 	BlockNumber newblk;
 	ItemPointerData newtid;
@@ -704,6 +764,20 @@ heap_xlog_update(XLogReaderState *record, bool hot_update)
 	Size		freespace = 0;
 	XLogRedoAction oldaction;
 	XLogRedoAction newaction;
+	bool		isinit = (XLogRecGetInfo(record) & XLOG_HEAP_INIT_PAGE) != 0;
+	char	   *rec_data = (Pointer) XLogRecGetData(record);
+	TransactionId xid_base = InvalidTransactionId,
+				  multi_base = InvalidTransactionId;
+
+	if (isinit)
+	{
+		xid_base = *((TransactionId *) rec_data);
+		rec_data += sizeof(TransactionId);
+		multi_base = *((TransactionId *) rec_data);
+		rec_data += sizeof(TransactionId);
+	}
+
+	xlrec = (xl_heap_update *) rec_data;
 
 	/* initialize to keep the compiler quiet */
 	oldtup.t_data = NULL;
@@ -750,6 +824,8 @@ heap_xlog_update(XLogReaderState *record, bool hot_update)
 									  &obuffer);
 	if (oldaction == BLK_NEEDS_REDO)
 	{
+		HeapTupleData tuple;
+
 		opage = BufferGetPage(obuffer);
 		offnum = xlrec->old_offnum;
 		if (offnum < 1 || offnum > PageGetMaxOffsetNumber(opage))
@@ -762,6 +838,8 @@ heap_xlog_update(XLogReaderState *record, bool hot_update)
 
 		oldtup.t_data = htup;
 		oldtup.t_len = ItemIdGetLength(lp);
+		/* Toast tuples are never updated. */
+		HeapTupleCopyXidsFromPage(obuffer, &oldtup, opage);
 
 		htup->t_infomask &= ~(HEAP_XMAX_BITS | HEAP_MOVED);
 		htup->t_infomask2 &= ~HEAP_KEYS_UPDATED;
@@ -771,12 +849,14 @@ heap_xlog_update(XLogReaderState *record, bool hot_update)
 			HeapTupleHeaderClearHotUpdated(htup);
 		fix_infomask_from_infobits(xlrec->old_infobits_set, &htup->t_infomask,
 								   &htup->t_infomask2);
-		HeapTupleHeaderSetXmax(htup, xlrec->old_xmax);
+		tuple.t_data = htup;
+		HeapTupleAndHeaderSetXmax(opage, &tuple, xlrec->old_xmax);
 		HeapTupleHeaderSetCmax(htup, FirstCommandId, false);
 		/* Set forward chain link in t_ctid */
 		htup->t_ctid = newtid;
 
 		/* Mark the page as a candidate for pruning */
+		/* Toast tuples are never updated. */
 		PageSetPrunable(opage, XLogRecGetXid(record));
 
 		if (xlrec->flags & XLH_UPDATE_OLD_ALL_VISIBLE_CLEARED)
@@ -794,11 +874,17 @@ heap_xlog_update(XLogReaderState *record, bool hot_update)
 		nbuffer = obuffer;
 		newaction = oldaction;
 	}
-	else if (XLogRecGetInfo(record) & XLOG_HEAP_INIT_PAGE)
+	else if (isinit)
 	{
+		HeapPageSpecial special;
+
 		nbuffer = XLogInitBufferForRedo(record, 0);
 		npage = BufferGetPage(nbuffer);
-		PageInit(npage, BufferGetPageSize(nbuffer), 0);
+		/* Toast tuples are never updated. */
+		PageInit(npage, BufferGetPageSize(nbuffer), sizeof(HeapPageSpecialData));
+		special = HeapPageGetSpecial(npage);
+		special->pd_xid_base = xid_base;
+		special->pd_multi_base = multi_base;
 		newaction = BLK_NEEDS_REDO;
 	}
 	else
@@ -826,6 +912,7 @@ heap_xlog_update(XLogReaderState *record, bool hot_update)
 		char	   *recdata_end;
 		Size		datalen;
 		Size		tuplen;
+		HeapTupleData tuple;
 
 		recdata = XLogRecGetBlockData(record, 0, &datalen);
 		recdata_end = recdata + datalen;
@@ -904,9 +991,10 @@ heap_xlog_update(XLogReaderState *record, bool hot_update)
 		htup->t_infomask = xlhdr.t_infomask;
 		htup->t_hoff = xlhdr.t_hoff;
 
-		HeapTupleHeaderSetXmin(htup, XLogRecGetXid(record));
+		tuple.t_data = htup;
+		HeapTupleAndHeaderSetXmin(npage, &tuple, XLogRecGetXid(record));
 		HeapTupleHeaderSetCmin(htup, FirstCommandId);
-		HeapTupleHeaderSetXmax(htup, xlrec->new_xmax);
+		HeapTupleAndHeaderSetXmax(npage, &tuple, xlrec->new_xmax);
 		/* Make sure there is no forward chain link in t_ctid */
 		htup->t_ctid = newtid;
 
@@ -948,9 +1036,6 @@ heap_xlog_update(XLogReaderState *record, bool hot_update)
 		XLogRecordPageWithFreeSpace(rlocator, newblk, freespace);
 }
 
-/*
- * Replay XLOG_HEAP_CONFIRM records.
- */
 static void
 heap_xlog_confirm(XLogReaderState *record)
 {
@@ -987,9 +1072,6 @@ heap_xlog_confirm(XLogReaderState *record)
 		UnlockReleaseBuffer(buffer);
 }
 
-/*
- * Replay XLOG_HEAP_LOCK records.
- */
 static void
 heap_xlog_lock(XLogReaderState *record)
 {
@@ -1024,6 +1106,8 @@ heap_xlog_lock(XLogReaderState *record)
 
 	if (XLogReadBufferForRedo(record, 0, &buffer) == BLK_NEEDS_REDO)
 	{
+		HeapTupleData tuple;
+
 		page = BufferGetPage(buffer);
 
 		offnum = xlrec->offnum;
@@ -1052,7 +1136,9 @@ heap_xlog_lock(XLogReaderState *record)
 						   BufferGetBlockNumber(buffer),
 						   offnum);
 		}
-		HeapTupleHeaderSetXmax(htup, xlrec->xmax);
+
+		tuple.t_data = htup;
+		HeapTupleAndHeaderSetXmax(page, &tuple, xlrec->xmax);
 		HeapTupleHeaderSetCmax(htup, FirstCommandId, false);
 		PageSetLSN(page, lsn);
 		MarkBufferDirty(buffer);
@@ -1061,9 +1147,6 @@ heap_xlog_lock(XLogReaderState *record)
 		UnlockReleaseBuffer(buffer);
 }
 
-/*
- * Replay XLOG_HEAP2_LOCK_UPDATED records.
- */
 static void
 heap_xlog_lock_updated(XLogReaderState *record)
 {
@@ -1100,6 +1183,8 @@ heap_xlog_lock_updated(XLogReaderState *record)
 
 	if (XLogReadBufferForRedo(record, 0, &buffer) == BLK_NEEDS_REDO)
 	{
+		HeapTupleData tuple;
+
 		page = BufferGetPage(buffer);
 
 		offnum = xlrec->offnum;
@@ -1115,7 +1200,8 @@ heap_xlog_lock_updated(XLogReaderState *record)
 		htup->t_infomask2 &= ~HEAP_KEYS_UPDATED;
 		fix_infomask_from_infobits(xlrec->infobits_set, &htup->t_infomask,
 								   &htup->t_infomask2);
-		HeapTupleHeaderSetXmax(htup, xlrec->xmax);
+		tuple.t_data = htup;
+		HeapTupleAndHeaderSetXmax(page, &tuple, xlrec->xmax);
 
 		PageSetLSN(page, lsn);
 		MarkBufferDirty(buffer);
@@ -1124,9 +1210,6 @@ heap_xlog_lock_updated(XLogReaderState *record)
 		UnlockReleaseBuffer(buffer);
 }
 
-/*
- * Replay XLOG_HEAP_INPLACE records.
- */
 static void
 heap_xlog_inplace(XLogReaderState *record)
 {
@@ -1265,6 +1348,10 @@ heap_mask(char *pagedata, BlockNumber blkno)
 	mask_page_lsn_and_checksum(page);
 
 	mask_page_hint_bits(page);
+
+	/* Ignore prune_xid (it's like a hint-bit) */
+	HeapPageSetPruneXid(page, InvalidTransactionId);
+
 	mask_unused_space(page);
 
 	for (off = 1; off <= PageGetMaxOffsetNumber(page); off++)

@@ -68,9 +68,6 @@ static const char *progname;
 /*
  * New values given on the command-line
  */
-static bool next_xid_epoch_given = false;
-static uint32 next_xid_epoch_val;
-
 static bool oldest_xid_given = false;
 static TransactionId oldest_xid_val;
 
@@ -124,7 +121,6 @@ main(int argc, char *argv[])
 	static struct option long_options[] = {
 		{"commit-timestamp-ids", required_argument, NULL, 'c'},
 		{"pgdata", required_argument, NULL, 'D'},
-		{"epoch", required_argument, NULL, 'e'},
 		{"force", no_argument, NULL, 'f'},
 		{"next-wal-file", required_argument, NULL, 'l'},
 		{"multixact-ids", required_argument, NULL, 'm'},
@@ -166,7 +162,7 @@ main(int argc, char *argv[])
 	}
 
 
-	while ((c = getopt_long(argc, argv, "c:D:e:fl:m:no:O:u:x:", long_options, NULL)) != -1)
+	while ((c = getopt_long(argc, argv, "c:D:fl:m:no:O:u:x:", long_options, NULL)) != -1)
 	{
 		switch (c)
 		{
@@ -182,23 +178,9 @@ main(int argc, char *argv[])
 				noupdate = true;
 				break;
 
-			case 'e':
-				errno = 0;
-				next_xid_epoch_val = strtouint32_strict(optarg, &endptr, 0);
-				if (endptr == optarg || *endptr != '\0' || errno != 0)
-				{
-					/*------
-					  translator: %s is a command line argument (-e, etc) */
-					pg_log_error("invalid argument for option %s", "-e");
-					pg_log_error_hint("Try \"%s --help\" for more information.", progname);
-					exit(1);
-				}
-				next_xid_epoch_given = true;
-				break;
-
 			case 'u':
 				errno = 0;
-				oldest_xid_val = strtouint32_strict(optarg, &endptr, 0);
+				oldest_xid_val = strtouint64_strict(optarg, &endptr, 0);
 				if (endptr == optarg || *endptr != '\0' || errno != 0)
 				{
 					pg_log_error("invalid argument for option %s", "-u");
@@ -206,13 +188,14 @@ main(int argc, char *argv[])
 					exit(1);
 				}
 				if (!TransactionIdIsNormal(oldest_xid_val))
-					pg_fatal("oldest transaction ID (-u) must be greater than or equal to %u", FirstNormalTransactionId);
+					pg_fatal("oldest transaction ID (-u) must be greater than or equal to %" PRIu64,
+							 FirstNormalTransactionId);
 				oldest_xid_given = true;
 				break;
 
 			case 'x':
 				errno = 0;
-				next_xid_val = strtouint32_strict(optarg, &endptr, 0);
+				next_xid_val = strtouint64_strict(optarg, &endptr, 0);
 				if (endptr == optarg || *endptr != '\0' || errno != 0)
 				{
 					pg_log_error("invalid argument for option %s", "-x");
@@ -220,20 +203,21 @@ main(int argc, char *argv[])
 					exit(1);
 				}
 				if (!TransactionIdIsNormal(next_xid_val))
-					pg_fatal("transaction ID (-x) must be greater than or equal to %u", FirstNormalTransactionId);
+					pg_fatal("transaction ID (-x) must be greater than or equal to %" PRIu64,
+							 FirstNormalTransactionId);
 				next_xid_given = true;
 				break;
 
 			case 'c':
 				errno = 0;
-				oldest_commit_ts_xid_val = strtouint32_strict(optarg, &endptr, 0);
+				oldest_commit_ts_xid_val = strtouint64_strict(optarg, &endptr, 0);
 				if (endptr == optarg || *endptr != ',' || errno != 0)
 				{
 					pg_log_error("invalid argument for option %s", "-c");
 					pg_log_error_hint("Try \"%s --help\" for more information.", progname);
 					exit(1);
 				}
-				newest_commit_ts_xid_val = strtoul(endptr + 1, &endptr2, 0);
+				newest_commit_ts_xid_val = strtou64(endptr + 1, &endptr2, 0);
 				if (endptr2 == endptr + 1 || *endptr2 != '\0' || errno != 0)
 				{
 					pg_log_error("invalid argument for option %s", "-c");
@@ -243,11 +227,13 @@ main(int argc, char *argv[])
 
 				if (oldest_commit_ts_xid_val < FirstNormalTransactionId &&
 					oldest_commit_ts_xid_val != InvalidTransactionId)
-					pg_fatal("transaction ID (-c) must be either %u or greater than or equal to %u", InvalidTransactionId, FirstNormalTransactionId);
+					pg_fatal("transaction ID (-c) must be either %" PRIu64 " or greater than or equal to %" PRIu64,
+							 InvalidTransactionId, FirstNormalTransactionId);
 
 				if (newest_commit_ts_xid_val < FirstNormalTransactionId &&
 					newest_commit_ts_xid_val != InvalidTransactionId)
-					pg_fatal("transaction ID (-c) must be either %u or greater than or equal to %u", InvalidTransactionId, FirstNormalTransactionId);
+					pg_fatal("transaction ID (-c) must be either %" PRIu64 " or greater than or equal to %" PRIu64,
+							 InvalidTransactionId, FirstNormalTransactionId);
 				commit_ts_xids_given = true;
 				break;
 
@@ -267,7 +253,7 @@ main(int argc, char *argv[])
 
 			case 'm':
 				errno = 0;
-				next_mxid_val = strtouint32_strict(optarg, &endptr, 0);
+				next_mxid_val = strtouint64_strict(optarg, &endptr, 0);
 				if (endptr == optarg || *endptr != ',' || errno != 0)
 				{
 					pg_log_error("invalid argument for option %s", "-m");
@@ -275,7 +261,7 @@ main(int argc, char *argv[])
 					exit(1);
 				}
 
-				oldest_mxid_val = strtouint32_strict(endptr + 1, &endptr2, 0);
+				oldest_mxid_val = strtouint64_strict(endptr + 1, &endptr2, 0);
 				if (endptr2 == endptr + 1 || *endptr2 != '\0' || errno != 0)
 				{
 					pg_log_error("invalid argument for option %s", "-m");
@@ -460,11 +446,6 @@ main(int argc, char *argv[])
 	 * Adjust fields if required by switches.  (Do this now so that printout,
 	 * if any, includes these values.)
 	 */
-	if (next_xid_epoch_given)
-		ControlFile.checkPointCopy.nextXid =
-			FullTransactionIdFromEpochAndXid(next_xid_epoch_val,
-											 XidFromFullTransactionId(ControlFile.checkPointCopy.nextXid));
-
 	if (oldest_xid_given)
 	{
 		ControlFile.checkPointCopy.oldestXid = oldest_xid_val;
@@ -472,9 +453,7 @@ main(int argc, char *argv[])
 	}
 
 	if (next_xid_given)
-		ControlFile.checkPointCopy.nextXid =
-			FullTransactionIdFromEpochAndXid(EpochFromFullTransactionId(ControlFile.checkPointCopy.nextXid),
-											 next_xid_val);
+		ControlFile.checkPointCopy.nextXid = FullTransactionIdFromXid(next_xid_val);
 
 	if (commit_ts_xids_given)
 	{
@@ -697,7 +676,7 @@ GuessControlValues(void)
 	ControlFile.checkPointCopy.PrevTimeLineID = 1;
 	ControlFile.checkPointCopy.fullPageWrites = false;
 	ControlFile.checkPointCopy.nextXid =
-		FullTransactionIdFromEpochAndXid(0, FirstNormalTransactionId);
+		FullTransactionIdFromXid(FirstNormalTransactionId);
 	ControlFile.checkPointCopy.nextOid = FirstGenbkiObjectId;
 	ControlFile.checkPointCopy.nextMulti = FirstMultiXactId;
 	ControlFile.checkPointCopy.nextMultiOffset = 0;
@@ -749,6 +728,8 @@ GuessControlValues(void)
  *
  * NB: this display should be just those fields that will not be
  * reset by RewriteControlFile().
+ *
+ * Special macros help to make translatable strings.
  */
 static void
 PrintControlValues(bool guessed)
@@ -768,28 +749,27 @@ PrintControlValues(bool guessed)
 		   ControlFile.checkPointCopy.ThisTimeLineID);
 	printf(_("Latest checkpoint's full_page_writes: %s\n"),
 		   ControlFile.checkPointCopy.fullPageWrites ? _("on") : _("off"));
-	printf(_("Latest checkpoint's NextXID:          %u:%u\n"),
-		   EpochFromFullTransactionId(ControlFile.checkPointCopy.nextXid),
+	printf(_("Latest checkpoint's NextXID:          %" PRIu64 "\n"),
 		   XidFromFullTransactionId(ControlFile.checkPointCopy.nextXid));
 	printf(_("Latest checkpoint's NextOID:          %u\n"),
 		   ControlFile.checkPointCopy.nextOid);
-	printf(_("Latest checkpoint's NextMultiXactId:  %u\n"),
+	printf(_("Latest checkpoint's NextMultiXactId:  %" PRIu64 "\n"),
 		   ControlFile.checkPointCopy.nextMulti);
 	printf(_("Latest checkpoint's NextMultiOffset:  %" PRIu64 "\n"),
 		   ControlFile.checkPointCopy.nextMultiOffset);
-	printf(_("Latest checkpoint's oldestXID:        %u\n"),
+	printf(_("Latest checkpoint's oldestXID:        %" PRIu64 "\n"),
 		   ControlFile.checkPointCopy.oldestXid);
 	printf(_("Latest checkpoint's oldestXID's DB:   %u\n"),
 		   ControlFile.checkPointCopy.oldestXidDB);
-	printf(_("Latest checkpoint's oldestActiveXID:  %u\n"),
+	printf(_("Latest checkpoint's oldestActiveXID:  %" PRIu64 "\n"),
 		   ControlFile.checkPointCopy.oldestActiveXid);
-	printf(_("Latest checkpoint's oldestMultiXid:   %u\n"),
+	printf(_("Latest checkpoint's oldestMultiXid:   %" PRIu64 "\n"),
 		   ControlFile.checkPointCopy.oldestMulti);
 	printf(_("Latest checkpoint's oldestMulti's DB: %u\n"),
 		   ControlFile.checkPointCopy.oldestMultiDB);
-	printf(_("Latest checkpoint's oldestCommitTsXid:%u\n"),
+	printf(_("Latest checkpoint's oldestCommitTsXid:%" PRIu64 "\n"),
 		   ControlFile.checkPointCopy.oldestCommitTsXid);
-	printf(_("Latest checkpoint's newestCommitTsXid:%u\n"),
+	printf(_("Latest checkpoint's newestCommitTsXid:%" PRIu64 "\n"),
 		   ControlFile.checkPointCopy.newestCommitTsXid);
 	printf(_("Maximum data alignment:               %u\n"),
 		   ControlFile.maxAlign);
@@ -841,9 +821,9 @@ PrintNewControlValues(void)
 
 	if (mxids_given)
 	{
-		printf(_("NextMultiXactId:                      %u\n"),
+		printf(_("NextMultiXactId:                      %" PRIu64 "\n"),
 			   ControlFile.checkPointCopy.nextMulti);
-		printf(_("OldestMultiXid:                       %u\n"),
+		printf(_("OldestMultiXid:                       %" PRIu64 "\n"),
 			   ControlFile.checkPointCopy.oldestMulti);
 		printf(_("OldestMulti's DB:                     %u\n"),
 			   ControlFile.checkPointCopy.oldestMultiDB);
@@ -863,29 +843,23 @@ PrintNewControlValues(void)
 
 	if (next_xid_given)
 	{
-		printf(_("NextXID:                              %u\n"),
+		printf(_("NextXID:                              %" PRIu64 "\n"),
 			   XidFromFullTransactionId(ControlFile.checkPointCopy.nextXid));
 	}
 
 	if (oldest_xid_given)
 	{
-		printf(_("OldestXID:                            %u\n"),
+		printf(_("OldestXID:                            %" PRIu64 "\n"),
 			   ControlFile.checkPointCopy.oldestXid);
 		printf(_("OldestXID's DB:                       %u\n"),
 			   ControlFile.checkPointCopy.oldestXidDB);
 	}
 
-	if (next_xid_epoch_given)
-	{
-		printf(_("NextXID epoch:                        %u\n"),
-			   EpochFromFullTransactionId(ControlFile.checkPointCopy.nextXid));
-	}
-
 	if (commit_ts_xids_given)
 	{
-		printf(_("oldestCommitTsXid:                    %u\n"),
+		printf(_("oldestCommitTsXid:                    %" PRIu64 "\n"),
 			   ControlFile.checkPointCopy.oldestCommitTsXid);
-		printf(_("newestCommitTsXid:                    %u\n"),
+		printf(_("newestCommitTsXid:                    %" PRIu64 "\n"),
 			   ControlFile.checkPointCopy.newestCommitTsXid);
 	}
 

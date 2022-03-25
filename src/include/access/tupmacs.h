@@ -315,6 +315,7 @@ typalign_to_alignby(char typalign)
 			alignby = ALIGNOF_INT;
 			break;
 		case TYPALIGN_DOUBLE:
+		case TYPALIGN_XID:
 			alignby = ALIGNOF_DOUBLE;
 			break;
 		default:
