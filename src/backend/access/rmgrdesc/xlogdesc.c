@@ -66,16 +66,15 @@ xlog_desc(StringInfo buf, XLogReaderState *record)
 		CheckPoint *checkpoint = (CheckPoint *) rec;
 
 		appendStringInfo(buf, "redo %X/%08X; "
-						 "tli %u; prev tli %u; fpw %s; wal_level %s; xid %u:%u; oid %u; multi %u; offset %u; "
-						 "oldest xid %u in DB %u; oldest multi %u in DB %u; "
-						 "oldest/newest commit timestamp xid: %u/%u; "
-						 "oldest running xid %u; %s",
+						 "tli %u; prev tli %u; fpw %s; wal_level %s; xid %" PRIu64 "; oid %u; multi %" PRIu64 "; offset %" PRIu64 "; "
+						 "oldest xid %" PRIu64 " in DB %u; oldest multi %" PRIu64 " in DB %u; "
+						 "oldest/newest commit timestamp xid: %" PRIu64 "/%" PRIu64 "; "
+						 "oldest running xid %" PRIu64 "; %s",
 						 LSN_FORMAT_ARGS(checkpoint->redo),
 						 checkpoint->ThisTimeLineID,
 						 checkpoint->PrevTimeLineID,
 						 checkpoint->fullPageWrites ? "true" : "false",
 						 get_wal_level_string(checkpoint->wal_level),
-						 EpochFromFullTransactionId(checkpoint->nextXid),
 						 XidFromFullTransactionId(checkpoint->nextXid),
 						 checkpoint->nextOid,
 						 checkpoint->nextMulti,
