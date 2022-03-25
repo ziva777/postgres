@@ -309,7 +309,7 @@ GetOldMultiXactIdSingleMember(OldMultiXactReader *state, MultiXactId multi,
 				 * We don't expect to see more than one updating member, even
 				 * if the server had crashed.
 				 */
-				pg_fatal("multixact %u has more than one updating member",
+				pg_fatal("multixact %" PRIu64 " has more than one updating member",
 						 multi);
 			}
 			result_xid = *xactptr;
