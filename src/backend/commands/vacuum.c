@@ -73,12 +73,12 @@
 /*
  * GUC parameters
  */
-int			vacuum_freeze_min_age;
-int			vacuum_freeze_table_age;
-int			vacuum_multixact_freeze_min_age;
-int			vacuum_multixact_freeze_table_age;
-int			vacuum_failsafe_age;
-int			vacuum_multixact_failsafe_age;
+int64		vacuum_freeze_min_age;
+int64		vacuum_freeze_table_age;
+int64		vacuum_multixact_freeze_min_age;
+int64		vacuum_multixact_freeze_table_age;
+int64		vacuum_failsafe_age;
+int64		vacuum_multixact_failsafe_age;
 double		vacuum_max_eager_freeze_failure_rate;
 bool		track_cost_delay_timing;
 bool		vacuum_truncate;
@@ -1100,7 +1100,7 @@ bool
 vacuum_get_cutoffs(Relation rel, const VacuumParams params,
 				   struct VacuumCutoffs *cutoffs)
 {
-	int			freeze_min_age,
+	int64		freeze_min_age,
 				multixact_freeze_min_age,
 				freeze_table_age,
 				multixact_freeze_table_age,
@@ -1150,7 +1150,7 @@ vacuum_get_cutoffs(Relation rel, const VacuumParams params,
 	 * normally autovacuum_multixact_freeze_max_age, but may be less if
 	 * multixact members are bloated.
 	 */
-	effective_multixact_freeze_max_age = MultiXactMemberFreezeThreshold();
+	effective_multixact_freeze_max_age = autovacuum_multixact_freeze_max_age;
 
 	/*
 	 * Almost ready to set freeze output parameters; check if OldestXmin or
@@ -1522,6 +1522,9 @@ vac_update_relstats(Relation relation,
 	futurexid = false;
 	if (frozenxid_updated)
 		*frozenxid_updated = false;
+
+	Assert(TransactionIdPrecedesOrEquals(frozenxid, ReadNextTransactionId()));
+
 	if (TransactionIdIsNormal(frozenxid) && oldfrozenxid != frozenxid)
 	{
 		bool		update = false;
@@ -1545,6 +1548,9 @@ vac_update_relstats(Relation relation,
 	futuremxid = false;
 	if (minmulti_updated)
 		*minmulti_updated = false;
+
+	Assert(MultiXactIdPrecedesOrEquals(minmulti, ReadNextMultiXactId()));
+
 	if (MultiXactIdIsValid(minmulti) && oldminmulti != minmulti)
 	{
 		bool		update = false;
@@ -1574,13 +1580,13 @@ vac_update_relstats(Relation relation,
 	if (futurexid)
 		ereport(WARNING,
 				(errcode(ERRCODE_DATA_CORRUPTED),
-				 errmsg_internal("overwrote invalid relfrozenxid value %u with new value %u for table \"%s\"",
+				 errmsg_internal("overwrote invalid relfrozenxid value %" PRIu64 " with new value %" PRIu64 " for table \"%s\"",
 								 oldfrozenxid, frozenxid,
 								 RelationGetRelationName(relation))));
 	if (futuremxid)
 		ereport(WARNING,
 				(errcode(ERRCODE_DATA_CORRUPTED),
-				 errmsg_internal("overwrote invalid relminmxid value %u with new value %u for table \"%s\"",
+				 errmsg_internal("overwrote invalid relminmxid value %" PRIu64 " with new value %" PRIu64 " for table \"%s\"",
 								 oldminmulti, minmulti,
 								 RelationGetRelationName(relation))));
 }

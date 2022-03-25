@@ -3861,7 +3861,7 @@ process_postgres_switches(int argc, char *argv[], GucContext ctx,
 	 * postmaster/postmaster.c (the option sets should not conflict) and with
 	 * the common help() function in main/main.c.
 	 */
-	pg_getopt_start(&optctx, argc, argv, "B:bC:c:D:d:EeFf:h:ijk:lN:nOPp:r:S:sTt:v:W:-:");
+	pg_getopt_start(&optctx, argc, argv, "B:bC:c:D:d:EeFf:h:ijk:lm:N:nOo:Pp:r:S:sTt:v:W:x:-:");
 
 	/*
 	 * Turn this off because it's either printed to stderr and not the log
@@ -3975,6 +3975,23 @@ process_postgres_switches(int argc, char *argv[], GucContext ctx,
 				SetConfigOption("ssl", "true", ctx, gucsource);
 				break;
 
+			case 'm':
+				{
+					char	   *endptr;
+
+					errno = 0;
+					start_mxid = strtoull(optctx.optarg, &endptr, 0);
+
+					if (endptr == optctx.optarg || *endptr != '\0' || errno != 0 ||
+						!StartMultiXactIdIsValid(start_mxid))
+					{
+						ereport(ERROR,
+								(errcode(ERRCODE_SYNTAX_ERROR),
+								 errmsg("invalid initial database cluster multixact id")));
+					}
+				}
+				break;
+
 			case 'N':
 				SetConfigOption("max_connections", optctx.optarg, ctx, gucsource);
 				break;
@@ -3985,6 +4002,23 @@ process_postgres_switches(int argc, char *argv[], GucContext ctx,
 
 			case 'O':
 				SetConfigOption("allow_system_table_mods", "true", ctx, gucsource);
+				break;
+
+			case 'o':
+				{
+					char	   *endptr;
+
+					errno = 0;
+					start_mxoff = strtoull(optctx.optarg, &endptr, 0);
+
+					if (endptr == optctx.optarg || *endptr != '\0' || errno != 0 ||
+						!StartMultiXactOffsetIsValid(start_mxoff))
+					{
+						ereport(ERROR,
+								(errcode(ERRCODE_SYNTAX_ERROR),
+								 errmsg("invalid initial database cluster multixact offset")));
+					}
+				}
 				break;
 
 			case 'P':
@@ -4039,6 +4073,23 @@ process_postgres_switches(int argc, char *argv[], GucContext ctx,
 
 			case 'W':
 				SetConfigOption("post_auth_delay", optctx.optarg, ctx, gucsource);
+				break;
+
+			case 'x':
+				{
+					char	   *endptr;
+
+					errno = 0;
+					start_xid = strtoull(optctx.optarg, &endptr, 0);
+
+					if (endptr == optctx.optarg || *endptr != '\0' || errno != 0 ||
+						!StartTransactionIdIsValid(start_xid))
+					{
+						ereport(ERROR,
+								(errcode(ERRCODE_SYNTAX_ERROR),
+								 errmsg("invalid initial database cluster xid")));
+					}
+				}
 				break;
 
 			default:

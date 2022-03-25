@@ -648,7 +648,8 @@ pgoutput_commit_txn(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 
 	if (!sent_begin_txn)
 	{
-		elog(DEBUG1, "skipped replication of an empty transaction with XID: %u", txn->xid);
+		elog(DEBUG1, "skipped replication of an empty transaction with XID: %" PRIu64,
+			 txn->xid);
 		return;
 	}
 

@@ -14,6 +14,7 @@ pg_upgrade_sources = files(
   'parallel.c',
   'pg_upgrade.c',
   'relfilenumber.c',
+  'segresize.c',
   'server.c',
   'slru_io.c',
   'tablespace.c',
