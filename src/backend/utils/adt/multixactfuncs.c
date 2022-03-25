@@ -40,7 +40,7 @@ pg_get_multixact_members(PG_FUNCTION_ARGS)
 	if (mxid < FirstMultiXactId)
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				 errmsg("invalid MultiXactId: %u", mxid)));
+				 errmsg("invalid MultiXactId: %" PRIu64, mxid)));
 
 	if (SRF_IS_FIRSTCALL())
 	{
@@ -73,7 +73,7 @@ pg_get_multixact_members(PG_FUNCTION_ARGS)
 		HeapTuple	tuple;
 		char	   *values[2];
 
-		values[0] = psprintf("%u", multi->members[multi->iter].xid);
+		values[0] = psprintf("%" PRIu64, multi->members[multi->iter].xid);
 		values[1] = mxstatus_to_string(multi->members[multi->iter].status);
 
 		tuple = BuildTupleFromCStrings(funccxt->attinmeta, values);
