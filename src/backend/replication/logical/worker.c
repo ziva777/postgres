@@ -801,7 +801,7 @@ handle_streamed_transaction(LogicalRepMsgType action, StringInfo s)
 	 * We should have received XID of the subxact as the first part of the
 	 * message, so extract it.
 	 */
-	current_xid = pq_getmsgint(s, 4);
+	current_xid = pq_getmsgint64(s);
 
 	if (!TransactionIdIsValid(current_xid))
 		ereport(ERROR,
@@ -3248,7 +3248,7 @@ IsIndexUsableForFindingDeletedTuple(Oid localindexoid,
 	 * TransactionIdPrecedes() manages it internally, treating it as falling
 	 * behind the conflict_detection_xmin.
 	 */
-	index_xmin = HeapTupleHeaderGetXmin(index_tuple->t_data);
+	index_xmin = HeapTupleGetXmin(index_tuple);
 
 	ReleaseSysCache(index_tuple);
 
@@ -4116,8 +4116,8 @@ LogicalRepApplyLoop(XLogRecPtr last_received)
 					else if (c == PqReplMsg_PrimaryStatusUpdate)
 					{
 						rdt_data.remote_lsn = pq_getmsgint64(&s);
-						rdt_data.remote_oldestxid = FullTransactionIdFromU64((uint64) pq_getmsgint64(&s));
-						rdt_data.remote_nextxid = FullTransactionIdFromU64((uint64) pq_getmsgint64(&s));
+						rdt_data.remote_oldestxid = FullTransactionIdFromXid((uint64) pq_getmsgint64(&s));
+						rdt_data.remote_nextxid = FullTransactionIdFromXid((uint64) pq_getmsgint64(&s));
 						rdt_data.reply_time = pq_getmsgint64(&s);
 
 						/*
@@ -4746,7 +4746,7 @@ wait_for_local_flush(RetainDeadTuplesData *rdt_data)
 	MyLogicalRepWorker->oldest_nonremovable_xid = rdt_data->candidate_xid;
 	SpinLockRelease(&MyLogicalRepWorker->relmutex);
 
-	elog(DEBUG2, "confirmed flush up to remote lsn %X/%08X: new oldest_nonremovable_xid %u",
+	elog(DEBUG2, "confirmed flush up to remote lsn %X/%08X: new oldest_nonremovable_xid %" PRIu64,
 		 LSN_FORMAT_ARGS(rdt_data->remote_lsn),
 		 rdt_data->candidate_xid);
 
@@ -5359,14 +5359,14 @@ subxact_info_add(TransactionId xid)
 static inline void
 subxact_filename(char *path, Oid subid, TransactionId xid)
 {
-	snprintf(path, MAXPGPATH, "%u-%u.subxacts", subid, xid);
+	snprintf(path, MAXPGPATH, "%u-%" PRIu64 ".subxacts", subid, xid);
 }
 
 /* format filename for file containing serialized changes */
 static inline void
 changes_filename(char *path, Oid subid, TransactionId xid)
 {
-	snprintf(path, MAXPGPATH, "%u-%u.changes", subid, xid);
+	snprintf(path, MAXPGPATH, "%u-%" PRIu64 ".changes", subid, xid);
 }
 
 /*
@@ -6172,12 +6172,12 @@ apply_error_callback(void *arg)
 					   errarg->origin_name,
 					   logicalrep_message_type(errarg->command));
 		else if (!XLogRecPtrIsValid(errarg->finish_lsn))
-			errcontext("processing remote data for replication origin \"%s\" during message type \"%s\" in transaction %u",
+			errcontext("processing remote data for replication origin \"%s\" during message type \"%s\" in transaction %" PRIu64,
 					   errarg->origin_name,
 					   logicalrep_message_type(errarg->command),
 					   errarg->remote_xid);
 		else
-			errcontext("processing remote data for replication origin \"%s\" during message type \"%s\" in transaction %u, finished at %X/%08X",
+			errcontext("processing remote data for replication origin \"%s\" during message type \"%s\" in transaction %" PRIu64 ", finished at %X/%08X",
 					   errarg->origin_name,
 					   logicalrep_message_type(errarg->command),
 					   errarg->remote_xid,
@@ -6188,14 +6188,14 @@ apply_error_callback(void *arg)
 		if (errarg->remote_attnum < 0)
 		{
 			if (!XLogRecPtrIsValid(errarg->finish_lsn))
-				errcontext("processing remote data for replication origin \"%s\" during message type \"%s\" for replication target relation \"%s.%s\" in transaction %u",
+				errcontext("processing remote data for replication origin \"%s\" during message type \"%s\" for replication target relation \"%s.%s\" in transaction %" PRIu64,
 						   errarg->origin_name,
 						   logicalrep_message_type(errarg->command),
 						   errarg->rel->remoterel.nspname,
 						   errarg->rel->remoterel.relname,
 						   errarg->remote_xid);
 			else
-				errcontext("processing remote data for replication origin \"%s\" during message type \"%s\" for replication target relation \"%s.%s\" in transaction %u, finished at %X/%08X",
+				errcontext("processing remote data for replication origin \"%s\" during message type \"%s\" for replication target relation \"%s.%s\" in transaction %" PRIu64 ", finished at %X/%08X",
 						   errarg->origin_name,
 						   logicalrep_message_type(errarg->command),
 						   errarg->rel->remoterel.nspname,
@@ -6206,7 +6206,7 @@ apply_error_callback(void *arg)
 		else
 		{
 			if (!XLogRecPtrIsValid(errarg->finish_lsn))
-				errcontext("processing remote data for replication origin \"%s\" during message type \"%s\" for replication target relation \"%s.%s\" column \"%s\" in transaction %u",
+				errcontext("processing remote data for replication origin \"%s\" during message type \"%s\" for replication target relation \"%s.%s\" column \"%s\" in transaction %" PRIu64,
 						   errarg->origin_name,
 						   logicalrep_message_type(errarg->command),
 						   errarg->rel->remoterel.nspname,
@@ -6214,7 +6214,7 @@ apply_error_callback(void *arg)
 						   errarg->rel->remoterel.attnames[errarg->remote_attnum],
 						   errarg->remote_xid);
 			else
-				errcontext("processing remote data for replication origin \"%s\" during message type \"%s\" for replication target relation \"%s.%s\" column \"%s\" in transaction %u, finished at %X/%08X",
+				errcontext("processing remote data for replication origin \"%s\" during message type \"%s\" for replication target relation \"%s.%s\" column \"%s\" in transaction %" PRIu64 ", finished at %X/%08X",
 						   errarg->origin_name,
 						   logicalrep_message_type(errarg->command),
 						   errarg->rel->remoterel.nspname,
