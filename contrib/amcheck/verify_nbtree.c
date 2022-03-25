@@ -453,7 +453,7 @@ bt_check_every_level(Relation rel, Relation heaprel, bool heapkeyspace,
 		 * seem worth using a secondary snapshot to avoid this.
 		 */
 		if (IsolationUsesXactSnapshot() && rel->rd_index->indcheckxmin &&
-			!TransactionIdPrecedes(HeapTupleHeaderGetXmin(rel->rd_indextuple->t_data),
+			!TransactionIdPrecedes(HeapTupleGetXmin(rel->rd_indextuple),
 								   state->snapshot->xmin))
 			ereport(ERROR,
 					errcode(ERRCODE_T_R_SERIALIZATION_FAILURE),

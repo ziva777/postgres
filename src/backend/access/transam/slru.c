@@ -1084,13 +1084,15 @@ SlruReportIOError(SlruCtl ctl, int64 pageno, TransactionId xid)
 		case SLRU_OPEN_FAILED:
 			ereport(ERROR,
 					(errcode_for_file_access(),
-					 errmsg("could not access status of transaction %u", xid),
+					 errmsg("could not access status of transaction %" PRIu64,
+							xid),
 					 errdetail("Could not open file \"%s\": %m.", path)));
 			break;
 		case SLRU_SEEK_FAILED:
 			ereport(ERROR,
 					(errcode_for_file_access(),
-					 errmsg("could not access status of transaction %u", xid),
+					 errmsg("could not access status of transaction %" PRIu64,
+							xid),
 					 errdetail("Could not seek in file \"%s\" to offset %d: %m.",
 							   path, offset)));
 			break;
@@ -1098,38 +1100,45 @@ SlruReportIOError(SlruCtl ctl, int64 pageno, TransactionId xid)
 			if (errno)
 				ereport(ERROR,
 						(errcode_for_file_access(),
-						 errmsg("could not access status of transaction %u", xid),
+						 errmsg("could not access status of transaction %" PRIu64,
+								xid),
 						 errdetail("Could not read from file \"%s\" at offset %d: %m.",
 								   path, offset)));
 			else
 				ereport(ERROR,
-						(errmsg("could not access status of transaction %u", xid),
-						 errdetail("Could not read from file \"%s\" at offset %d: read too few bytes.", path, offset)));
+						(errmsg("could not access status of transaction %" PRIu64,
+								xid),
+						 errdetail("Could not read from file \"%s\" at offset %d: read too few bytes.",
+								   path, offset)));
 			break;
 		case SLRU_WRITE_FAILED:
 			if (errno)
 				ereport(ERROR,
 						(errcode_for_file_access(),
-						 errmsg("could not access status of transaction %u", xid),
+						 errmsg("could not access status of transaction %" PRIu64,
+								xid),
 						 errdetail("Could not write to file \"%s\" at offset %d: %m.",
 								   path, offset)));
 			else
 				ereport(ERROR,
-						(errmsg("could not access status of transaction %u", xid),
+						(errmsg("could not access status of transaction %" PRIu64,
+								xid),
 						 errdetail("Could not write to file \"%s\" at offset %d: wrote too few bytes.",
 								   path, offset)));
 			break;
 		case SLRU_FSYNC_FAILED:
 			ereport(data_sync_elevel(ERROR),
 					(errcode_for_file_access(),
-					 errmsg("could not access status of transaction %u", xid),
+					 errmsg("could not access status of transaction %" PRIu64,
+							xid),
 					 errdetail("Could not fsync file \"%s\": %m.",
 							   path)));
 			break;
 		case SLRU_CLOSE_FAILED:
 			ereport(ERROR,
 					(errcode_for_file_access(),
-					 errmsg("could not access status of transaction %u", xid),
+					 errmsg("could not access status of transaction %" PRIu64,
+							xid),
 					 errdetail("Could not close file \"%s\": %m.",
 							   path)));
 			break;
@@ -1653,7 +1662,7 @@ SlruPagePrecedesTestOffset(SlruCtl ctl, int per_page, uint32 offset)
 	 * must not assign.
 	 */
 	lhs = per_page + offset;	/* skip first page to avoid non-normal XIDs */
-	rhs = lhs + (1U << 31);
+	rhs = lhs + (1ULL << 63);
 	Assert(TransactionIdPrecedes(lhs, rhs));
 	Assert(TransactionIdPrecedes(rhs, lhs));
 	Assert(!TransactionIdPrecedes(lhs - 1, rhs));
@@ -1669,12 +1678,13 @@ SlruPagePrecedesTestOffset(SlruCtl ctl, int per_page, uint32 offset)
 	Assert(ctl->PagePrecedes(rhs / per_page, (lhs - 3 * per_page) / per_page));
 	Assert(ctl->PagePrecedes(rhs / per_page, (lhs - 2 * per_page) / per_page));
 	Assert(ctl->PagePrecedes(rhs / per_page, (lhs - 1 * per_page) / per_page)
-		   || (1U << 31) % per_page != 0);	/* See CommitTsPagePrecedes() */
+		   || (1ULL << 63) % per_page != 0);	/* See CommitTsPagePrecedes() */
 	Assert(ctl->PagePrecedes((lhs + 1 * per_page) / per_page, rhs / per_page)
-		   || (1U << 31) % per_page != 0);
+		   || (1ULL << 63) % per_page != 0);
 	Assert(ctl->PagePrecedes((lhs + 2 * per_page) / per_page, rhs / per_page));
 	Assert(ctl->PagePrecedes((lhs + 3 * per_page) / per_page, rhs / per_page));
 	Assert(!ctl->PagePrecedes(rhs / per_page, (lhs + per_page) / per_page));
+
 
 	/*
 	 * GetNewTransactionId() has assigned the last XID it can safely use, and
@@ -1685,7 +1695,7 @@ SlruPagePrecedesTestOffset(SlruCtl ctl, int per_page, uint32 offset)
 	newestXact = newestPage * per_page + offset;
 	Assert(newestXact / per_page == newestPage);
 	oldestXact = newestXact + 1;
-	oldestXact -= 1U << 31;
+	oldestXact -= 1ULL << 63;
 	oldestPage = oldestXact / per_page;
 	Assert(!SlruMayDeleteSegment(ctl,
 								 (newestPage -
@@ -1701,7 +1711,7 @@ SlruPagePrecedesTestOffset(SlruCtl ctl, int per_page, uint32 offset)
 	newestXact = newestPage * per_page + offset;
 	Assert(newestXact / per_page == newestPage);
 	oldestXact = newestXact + 1;
-	oldestXact -= 1U << 31;
+	oldestXact -= 1ULL << 63;
 	oldestPage = oldestXact / per_page;
 	Assert(!SlruMayDeleteSegment(ctl,
 								 (newestPage -

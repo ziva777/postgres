@@ -222,13 +222,14 @@ errdetail_apply_conflict(EState *estate, ResultRelInfo *relinfo,
 			if (localts)
 			{
 				if (localorigin == InvalidRepOriginId)
-					appendStringInfo(&err_detail, _("Key already exists in unique index \"%s\", modified locally in transaction %u at %s."),
-									 get_rel_name(indexoid),
-									 localxmin, timestamptz_to_str(localts));
+					appendStringInfo(&err_detail, _("Key already exists in unique index \"%s\", modified locally in transaction %" PRIu64 " at %s."),
+									 get_rel_name(indexoid), localxmin,
+									 timestamptz_to_str(localts));
 				else if (replorigin_by_oid(localorigin, true, &origin_name))
-					appendStringInfo(&err_detail, _("Key already exists in unique index \"%s\", modified by origin \"%s\" in transaction %u at %s."),
+					appendStringInfo(&err_detail, _("Key already exists in unique index \"%s\", modified by origin \"%s\" in transaction %" PRIu64 " at %s."),
 									 get_rel_name(indexoid), origin_name,
-									 localxmin, timestamptz_to_str(localts));
+									 localxmin,
+									 timestamptz_to_str(localts));
 
 				/*
 				 * The origin that modified this row has been removed. This
@@ -238,27 +239,29 @@ errdetail_apply_conflict(EState *estate, ResultRelInfo *relinfo,
 				 * manually dropped by the user.
 				 */
 				else
-					appendStringInfo(&err_detail, _("Key already exists in unique index \"%s\", modified by a non-existent origin in transaction %u at %s."),
-									 get_rel_name(indexoid),
-									 localxmin, timestamptz_to_str(localts));
+					appendStringInfo(&err_detail, _("Key already exists in unique index \"%s\", modified by a non-existent origin in transaction %" PRIu64 " at %s."),
+									 get_rel_name(indexoid), localxmin,
+									 timestamptz_to_str(localts));
 			}
 			else
-				appendStringInfo(&err_detail, _("Key already exists in unique index \"%s\", modified in transaction %u."),
+				appendStringInfo(&err_detail, _("Key already exists in unique index \"%s\", modified in transaction %" PRIu64 "."),
 								 get_rel_name(indexoid), localxmin);
 
 			break;
 
 		case CT_UPDATE_ORIGIN_DIFFERS:
 			if (localorigin == InvalidRepOriginId)
-				appendStringInfo(&err_detail, _("Updating the row that was modified locally in transaction %u at %s."),
-								 localxmin, timestamptz_to_str(localts));
+				appendStringInfo(&err_detail, _("Updating the row that was modified locally in transaction %" PRIu64 " at %s."),
+								 localxmin,
+								 timestamptz_to_str(localts));
 			else if (replorigin_by_oid(localorigin, true, &origin_name))
-				appendStringInfo(&err_detail, _("Updating the row that was modified by a different origin \"%s\" in transaction %u at %s."),
-								 origin_name, localxmin, timestamptz_to_str(localts));
+				appendStringInfo(&err_detail, _("Updating the row that was modified by a different origin \"%s\" in transaction %" PRIu64 " at %s."),
+								 origin_name, localxmin,
+								 timestamptz_to_str(localts));
 
 			/* The origin that modified this row has been removed. */
 			else
-				appendStringInfo(&err_detail, _("Updating the row that was modified by a non-existent origin in transaction %u at %s."),
+				appendStringInfo(&err_detail, _("Updating the row that was modified by a non-existent origin in transaction %" PRIu64 " at %s."),
 								 localxmin, timestamptz_to_str(localts));
 
 			break;
@@ -267,15 +270,15 @@ errdetail_apply_conflict(EState *estate, ResultRelInfo *relinfo,
 			if (localts)
 			{
 				if (localorigin == InvalidRepOriginId)
-					appendStringInfo(&err_detail, _("The row to be updated was deleted locally in transaction %u at %s."),
+					appendStringInfo(&err_detail, _("The row to be updated was deleted locally in transaction %" PRIu64 " at %s."),
 									 localxmin, timestamptz_to_str(localts));
 				else if (replorigin_by_oid(localorigin, true, &origin_name))
-					appendStringInfo(&err_detail, _("The row to be updated was deleted by a different origin \"%s\" in transaction %u at %s."),
+					appendStringInfo(&err_detail, _("The row to be updated was deleted by a different origin \"%s\" in transaction %" PRIu64 " at %s."),
 									 origin_name, localxmin, timestamptz_to_str(localts));
 
 				/* The origin that modified this row has been removed. */
 				else
-					appendStringInfo(&err_detail, _("The row to be updated was deleted by a non-existent origin in transaction %u at %s."),
+					appendStringInfo(&err_detail, _("The row to be updated was deleted by a non-existent origin in transaction %" PRIu64 " at %s."),
 									 localxmin, timestamptz_to_str(localts));
 			}
 			else
@@ -289,15 +292,17 @@ errdetail_apply_conflict(EState *estate, ResultRelInfo *relinfo,
 
 		case CT_DELETE_ORIGIN_DIFFERS:
 			if (localorigin == InvalidRepOriginId)
-				appendStringInfo(&err_detail, _("Deleting the row that was modified locally in transaction %u at %s."),
-								 localxmin, timestamptz_to_str(localts));
+				appendStringInfo(&err_detail, _("Deleting the row that was modified locally in transaction %" PRIu64 " at %s."),
+								 localxmin,
+								 timestamptz_to_str(localts));
 			else if (replorigin_by_oid(localorigin, true, &origin_name))
-				appendStringInfo(&err_detail, _("Deleting the row that was modified by a different origin \"%s\" in transaction %u at %s."),
-								 origin_name, localxmin, timestamptz_to_str(localts));
+				appendStringInfo(&err_detail, _("Deleting the row that was modified by a different origin \"%s\" in transaction %" PRIu64 " at %s."),
+								 origin_name, localxmin,
+								 timestamptz_to_str(localts));
 
 			/* The origin that modified this row has been removed. */
 			else
-				appendStringInfo(&err_detail, _("Deleting the row that was modified by a non-existent origin in transaction %u at %s."),
+				appendStringInfo(&err_detail, _("Deleting the row that was modified by a non-existent origin in transaction %" PRIu64 " at %s."),
 								 localxmin, timestamptz_to_str(localts));
 
 			break;

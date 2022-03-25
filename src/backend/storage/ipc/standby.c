@@ -522,8 +522,8 @@ ResolveRecoveryConflictWithSnapshotFullXid(FullTransactionId snapshotConflictHor
 	FullTransactionId nextXid = ReadNextFullTransactionId();
 	uint64		diff;
 
-	diff = U64FromFullTransactionId(nextXid) -
-		U64FromFullTransactionId(snapshotConflictHorizon);
+	diff = XidFromFullTransactionId(nextXid) -
+		XidFromFullTransactionId(snapshotConflictHorizon);
 	if (diff < MaxTransactionId / 2)
 	{
 		TransactionId truncated;
@@ -1042,15 +1042,17 @@ StandbyReleaseXidEntryLocks(RecoveryLockXidEntry *xidentry)
 		LOCKTAG		locktag;
 
 		elog(DEBUG4,
-			 "releasing recovery lock: xid %u db %u rel %u",
-			 entry->key.xid, entry->key.dbOid, entry->key.relOid);
+			 "releasing recovery lock: xid %" PRIu64 " db %u rel %u",
+			 entry->key.xid, entry->key.dbOid,
+			 entry->key.relOid);
 		/* Release the lock ... */
 		SET_LOCKTAG_RELATION(locktag, entry->key.dbOid, entry->key.relOid);
 		if (!LockRelease(&locktag, AccessExclusiveLock, true))
 		{
 			elog(LOG,
-				 "RecoveryLockHash contains entry for lock no longer recorded by lock manager: xid %u database %u relation %u",
-				 entry->key.xid, entry->key.dbOid, entry->key.relOid);
+				 "RecoveryLockHash contains entry for lock no longer recorded by lock manager: xid %" PRIu64 " database %u relation %u",
+				 entry->key.xid, entry->key.dbOid,
+				 entry->key.relOid);
 			Assert(false);
 		}
 		/* ... and remove the per-lock hash entry */
@@ -1377,7 +1379,7 @@ LogCurrentRunningXacts(RunningTransactions CurrRunningXacts)
 
 	if (xlrec.subxid_overflow)
 		elog(DEBUG2,
-			 "snapshot of %d running transactions overflowed (lsn %X/%08X oldest xid %u latest complete %u next xid %u)",
+			 "snapshot of %d running transactions overflowed (lsn %X/%08X oldest xid %" PRIu64 " latest complete %" PRIu64 " next xid %" PRIu64 ")",
 			 CurrRunningXacts->xcnt,
 			 LSN_FORMAT_ARGS(recptr),
 			 CurrRunningXacts->oldestRunningXid,
@@ -1385,7 +1387,7 @@ LogCurrentRunningXacts(RunningTransactions CurrRunningXacts)
 			 CurrRunningXacts->nextXid);
 	else
 		elog(DEBUG2,
-			 "snapshot of %d+%d running transaction ids (lsn %X/%08X oldest xid %u latest complete %u next xid %u)",
+			 "snapshot of %d+%d running transaction ids (lsn %X/%08X oldest xid %" PRIu64 " latest complete %" PRIu64 " next xid %" PRIu64 ")",
 			 CurrRunningXacts->xcnt, CurrRunningXacts->subxcnt,
 			 LSN_FORMAT_ARGS(recptr),
 			 CurrRunningXacts->oldestRunningXid,
