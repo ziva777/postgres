@@ -136,16 +136,13 @@ consume_xids_common(FullTransactionId untilxid, uint64 nxids)
 		if (consumed - last_reported_at >= REPORT_INTERVAL)
 		{
 			if (nxids > 0)
-				elog(NOTICE, "consumed %" PRIu64 " / %" PRIu64 " XIDs, latest %u:%u",
+				elog(NOTICE, "consumed %" PRIu64 " / %" PRIu64 " XIDs, latest %" PRIu64,
 					 consumed, nxids,
-					 EpochFromFullTransactionId(lastxid),
-					 XidFromFullTransactionId(lastxid));
+					 U64FromFullTransactionId(lastxid));
 			else
-				elog(NOTICE, "consumed up to %u:%u / %u:%u",
-					 EpochFromFullTransactionId(lastxid),
-					 XidFromFullTransactionId(lastxid),
-					 EpochFromFullTransactionId(untilxid),
-					 XidFromFullTransactionId(untilxid));
+				elog(NOTICE, "consumed up to %" PRIu64 " / %" PRIu64,
+					 U64FromFullTransactionId(lastxid),
+					 U64FromFullTransactionId(untilxid));
 			last_reported_at = consumed;
 		}
 	}

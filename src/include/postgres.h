@@ -90,6 +90,9 @@ typedef struct NullableDatum
 	/* due to alignment padding this could be used for flags for free */
 } NullableDatum;
 
+static uint64 DatumGetUInt64(Datum X);
+static Datum UInt64GetDatum(uint64 X);
+
 /*
  * DatumGetBool
  *		Returns boolean value of a datum.
@@ -291,7 +294,7 @@ ObjectId8GetDatum(Oid8 X)
 static inline TransactionId
 DatumGetTransactionId(Datum X)
 {
-	return (TransactionId) X;
+	return DatumGetUInt64(X);
 }
 
 /*
@@ -301,7 +304,7 @@ DatumGetTransactionId(Datum X)
 static inline Datum
 TransactionIdGetDatum(TransactionId X)
 {
-	return (Datum) X;
+	return UInt64GetDatum(X);
 }
 
 /*
@@ -311,7 +314,7 @@ TransactionIdGetDatum(TransactionId X)
 static inline Datum
 MultiXactIdGetDatum(MultiXactId X)
 {
-	return (Datum) X;
+	return UInt64GetDatum(X);
 }
 
 /*
