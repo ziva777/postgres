@@ -31,6 +31,7 @@ typedef enum relopt_type
 	RELOPT_TYPE_BOOL,
 	RELOPT_TYPE_TERNARY,		/* on, off, unset */
 	RELOPT_TYPE_INT,
+	RELOPT_TYPE_INT64,
 	RELOPT_TYPE_REAL,
 	RELOPT_TYPE_ENUM,
 	RELOPT_TYPE_STRING,
@@ -83,6 +84,7 @@ typedef struct relopt_value
 		bool		bool_val;
 		pg_ternary	ternary_val;
 		int			int_val;
+		int64		int64_val;
 		double		real_val;
 		int			enum_val;
 		char	   *string_val; /* allocated separately */
@@ -109,6 +111,14 @@ typedef struct relopt_int
 	int			min;
 	int			max;
 } relopt_int;
+
+typedef struct relopt_int64
+{
+	relopt_gen	gen;
+	int64		default_val;
+	int64		min;
+	int64		max;
+} relopt_int64;
 
 typedef struct relopt_real
 {
@@ -195,6 +205,9 @@ extern void add_ternary_reloption(bits32 kinds, const char *name,
 extern void add_int_reloption(bits32 kinds, const char *name, const char *desc,
 							  int default_val, int min_val, int max_val,
 							  LOCKMODE lockmode);
+extern void add_int64_reloption(bits32 kinds, const char *name, char *desc,
+								int64 default_val, int64 min_val, int64 max_val,
+								LOCKMODE lockmode);
 extern void add_real_reloption(bits32 kinds, const char *name, const char *desc,
 							   double default_val, double min_val, double max_val,
 							   LOCKMODE lockmode);

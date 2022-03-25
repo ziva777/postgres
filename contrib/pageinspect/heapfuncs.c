@@ -204,13 +204,16 @@ heap_page_items(PG_FUNCTION_ARGS)
 			lp_offset == MAXALIGN(lp_offset) &&
 			lp_offset + lp_len <= BLCKSZ)
 		{
+			HeapTupleData tup;
 			HeapTupleHeader tuphdr;
 
 			/* Extract information from the tuple header */
 			tuphdr = (HeapTupleHeader) PageGetItem(page, id);
+			tup.t_data = tuphdr;
+			HeapTupleCopyXidsFromPage(InvalidBuffer, &tup, page);
 
-			values[4] = UInt32GetDatum(HeapTupleHeaderGetRawXmin(tuphdr));
-			values[5] = UInt32GetDatum(HeapTupleHeaderGetRawXmax(tuphdr));
+			values[4] = TransactionIdGetDatum(HeapTupleGetXmin(&tup));
+			values[5] = TransactionIdGetDatum(HeapTupleGetRawXmax(&tup));
 			/* shared with xvac */
 			values[6] = UInt32GetDatum(HeapTupleHeaderGetRawCommandId(tuphdr));
 			values[7] = PointerGetDatum(&tuphdr->t_ctid);
