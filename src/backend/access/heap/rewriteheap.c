@@ -710,9 +710,7 @@ raw_heap_insert(RewriteState state, HeapTuple tup)
 		state->rs_buffer_valid = true;
 	}
 
-	rewrite_page_prepare_for_xid(page, HeapTupleGetXmin(heaptup), false);
-	rewrite_page_prepare_for_xid(page, HeapTupleGetRawXmax(heaptup),
-								 (heaptup->t_data->t_infomask & HEAP_XMAX_IS_MULTI) ? true : false);
+	rewrite_page_prepare_for_xid(page, heaptup);
 
 	xmin = HeapTupleGetXmin(heaptup);
 	xmax = HeapTupleGetRawXmax(heaptup);

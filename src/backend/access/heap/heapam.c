@@ -59,6 +59,7 @@
 #include "pgstat.h"
 #include "port/atomics.h"
 #include "port/pg_bitutils.h"
+#include "storage/buf_internals.h"
 #include "storage/bufmgr.h"
 #include "storage/freespace.h"
 #include "storage/lmgr.h"
@@ -2234,26 +2235,24 @@ heap_insert(Relation relation, HeapTuple tup, CommandId cid,
 	}
 }
 
-static bool
+static void
 xid_min_max(ShortTransactionId *min, ShortTransactionId *max,
 			ShortTransactionId xid,
-			bool found)
+			bool *found)
 {
 	Assert(TransactionIdIsNormal(xid));
 	Assert(xid <= MaxShortTransactionId);
 
-	if (!found)
+	if (!*found)
 	{
 		*min = *max = xid;
-		found = true;
+		*found = true;
 	}
 	else
 	{
 		*min = Min(*min, xid);
 		*max = Max(*max, xid);
 	}
-
-	return found;
 }
 
 /*
@@ -2285,41 +2284,37 @@ heap_page_xid_min_max(Page page, bool multi,
 
 		if (!multi)
 		{
-			if (!HeapTupleHeaderXminFrozen(htup) &&
-				TransactionIdIsNormal(htup->t_choice.t_heap.t_xmin))
+			if (TransactionIdIsNormal(htup->t_choice.t_heap.t_xmin) &&
+				!HeapTupleHeaderXminFrozen(htup))
 			{
-				found = xid_min_max(min, max, htup->t_choice.t_heap.t_xmin, found);
+				xid_min_max(min, max, htup->t_choice.t_heap.t_xmin, &found);
 			}
 
-			if (htup->t_infomask & HEAP_XMAX_IS_MULTI)
-			{
-				if (!(htup->t_infomask & (HEAP_XMAX_INVALID | HEAP_XMAX_LOCK_ONLY)))
-				{
-					TransactionId			update_xid;
-					ShortTransactionId		xid;
+			if (htup->t_infomask & HEAP_XMAX_INVALID)
+				continue;
 
-					update_xid = MultiXactIdGetUpdateXid(HeapTupleHeaderGetRawXmax(page, htup),
-														 htup->t_infomask);
-					xid = NormalTransactionIdToShort(HeapPageGetSpecial(page)->pd_xid_base,
-													 update_xid);
-
-					found = xid_min_max(min, max, xid, found);
-				}
-			}
-			else if (!(htup->t_infomask & HEAP_XMAX_INVALID) &&
-					 TransactionIdIsNormal(htup->t_choice.t_heap.t_xmax))
+			if ((htup->t_infomask & HEAP_XMAX_IS_MULTI) &&
+				(!(htup->t_infomask & HEAP_XMAX_LOCK_ONLY)))
 			{
-				found = xid_min_max(min, max, htup->t_choice.t_heap.t_xmax, found);
+				TransactionId			update_xid;
+				ShortTransactionId		xid;
+
+				update_xid = MultiXactIdGetUpdateXid(HeapTupleHeaderGetRawXmax(page, htup),
+													 htup->t_infomask);
+				xid = NormalTransactionIdToShort(HeapPageGetSpecial(page)->pd_xid_base,
+												 update_xid);
+
+				xid_min_max(min, max, xid, &found);
 			}
 		}
-		else
-		{
-			if (TransactionIdIsNormal(htup->t_choice.t_heap.t_xmax) &&
-				(htup->t_infomask & HEAP_XMAX_IS_MULTI))
-			{
-				found = xid_min_max(min, max, htup->t_choice.t_heap.t_xmax, found);
-			}
-		}
+
+		if (!TransactionIdIsNormal(htup->t_choice.t_heap.t_xmax))
+			continue;
+
+		if (multi != (bool) (htup->t_infomask & HEAP_XMAX_IS_MULTI))
+			continue;
+
+		xid_min_max(min, max, htup->t_choice.t_heap.t_xmax, &found);
 	}
 
 	Assert(!found || (*min > InvalidTransactionId && *max <= MaxShortTransactionId));
@@ -2359,32 +2354,26 @@ heap_page_shift_base(Relation relation, Buffer buffer, Page page,
 		/* Apply xid shift to heap tuple */
 		if (!multi)
 		{
-			if (!HeapTupleHeaderXminFrozen(htup) &&
-				TransactionIdIsNormal(htup->t_choice.t_heap.t_xmin))
+			/* shift xmin */
+			if (TransactionIdIsNormal(htup->t_choice.t_heap.t_xmin) &&
+				!HeapTupleHeaderXminFrozen(htup))
 			{
 				Assert(htup->t_choice.t_heap.t_xmin - delta >= FirstNormalTransactionId);
 				Assert(htup->t_choice.t_heap.t_xmin - delta <= MaxShortTransactionId);
 				htup->t_choice.t_heap.t_xmin -= delta;
 			}
+		}
 
-			if (TransactionIdIsNormal(htup->t_choice.t_heap.t_xmax) &&
-				!(htup->t_infomask & HEAP_XMAX_IS_MULTI))
-			{
-				Assert(htup->t_choice.t_heap.t_xmax - delta >= FirstNormalTransactionId);
-				Assert(htup->t_choice.t_heap.t_xmax - delta <= MaxShortTransactionId);
-				htup->t_choice.t_heap.t_xmax -= delta;
-			}
-		}
-		else
-		{
-			if (TransactionIdIsNormal(htup->t_choice.t_heap.t_xmax) &&
-				(htup->t_infomask & HEAP_XMAX_IS_MULTI))
-			{
-				Assert(htup->t_choice.t_heap.t_xmax - delta >= FirstNormalTransactionId);
-				Assert(htup->t_choice.t_heap.t_xmax - delta <= MaxShortTransactionId);
-				htup->t_choice.t_heap.t_xmax -= delta;
-			}
-		}
+		/* shift xmax */
+		if (!TransactionIdIsNormal(htup->t_choice.t_heap.t_xmax))
+			continue;
+
+		if (multi != (bool) (htup->t_infomask & HEAP_XMAX_IS_MULTI))
+			continue;
+
+		Assert(htup->t_choice.t_heap.t_xmax - delta >= FirstNormalTransactionId);
+		Assert(htup->t_choice.t_heap.t_xmax - delta <= MaxShortTransactionId);
+		htup->t_choice.t_heap.t_xmax -= delta;
 	}
 
 	/* Apply xid shift to base as well */
@@ -2402,12 +2391,11 @@ heap_page_shift_base(Relation relation, Buffer buffer, Page page,
 		XLogRecPtr			recptr;
 		xl_heap_base_shift	xlrec;
 
-		xlrec.multi = multi;
 		xlrec.delta = delta;
+		xlrec.multi = multi;
 
 		XLogBeginInsert();
 		XLogRegisterData((char *) &xlrec, SizeOfHeapBaseShift);
-
 		XLogRegisterBuffer(0, buffer, REGBUF_STANDARD);
 
 		recptr = XLogInsert(RM_HEAP3_ID, XLOG_HEAP3_BASE_SHIFT);
@@ -2530,21 +2518,132 @@ freeze_single_heap_page(Relation relation, Buffer buffer)
 }
 
 static void
-heap_page_apply_delta(Relation relation, Buffer buffer,
+heap_page_apply_delta(Relation relation, Buffer buffer, Page page,
 					  TransactionId xid, bool multi,
 					  TransactionId base, int64 delta)
 {
-	Page				page = BufferGetPage(buffer);
-	HeapPageSpecial		pageSpecial = HeapPageGetSpecial(page);
-
 	Assert(xid >= base + delta + FirstNormalTransactionId);
 	Assert(xid <= base + delta + MaxShortTransactionId);
 
 	heap_page_shift_base(relation, buffer, page, multi, delta);
 
-	base = multi ? pageSpecial->pd_multi_base : pageSpecial->pd_xid_base;
+#ifdef USE_ASSERT_CHECKING
+	base = multi ?
+			HeapPageGetSpecial(page)->pd_multi_base :
+			HeapPageGetSpecial(page)->pd_xid_base;
 	Assert(xid >= base + FirstNormalTransactionId);
 	Assert(xid <= base + MaxShortTransactionId);
+#endif /* USE_ASSERT_CHECKING */
+}
+
+static void
+heap_page_check_delta(Relation relation, Buffer buffer,
+					  TransactionId xid, TransactionId base,
+					  ShortTransactionId min, ShortTransactionId max,
+					  int64 delta, int64 *freeDelta, int64 *requiredDelta)
+{
+	BufferDesc	   *buf;
+	char		   *path;
+	BackendId		backend;
+
+	Assert((freeDelta == NULL) == (requiredDelta == NULL));
+
+	if (xid >= base + delta + FirstNormalTransactionId &&
+		xid <= base + delta + MaxShortTransactionId)
+	{
+		return;
+	}
+
+	if (buffer == InvalidBuffer)
+		return;
+
+	if (BufferIsLocal(buffer))
+	{
+		buf = GetLocalBufferDescriptor(-buffer - 1);
+		backend = MyBackendId;
+	}
+	else
+	{
+		buf = GetBufferDescriptor(buffer - 1);
+		backend = InvalidBackendId;
+	}
+
+	path = relpathbackend(buf->tag.rnode, backend, buf->tag.forkNum);
+
+	if (freeDelta == NULL)
+		elog(FATAL, "Fatal xid base calculation error: xid = %llu, base = %llu, min = %u, max = %u, delta = %lld (rel=%s, blockNum=%u)",
+					(unsigned long long) xid, (unsigned long long) base,
+					min, max,
+					(long long) delta,
+					path, buf->tag.blockNum);
+	else
+		elog(FATAL, "Fatal xid base calculation error: xid = %llu, base = %llu, min = %u, max = %u, freeDelta = %lld, requiredDelta = %lld, delta = %lld (rel=%s, blockNum=%u)",
+					(unsigned long long) xid, (unsigned long long) base,
+					min, max,
+					(long long) *freeDelta, (long long) *requiredDelta,
+					(long long) delta,
+					path, buf->tag.blockNum);
+}
+
+static int
+heap_page_try_prepare_for_xid(Relation relation, Buffer buffer, Page page,
+							  TransactionId xid, bool multi)
+{
+	HeapPageSpecial		pageSpecial = HeapPageGetSpecial(page);
+	TransactionId		base;
+	ShortTransactionId	min = InvalidTransactionId,
+						max = InvalidTransactionId;
+	int64				delta,
+						freeDelta,
+						requiredDelta;
+
+	base = multi ? pageSpecial->pd_multi_base : pageSpecial->pd_xid_base;
+	/* If xid fits the page no action needed. */
+	if (xid >= base + FirstNormalTransactionId &&
+		xid <= base + MaxShortTransactionId)
+	{
+		return 0;
+	}
+
+	/* No items on the page? */
+	if (!heap_page_xid_min_max(page, multi, &min, &max))
+	{
+		delta = (int64) (xid - FirstNormalTransactionId) - (int64) base;
+		heap_page_check_delta(relation, buffer, xid, base, min, max, delta,
+							  NULL, NULL);
+		heap_page_apply_delta(relation, buffer, page, xid, multi, base, delta);
+		return 0;
+	}
+
+	/* Can we just shift base on the page? */
+	if (xid < base + FirstNormalTransactionId)
+	{
+		freeDelta = MaxShortTransactionId - max;
+		requiredDelta = (base + FirstNormalTransactionId) - xid;
+		/* Shouldn't consider setting base less than 0 */
+		freeDelta = Min(freeDelta, base);
+
+		if (requiredDelta > freeDelta)
+			return -1;
+
+		delta  = -(freeDelta + requiredDelta) / 2;
+	}
+	else
+	{
+		freeDelta = min - FirstNormalTransactionId;
+		requiredDelta = xid - (base + MaxShortTransactionId);
+
+		if (requiredDelta > freeDelta)
+			return -1;
+
+		delta = (freeDelta + requiredDelta) / 2;
+	}
+
+	heap_page_check_delta(relation, buffer, xid, base, min, max,
+						  delta, &freeDelta, &requiredDelta);
+	heap_page_apply_delta(relation, buffer, page, xid, multi, base, delta);
+
+	return 1;
 }
 
 /*
@@ -2555,12 +2654,7 @@ heap_page_prepare_for_xid(Relation relation, Buffer buffer,
 						  TransactionId xid, bool multi)
 {
 	Page				page = BufferGetPage(buffer);
-	HeapPageSpecial		pageSpecial = HeapPageGetSpecial(page);
-	TransactionId		base;
-	bool				found;
-	ShortTransactionId	min = InvalidTransactionId,
-						max = InvalidTransactionId;
-	int					i;
+	int					res;
 
 	/* "Double xmax" page format doesn't require any preparation */
 	if (HeapPageIsDoubleXmax(page))
@@ -2569,168 +2663,50 @@ heap_page_prepare_for_xid(Relation relation, Buffer buffer,
 	if (!TransactionIdIsNormal(xid))
 		return false;
 
-	for (i = 0; i < 2; i++)
-	{
-		base = multi ? pageSpecial->pd_multi_base : pageSpecial->pd_xid_base;
+	res = heap_page_try_prepare_for_xid(relation, buffer, page, xid, multi);
+	if (res != -1)
+		return res == 1;
 
-		/* Can we already store this xid? */
-		if (xid >= base + FirstNormalTransactionId && xid <= base + MaxShortTransactionId)
-			return false;
+	/* Have to try freeing the page... */
+	freeze_single_heap_page(relation, buffer);
 
-		/* Find minimum and maximum xids in the page */
-		found = heap_page_xid_min_max(page, multi, &min, &max);
+	res = heap_page_try_prepare_for_xid(relation, buffer, page, xid, multi);
+	if (res != -1)
+		return res == 1;
 
-		/* No items on the page? */
-		if (!found)
-		{
-			int64		delta;
+	elog(ERROR, "could not fit xid into page");
 
-			delta = (int64) (xid - FirstNormalTransactionId) - (int64) base;
-
-			if (xid < base + delta + FirstNormalTransactionId ||
-				xid > base + delta + MaxShortTransactionId)
-			{
-				elog(FATAL, "Fatal xid base calculation error: xid = %llu, base = %llu, min = %u, max = %u, delta = %lld",
-					 (unsigned long long) xid, (unsigned long long) base,
-					 min, max,
-					 (long long) delta);
-			}
-
-			heap_page_apply_delta(relation, buffer, xid, multi, base, delta);
-			return false;
-		}
-
-		/* Can we just shift base on the page */
-		if (xid < base + FirstNormalTransactionId)
-		{
-			int64		freeDelta = MaxShortTransactionId - max,
-						requiredDelta = (base + FirstNormalTransactionId) - xid;
-
-			/* Shouldn't consider setting base less than 0 */
-			freeDelta = Min(freeDelta, base);
-
-			if (requiredDelta <= freeDelta)
-			{
-				int64		delta = -(freeDelta + requiredDelta) / 2;
-
-				if (xid < base + delta + FirstNormalTransactionId ||
-					xid > base + delta + MaxShortTransactionId)
-				{
-					elog(FATAL, "Fatal xid base calculation error: xid = %llu, base = %llu, min = %u, max = %u, freeDelta = %lld, requiredDelta = %lld, delta = %lld",
-						 (unsigned long long) xid, (unsigned long long) base,
-						 min, max,
-						 (long long) freeDelta, (long long) requiredDelta,
-						 (long long) delta);
-				}
-
-				heap_page_apply_delta(relation, buffer, xid, multi, base, delta);
-				return true;
-			}
-		}
-		else
-		{
-			int64		freeDelta = min - FirstNormalTransactionId,
-						requiredDelta = xid - (base + MaxShortTransactionId);
-
-			Assert(xid > base + MaxShortTransactionId);
-
-			if (requiredDelta <= freeDelta)
-			{
-				int64		delta = (freeDelta + requiredDelta) / 2;
-
-				if (xid < base + delta + FirstNormalTransactionId ||
-					xid > base + delta + MaxShortTransactionId)
-				{
-					elog(FATAL, "Fatal xid base calculation error: xid = %llu, base = %llu, min = %u, max = %u, freeDelta = %lld, requiredDelta = %lld, delta = %lld",
-						 (unsigned long long) xid, (unsigned long long) base,
-						 min, max,
-						 (long long) freeDelta, (long long) requiredDelta,
-						 (long long) delta);
-				}
-
-				heap_page_apply_delta(relation, buffer, xid, multi, base, delta);
-				return true;
-			}
-		}
-
-		if (i == 1)
-		{
-			break;
-		}
-
-		/* Have to try freeing the page... */
-		freeze_single_heap_page(relation, buffer);
-	}
-
-	elog(ERROR, "Can't fit xid into page.");
 	return false;
 }
 
 /*
  * Ensure that given xid fits base of given page.
  */
-bool
-rewrite_page_prepare_for_xid(Page page, TransactionId xid, bool multi)
+void
+rewrite_page_prepare_for_xid(Page page, HeapTuple tup)
 {
-	HeapPageSpecial		pageSpecial = HeapPageGetSpecial(page);
-	TransactionId		base;
-	bool				found;
-	ShortTransactionId	min,
-						max;
+	TransactionId	xid;
+	int				res;
 
-	if (!TransactionIdIsNormal(xid))
-		return false;
-
-	if (!multi)
-		base = pageSpecial->pd_xid_base;
-	else
-		base = pageSpecial->pd_multi_base;
-
-	/* Can we already store this xid? */
-	if (xid >= base + FirstNormalTransactionId && xid <= base + MaxShortTransactionId)
-		return false;
-
-	/* Find minimum and maximum xids in the page */
-	found = heap_page_xid_min_max(page, multi, &min, &max);
-
-	/* No items on the page? */
-	if (!found)
+	/* xmin */
+	xid = HeapTupleGetXmin(tup);
+	if (TransactionIdIsNormal(xid))
 	{
-		if (!multi)
-			pageSpecial->pd_xid_base = xid - FirstNormalTransactionId;
-		else
-			pageSpecial->pd_multi_base = xid - FirstNormalTransactionId;
-		return false;
+		res = heap_page_try_prepare_for_xid(NULL, InvalidBuffer, page, xid,
+											false);
+		if (res == -1)
+			elog(ERROR, "could not fit xid into page");
 	}
 
-	/* Can we just shift base on the page */
-	if (xid < base + FirstNormalTransactionId)
+	/* xmax */
+	xid = HeapTupleGetRawXmax(tup);
+	if (TransactionIdIsNormal(xid))
 	{
-		int64		freeDelta = MaxShortTransactionId - max,
-					requiredDelta = (base + FirstNormalTransactionId) - xid;
-
-		if (requiredDelta <= freeDelta)
-		{
-			heap_page_shift_base(NULL, InvalidBuffer,
-								 page, multi, -(freeDelta + requiredDelta) / 2);
-			return true;
-		}
+		res = heap_page_try_prepare_for_xid(NULL, InvalidBuffer, page, xid,
+											tup->t_data->t_infomask & HEAP_XMAX_IS_MULTI);
+		if (res == -1)
+			elog(ERROR, "could not fit xid into page");
 	}
-	else
-	{
-		int64		freeDelta = min - FirstNormalTransactionId,
-					requiredDelta = xid - (base + MaxShortTransactionId);
-
-		if (requiredDelta <= freeDelta)
-		{
-			heap_page_shift_base(NULL, InvalidBuffer,
-								 page, multi, (freeDelta + requiredDelta) / 2);
-			return true;
-		}
-	}
-
-	elog(ERROR, "Can't fit xid into page.");
-	return false;
 }
 
 
