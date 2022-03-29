@@ -148,8 +148,7 @@ extern void heap_insert(Relation relation, HeapTuple tup, CommandId cid,
 						int options, BulkInsertState bistate);
 extern bool heap_page_prepare_for_xid(Relation relation, Buffer buffer,
 									  TransactionId xid, bool multi);
-extern bool rewrite_page_prepare_for_xid(Page page, TransactionId xid,
-										 bool multi);
+extern void rewrite_page_prepare_for_xid(Page page, HeapTuple tup);
 extern void heap_multi_insert(Relation relation, struct TupleTableSlot **slots,
 							  int ntuples, CommandId cid, int options,
 							  BulkInsertState bistate);

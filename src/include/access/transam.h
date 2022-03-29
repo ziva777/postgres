@@ -59,7 +59,6 @@
 #define ShortTransactionIdToNormal(base, xid) \
 	(TransactionIdIsNormal(xid) ? (TransactionId)(xid) + (base) : (TransactionId)(xid))
 
-#ifdef USE_ASSERT_CHECKING
 static inline ShortTransactionId
 NormalTransactionIdToShort(TransactionId base, TransactionId xid)
 {
@@ -69,19 +68,12 @@ NormalTransactionIdToShort(TransactionId base, TransactionId xid)
 #ifndef FRONTEND
 	if (xid < base + FirstNormalTransactionId ||
 		xid > base + MaxShortTransactionId)
-		elog(PANIC, "Xid %llu does not fit into valid range for base %llu",
+		elog(PANIC, "xid %llu does not fit into valid range for base %llu",
 			 (unsigned long long) xid, (unsigned long long) base);
 #endif
 
 	return (ShortTransactionId) (xid - base);
 }
-#else
-#define NormalTransactionIdToShort(base, xid) \
-	(TransactionIdIsNormal(xid) ? (ShortTransactionId)( \
-		AssertMacro((xid) >= (base) + FirstNormalTransactionId), \
-		AssertMacro((xid) <= (base) + MaxShortTransactionId), \
-		(xid) - (base)) : (ShortTransactionId)(xid))
-#endif
 
 #define XidFromFullTransactionId(x)		((x).value)
 #define U64FromFullTransactionId(x)		((x).value)
