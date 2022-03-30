@@ -662,10 +662,10 @@ copy_xact_xlog_xid(void)
 			if (oldest_mxoff)
 			{
 				if (next_mxid < oldest_mxid)
-					next_mxid += ((uint64) 1 << 32) - FirstMultiXactId;
+					next_mxid += ((MultiXactId) 1 << 32) - FirstMultiXactId;
 
 				if (next_mxoff < oldest_mxoff)
-					next_mxoff += ((uint64) 1 << 32) - 1;
+					next_mxoff += ((MultiXactOffset) 1 << 32) - 1;
 
 				/* Offsets and members were rewritten, oldest_mxoff = 1 */
 				next_mxoff -= oldest_mxoff - 1;
