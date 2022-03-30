@@ -1,9 +1,14 @@
-/*
- *	segresize.c
- *		Segment resize utility
+/*-------------------------------------------------------------------------
  *
- * Copyright (c) 2015-2016, Postgres Professional
- *	src/bin/pg_upgrade/segresize.c
+ * segresize.c
+ *	  SLRU segment resize utility from 32bit to 64bit xid format
+ *
+ * Copyright (c) 2015-2022, Postgres Professional
+ *
+ * IDENTIFICATION
+ *	  src/bin/pg_upgrade/segresize.c
+ *
+ *-------------------------------------------------------------------------
  */
 
 #include "postgres_fe.h"
@@ -12,8 +17,8 @@
 #include "access/multixact.h"
 #include "access/transam.h"
 
-#define SLRU_PAGES_PER_SEGMENT_OLD 32
-#define SLRU_PAGES_PER_SEGMENT_NEW 32 /* Should be equal SLRU_PAGES_PER_SEGMENT */
+#define SLRU_PAGES_PER_SEGMENT_OLD	32
+#define SLRU_PAGES_PER_SEGMENT		32 /* Should be equal to value from slru.h */
 
 #define CLOG_BITS_PER_XACT		2
 #define CLOG_XACTS_PER_BYTE		4
@@ -23,136 +28,152 @@ typedef uint32 MultiXactId32;
 typedef uint32 MultiXactOffset32;
 typedef uint32 TransactionId32;
 
-#define MaxTransactionId32				((TransactionId) 0xFFFFFFFF)
-#define MaxMultiXactId32				((MultiXactId32) 0xFFFFFFFF)
-#define MaxMultiXactOffset32			((MultiXactOffset32) 0xFFFFFFFF)
+#define MaxTransactionId32					((TransactionId32) 0xFFFFFFFF)
+#define MaxMultiXactId32					((MultiXactId32) 0xFFFFFFFF)
+#define MaxMultiXactOffset32				((MultiXactOffset32) 0xFFFFFFFF)
 
-#define MXACT_OFFSETS_PER_BLOCK_OLD		(BLCKSZ / sizeof(MultiXactOffset32))
-#define MXACT_OFFSETS_PER_BLOCK_NEW		(BLCKSZ / sizeof(MultiXactOffset))
+#define MULTIXACT_OFFSETS_PER_PAGE_OLD		(BLCKSZ / sizeof(MultiXactOffset32))
+#define MULTIXACT_OFFSETS_PER_PAGE			(BLCKSZ / sizeof(MultiXactOffset))
 
-#define MXACT_MEMBERS_FLAG_BYTES			1
-#define MXACT_MEMBERS_PER_GROUP_OLD			4
-#define MXACT_MEMBERS_PER_GROUP_NEW			8
+#define MXACT_MEMBER_FLAGS_PER_BYTE			1
 
-#define MXACT_MEMBERS_GROUP_SIZE_OLD			(MXACT_MEMBERS_PER_GROUP_OLD * (sizeof(TransactionId32) + MXACT_MEMBERS_FLAG_BYTES))
-#define MXACT_MEMBER_GROUPS_PER_PAGE_OLD		(BLCKSZ / MXACT_MEMBERS_GROUP_SIZE_OLD)
-#define MXACT_MEMBERS_PER_PAGE_OLD				(MXACT_MEMBERS_PER_GROUP_OLD * MXACT_MEMBER_GROUPS_PER_PAGE_OLD)
-#define MXACT_MEMBER_FLAG_BYTES_PER_GROUP_OLD	MXACT_MEMBERS_FLAG_BYTES * MXACT_MEMBERS_PER_GROUP_OLD
+/* 64xid */
+#define MULTIXACT_FLAGBYTES_PER_GROUP		8
+#define MULTIXACT_MEMBERS_PER_MEMBERGROUP	\
+	(MULTIXACT_FLAGBYTES_PER_GROUP * MXACT_MEMBER_FLAGS_PER_BYTE)
+/* size in bytes of a complete group */
+#define MULTIXACT_MEMBERGROUP_SIZE \
+	(sizeof(TransactionId) * MULTIXACT_MEMBERS_PER_MEMBERGROUP + MULTIXACT_FLAGBYTES_PER_GROUP)
+#define MULTIXACT_MEMBERGROUPS_PER_PAGE (BLCKSZ / MULTIXACT_MEMBERGROUP_SIZE)
 
-#define MXACT_MEMBERS_GROUP_SIZE_NEW			(MXACT_MEMBERS_PER_GROUP_NEW * (sizeof(TransactionId) + MXACT_MEMBERS_FLAG_BYTES))
-#define MXACT_MEMBER_GROUPS_PER_PAGE_NEW		(BLCKSZ / MXACT_MEMBERS_GROUP_SIZE_NEW)
+/* 32xid */
+#define MULTIXACT_FLAGBYTES_PER_GROUP_OLD	4
+#define MULTIXACT_MEMBERS_PER_MEMBERGROUP_OLD	\
+	(MULTIXACT_FLAGBYTES_PER_GROUP_OLD * MXACT_MEMBER_FLAGS_PER_BYTE)
+/* size in bytes of a complete group */
+#define MULTIXACT_MEMBERGROUP_SIZE_OLD \
+	(sizeof(TransactionId32) * MULTIXACT_MEMBERS_PER_MEMBERGROUP_OLD + MULTIXACT_FLAGBYTES_PER_GROUP_OLD)
+#define MULTIXACT_MEMBERGROUPS_PER_PAGE_OLD (BLCKSZ / MULTIXACT_MEMBERGROUP_SIZE_OLD)
+#define MULTIXACT_MEMBERS_PER_PAGE_OLD	\
+	(MULTIXACT_MEMBERGROUPS_PER_PAGE_OLD * MULTIXACT_MEMBERS_PER_MEMBERGROUP_OLD)
 
 typedef struct SLRUSegmentState
 {
 	const char	   *dir;
-	char		   *filename;
 	FILE		   *file;
-	uint64			segno;
-	uint64			pageno;
-	bool			leading_gap;
+	int64			segno;
+	int64			pageno;
+	bool			is_empty_segment;
 }			SLRUSegmentState;
 
-static inline char *
-old_file_name(const char *path, uint32 segno)
+static char *
+slru_filename_old(const char *path, int64 segno)
 {
-	return psprintf("%s/%04X", path, segno);
+	Assert(segno <= PG_INT32_MAX);
+	return psprintf("%s/%04X", path, (int) segno);
 }
 
-static inline char *
-new_file_name(const char *path, uint64 segno)
+static char *
+slru_filename_new(const char *path, int64 segno)
 {
-	return psprintf("%s/%04X%08X", path,
-					(uint32) ((segno) >> 32),
-					(uint32) ((segno) & (int64)0xFFFFFFFF));
+	return psprintf("%s/%012llX", path, (long long) segno);
 }
 
-static FILE *
-open_target_file(const char *filename)
+static inline FILE *
+open_file(SLRUSegmentState *state,
+		  char * (filename_fn)(const char *path, int64 segno),
+		  char *mode, char *fatal_msg)
 {
-	FILE	   *fd = fopen(filename, "wb");
+	char	*filename = filename_fn(state->dir, state->segno);
+	FILE	*fd = fopen(filename, mode);
 
 	if (!fd)
-		pg_fatal("could not open target file \"%s\": %m", filename);
+		pg_fatal(fatal_msg, filename);
+
+	pfree(filename);
 
 	return fd;
 }
 
 static void
-close_segment(SLRUSegmentState *state)
+close_file(SLRUSegmentState *state,
+		   char * (filename_fn)(const char *path, int64 segno))
 {
 	if (state->file != NULL)
 	{
-		fclose(state->file);
+		if (!fclose(state->file))
+			pg_fatal("could not close file \"%s\": %m",
+					 filename_fn(state->dir, state->segno));
 		state->file = NULL;
 	}
+}
 
-	if (state->filename)
-	{
-		pfree(state->filename);
-		state->filename = NULL;
-	}
+static inline int
+read_file(SLRUSegmentState *state, void *buf)
+{
+	size_t		n = fread(buf, sizeof(char), BLCKSZ, state->file);
+
+	if (n != 0)
+		return n;
+
+	if (ferror(state->file))
+		pg_fatal("could not read file \"%s\": %m",
+				 slru_filename_old(state->dir, state->segno));
+
+	if (!feof(state->file))
+		pg_fatal("unknown file read state \"%s\": %m",
+				 slru_filename_old(state->dir, state->segno));
+
+	close_file(state, slru_filename_old);
+
+	return 0;
 }
 
 static int
 read_old_segment_page(SLRUSegmentState *state, void *buf, bool *is_empty)
 {
-	size_t		len;
+	int		n;
 
 	/* Open next segment file, if needed */
-	if (!state->filename)
+	if (!state->file)
 	{
-		if (!state->segno)
-			state->leading_gap = true;
-
-		state->filename = old_file_name(state->dir, (uint32) state->segno);
-		state->file = fopen(state->filename, "rb");
+		state->file = open_file(state, slru_filename_old, "rb",
+								"could not open source file \"%s\": %m");
 
 		/* Set position to the needed page */
-		if (state->file && state->pageno > 0)
-		{
-			if (fseek(state->file, state->pageno * BLCKSZ, SEEK_SET))
-			{
-				fclose(state->file);
-				state->file = NULL;
-			}
-		}
+		if (fseek(state->file, state->pageno * BLCKSZ, SEEK_SET))
+			close_file(state, slru_filename_old);
+
+		/*
+		 * Skip segment conversion if segment file doesn't exist.
+		 * First segment file should exist in any case.
+		 */
+		if (state->segno != 0)
+			state->is_empty_segment = true;
 	}
 
 	if (state->file)
 	{
-		/* Segment file do exists, read page from it */
-		state->leading_gap = false;
+		/* Segment file does exist, read page from it */
+		state->is_empty_segment = false;
 
-		len = fread(buf, sizeof(char), BLCKSZ, state->file);
+		/* Try to read BLCKSZ bytes */
+		n = read_file(state, buf);
+		*is_empty = (n == 0);
 
-		/* Are we done or was there an error? */
-		if (len <= 0)
-		{
-			if (ferror(state->file))
-				pg_fatal("could not read file \"%s\": %m", state->filename);
-
-			if (feof(state->file))
-			{
-				*is_empty = true;
-				len = -1;
-				fclose(state->file);
-				state->file = NULL;
-			}
-		}
-		else
-			*is_empty = false;
-	}
-	else if (!state->leading_gap)
-	{
-		/* We reached the last segment */
-		len = -1;
-		*is_empty = true;
+		/* Zeroing buf tail if needed */
+		if (n)
+			memset((char *) buf + n, 0, BLCKSZ - n);
 	}
 	else
 	{
-		/* Skip few first segments if they were frozen and removed */
-		len = BLCKSZ;
+		n = state->is_empty_segment ?
+				BLCKSZ :	/* Skip empty block at the end of segment */
+				0;			/* We reached the last segment */
 		*is_empty = true;
+
+		if (n)
+			memset((char *) buf, 0, BLCKSZ);
 	}
 
 	state->pageno++;
@@ -162,10 +183,10 @@ read_old_segment_page(SLRUSegmentState *state, void *buf, bool *is_empty)
 		/* Start new segment */
 		state->segno++;
 		state->pageno = 0;
-		close_segment(state);
+		close_file(state, slru_filename_old);
 	}
 
-	return (int) len;
+	return n;
 }
 
 static void
@@ -178,33 +199,30 @@ write_new_segment_page(SLRUSegmentState *state, void *buf, bool is_empty)
 	 */
 	if (!state->file && !is_empty)
 	{
-		if (state->filename)
-			pfree(state->filename);
-
-		state->filename = new_file_name(state->dir, state->segno);
-		state->file = open_target_file(state->filename);
+		state->file = open_file(state, slru_filename_new, "wb",
+								"could not open target file \"%s\": %m");
 
 		/* Write zeroes to the previously skipped prefix */
 		if (state->pageno > 0)
 		{
-			char		zerobuf[BLCKSZ] = {0};
+			char	zerobuf[BLCKSZ] = {0};
 
 			for (int64 i = 0; i < state->pageno; i++)
 			{
 				if (fwrite(zerobuf, sizeof(char), BLCKSZ, state->file) != BLCKSZ)
-					pg_fatal("could not write file \"%s\": %m", state->filename);
+					pg_fatal("could not write file \"%s\": %m",
+							 slru_filename_new(state->dir, state->segno));
 			}
 		}
+
 	}
 
 	/* Write page to the new segment (if it was created) */
 	if (state->file)
 	{
-		if (is_empty)
-			memset(buf, 0, BLCKSZ);
-
 		if (fwrite(buf, sizeof(char), BLCKSZ, state->file) != BLCKSZ)
-			pg_fatal("could not write file \"%s\": %m", state->filename);
+			pg_fatal("could not write file \"%s\": %m",
+					 slru_filename_new(state->dir, state->segno));
 	}
 
 	state->pageno++;
@@ -213,11 +231,11 @@ write_new_segment_page(SLRUSegmentState *state, void *buf, bool is_empty)
 	 * Did we reach the maximum page number? Then close segment file and
 	 * create a new one on the next iteration
 	 */
-	if (state->pageno >= SLRU_PAGES_PER_SEGMENT_NEW)
+	if (state->pageno >= SLRU_PAGES_PER_SEGMENT)
 	{
 		state->segno++;
 		state->pageno = 0;
-		close_segment(state);
+		close_file(state, slru_filename_new);
 	}
 }
 
@@ -232,7 +250,7 @@ convert_clog(const char *old_subdir, const char *new_subdir)
 	TransactionId		oldest_xid = old_cluster.controldata.chkpnt_oldstxid;
 	TransactionId		next_xid = old_cluster.controldata.chkpnt_nxtxid;
 	TransactionId		xid;
-	uint64				pageno;
+	int64				pageno;
 	char				buf[BLCKSZ] = {0};
 
 	oldseg.dir = old_subdir;
@@ -243,11 +261,11 @@ convert_clog(const char *old_subdir, const char *new_subdir)
 	oldseg.segno = pageno / SLRU_PAGES_PER_SEGMENT_OLD;
 	oldseg.pageno = pageno % SLRU_PAGES_PER_SEGMENT_OLD;
 
-	newseg.segno = pageno / SLRU_PAGES_PER_SEGMENT_NEW;
-	newseg.pageno = pageno % SLRU_PAGES_PER_SEGMENT_NEW;
+	newseg.segno = pageno / SLRU_PAGES_PER_SEGMENT;
+	newseg.pageno = pageno % SLRU_PAGES_PER_SEGMENT;
 
 	if (next_xid < oldest_xid)
-		next_xid += FirstUpgradedTransactionId; /* wraparound */
+		next_xid += (TransactionId) 1 << 32; /* wraparound */
 
 	/* Copy xid flags reading only needed segment pages */
 	for (xid = oldest_xid & ~(CLOG_XACTS_PER_PAGE - 1);
@@ -255,7 +273,6 @@ convert_clog(const char *old_subdir, const char *new_subdir)
 		 xid += CLOG_XACTS_PER_PAGE)
 	{
 		bool		is_empty;
-		int			len;
 
 		/* Handle possible segment wraparound */
 		if (oldseg.segno > MaxTransactionId32 / CLOG_XACTS_PER_PAGE / SLRU_PAGES_PER_SEGMENT_OLD)
@@ -264,32 +281,39 @@ convert_clog(const char *old_subdir, const char *new_subdir)
 
 			Assert(oldseg.segno == pageno / SLRU_PAGES_PER_SEGMENT_OLD);
 			Assert(!oldseg.pageno);
-			Assert(!oldseg.file && !oldseg.filename);
+			Assert(!oldseg.file);
 			oldseg.segno = 0;
 
-			Assert(newseg.segno == pageno / SLRU_PAGES_PER_SEGMENT_NEW);
+			Assert(newseg.segno == pageno / SLRU_PAGES_PER_SEGMENT);
 			Assert(!newseg.pageno);
 			Assert(!newseg.file);
 			newseg.segno = 0;
 		}
 
-		len = read_old_segment_page(&oldseg, buf, &is_empty);
-
-		/*
-		 * Ignore read errors, copy all existing segment pages in the
-		 * interesting xid range.
-		 */
-		is_empty |= len <= 0;
-
-		if (!is_empty && len < BLCKSZ)
-			memset(&buf[len], 0, BLCKSZ - len);
-
+		read_old_segment_page(&oldseg, buf, &is_empty);
 		write_new_segment_page(&newseg, buf, is_empty);
 	}
 
 	/* Release resources */
-	close_segment(&oldseg);
-	close_segment(&newseg);
+	close_file(&oldseg, slru_filename_old);
+	close_file(&newseg, slru_filename_new);
+}
+
+static inline SLRUSegmentState
+create_slru_segment_state(MultiXactId mxid,
+						  int offsets_per_page,
+						  int pages_per_segment,
+						  char *dir)
+{
+	SLRUSegmentState	seg = {0};
+	int64				n;
+
+	n = mxid / offsets_per_page;
+	seg.pageno = n % pages_per_segment;
+	seg.segno = n / pages_per_segment;
+	seg.dir = dir;
+
+	return seg;
 }
 
 /*
@@ -298,33 +322,41 @@ convert_clog(const char *old_subdir, const char *new_subdir)
 MultiXactOffset
 convert_multixact_offsets(const char *old_subdir, const char *new_subdir)
 {
-	SLRUSegmentState		oldseg = {0};
-	SLRUSegmentState		newseg = {0};
-	MultiXactOffset32		oldbuf[MXACT_OFFSETS_PER_BLOCK_OLD] = {0};
-	MultiXactOffset			newbuf[MXACT_OFFSETS_PER_BLOCK_NEW] = {0};
+	SLRUSegmentState		oldseg,
+							newseg;
+	MultiXactOffset32		oldbuf[MULTIXACT_OFFSETS_PER_PAGE_OLD] = {0};
+	MultiXactOffset			newbuf[MULTIXACT_OFFSETS_PER_PAGE] = {0};
 	MultiXactOffset32		oldest_mxoff = 0;
-	MultiXactId		oldest_mxid = old_cluster.controldata.chkpnt_oldstMulti;
-	MultiXactId		next_mxid = old_cluster.controldata.chkpnt_nxtmulti;
-	MultiXactId		mxid;
-	uint64			old_entry;
-	uint64			new_entry;
-	bool			oldest_mxoff_known = false;
+	MultiXactId				oldest_mxid,
+							next_mxid,
+							mxid;
+	uint64					old_entry,
+							new_entry;
+	bool					oldest_mxoff_known = false;
 
-	oldseg.dir = psprintf("%s/%s", old_cluster.pgdata, old_subdir);
-	newseg.dir = psprintf("%s/%s", new_cluster.pgdata, new_subdir);
+	StaticAssertStmt((sizeof(oldbuf) == BLCKSZ && sizeof(newbuf) == BLCKSZ),
+					 "buf should be BLCKSZ");
 
-	old_entry = oldest_mxid % MXACT_OFFSETS_PER_BLOCK_OLD;
-	oldseg.pageno = oldest_mxid / MXACT_OFFSETS_PER_BLOCK_OLD;
-	oldseg.segno = oldseg.pageno / SLRU_PAGES_PER_SEGMENT_OLD;
-	oldseg.pageno %= SLRU_PAGES_PER_SEGMENT_OLD;
+	oldest_mxid = old_cluster.controldata.chkpnt_oldstMulti;
 
-	new_entry = oldest_mxid % MXACT_OFFSETS_PER_BLOCK_NEW;
-	newseg.pageno = oldest_mxid / MXACT_OFFSETS_PER_BLOCK_NEW;
-	newseg.segno = newseg.pageno / SLRU_PAGES_PER_SEGMENT_NEW;
-	newseg.pageno %= SLRU_PAGES_PER_SEGMENT_NEW;
+	oldseg = create_slru_segment_state(oldest_mxid,
+									   MULTIXACT_OFFSETS_PER_PAGE_OLD,
+									   SLRU_PAGES_PER_SEGMENT_OLD,
+									   psprintf("%s/%s", old_cluster.pgdata,
+												old_subdir));
 
+	newseg = create_slru_segment_state(oldest_mxid,
+									   MULTIXACT_OFFSETS_PER_PAGE,
+									   SLRU_PAGES_PER_SEGMENT,
+									   psprintf("%s/%s", new_cluster.pgdata,
+												new_subdir));
+
+	old_entry = oldest_mxid % MULTIXACT_OFFSETS_PER_PAGE_OLD;
+	new_entry = oldest_mxid % MULTIXACT_OFFSETS_PER_PAGE;
+
+	next_mxid = old_cluster.controldata.chkpnt_nxtmulti;
 	if (next_mxid < oldest_mxid)
-		next_mxid += (uint64) 1 << 32;	/* wraparound */
+		next_mxid += (MultiXactId) 1 << 32;	/* wraparound */
 
 	prep_status("Converting old %s to new format", old_subdir);
 
@@ -335,17 +367,15 @@ convert_multixact_offsets(const char *old_subdir, const char *new_subdir)
 		bool		is_empty;
 
 		/* Handle possible segment wraparound */
-		if (oldseg.segno > MaxMultiXactId32 / MXACT_OFFSETS_PER_BLOCK_OLD / SLRU_PAGES_PER_SEGMENT_OLD)	/* 0xFFFF */
+		if (oldseg.segno > MaxMultiXactId32 / MULTIXACT_OFFSETS_PER_PAGE_OLD / SLRU_PAGES_PER_SEGMENT_OLD)	/* 0xFFFF */
 			oldseg.segno = 0;
 
 		oldlen = read_old_segment_page(&oldseg, oldbuf, &is_empty);
 
-		if (oldlen <= 0 || is_empty)
-			pg_fatal("cannot read page %llu from segment: %s\n",
-					 (unsigned long long) oldseg.pageno, oldseg.filename);
-
-		if (oldlen < BLCKSZ)
-			memset((char *) oldbuf + oldlen, 0, BLCKSZ - oldlen);
+		if (oldlen == 0 || is_empty)
+			pg_fatal("cannot read page %lld from segment: %s\n",
+					 (long long) oldseg.pageno,
+					 slru_filename_old(oldseg.dir, oldseg.segno));
 
 		/* Save oldest mxid offset */
 		if (!oldest_mxoff_known)
@@ -365,19 +395,19 @@ convert_multixact_offsets(const char *old_subdir, const char *new_subdir)
 		}
 
 		/* Copy entries to the new page */
-		for (; mxid < next_mxid && old_entry < MXACT_OFFSETS_PER_BLOCK_OLD;
+		for (; mxid < next_mxid && old_entry < MULTIXACT_OFFSETS_PER_PAGE_OLD;
 			 mxid++, old_entry++)
 		{
 			MultiXactOffset mxoff = oldbuf[old_entry];
 
 			/* Handle possible offset wraparound (1 becomes 2^32) */
 			if (mxoff < oldest_mxoff)
-				mxoff += ((uint64) 1 << 32) - 1;
+				mxoff += ((MultiXactOffset) 1 << 32) - 1;
 
 			/* Subtract oldest_mxoff, so new offsets will start from 1 */
 			newbuf[new_entry++] = mxoff - oldest_mxoff + 1;
 
-			if (new_entry >= MXACT_OFFSETS_PER_BLOCK_NEW)
+			if (new_entry >= MULTIXACT_OFFSETS_PER_PAGE)
 			{
 				/* Write new page */
 				write_new_segment_page(&newseg, newbuf, false);
@@ -390,7 +420,7 @@ convert_multixact_offsets(const char *old_subdir, const char *new_subdir)
 	if (new_entry > 0 || oldest_mxid == next_mxid)
 	{
 		memset(&newbuf[new_entry], 0,
-			   sizeof(newbuf[0]) * (MXACT_OFFSETS_PER_BLOCK_NEW - new_entry));
+			   sizeof(newbuf[0]) * (MULTIXACT_OFFSETS_PER_PAGE - new_entry));
 		write_new_segment_page(&newseg, newbuf, false);
 	}
 
@@ -402,8 +432,8 @@ convert_multixact_offsets(const char *old_subdir, const char *new_subdir)
 	}
 
 	/* Release resources */
-	close_segment(&oldseg);
-	close_segment(&newseg);
+	close_file(&oldseg, slru_filename_old);
+	close_file(&newseg, slru_filename_new);
 
 	pfree((char *) oldseg.dir);
 	pfree((char *) newseg.dir);
@@ -420,32 +450,39 @@ void
 convert_multixact_members(const char *old_subdir, const char *new_subdir,
 						  MultiXactOffset oldest_mxoff)
 {
-	MultiXactOffset		next_mxoff = (MultiXactOffset) old_cluster.controldata.chkpnt_nxtmxoff;
-	MultiXactOffset		mxoff;
-	SLRUSegmentState	oldseg = {0};
-	SLRUSegmentState	newseg = {0};
-	char				oldbuf[BLCKSZ] = {0};
-	char				newbuf[BLCKSZ] = {0};
-	int					newgroup;
-	int					newmember;
+	MultiXactOffset		next_mxoff,
+						mxoff;
+	SLRUSegmentState	oldseg,
+						newseg;
+	char				oldbuf[BLCKSZ] = {0},
+						newbuf[BLCKSZ] = {0};
+	int					newgroup,
+						newmember;
 	char			   *newflag = newbuf;
-	TransactionId	   *newxid = (TransactionId *) (newflag + MXACT_MEMBERS_FLAG_BYTES * MXACT_MEMBERS_PER_GROUP_NEW);
-	int					newidx;
-	int					oldidx;
-
-	oldseg.dir = psprintf("%s/%s", old_cluster.pgdata, old_subdir);
-	newseg.dir = psprintf("%s/%s", new_cluster.pgdata, new_subdir);
+	TransactionId	   *newxid;
+	int					oldidx,
+						newidx;
 
 	prep_status("Converting old %s to new format", old_subdir);
 
+	next_mxoff = (MultiXactOffset) old_cluster.controldata.chkpnt_nxtmxoff;
 	if (next_mxoff < oldest_mxoff)
-		next_mxoff += (uint64) 1 << 32;
+		next_mxoff += (MultiXactOffset) 1 << 32;
+
+	newxid = (TransactionId *) (newflag + MXACT_MEMBER_FLAGS_PER_BYTE * MULTIXACT_MEMBERS_PER_MEMBERGROUP);
 
 	/* Initialize old starting position */
-	oldidx = oldest_mxoff % MXACT_MEMBERS_PER_PAGE_OLD;
-	oldseg.pageno = oldest_mxoff / MXACT_MEMBERS_PER_PAGE_OLD;
-	oldseg.segno = oldseg.pageno / SLRU_PAGES_PER_SEGMENT_OLD;
-	oldseg.pageno %= SLRU_PAGES_PER_SEGMENT_OLD;
+	oldidx = oldest_mxoff % MULTIXACT_MEMBERS_PER_PAGE_OLD;
+	oldseg = create_slru_segment_state(oldest_mxoff,
+									   MULTIXACT_MEMBERS_PER_PAGE_OLD,
+									   SLRU_PAGES_PER_SEGMENT_OLD,
+									   psprintf("%s/%s", old_cluster.pgdata,
+												old_subdir));
+
+	/* Initialize empty new segment */
+	newseg = create_slru_segment_state(0, 1, 1,
+									   psprintf("%s/%s", new_cluster.pgdata,
+									   new_subdir));
 
 	/* Initialize new starting position (skip invalid zero offset) */
 	newgroup = 0;
@@ -458,39 +495,36 @@ convert_multixact_members(const char *old_subdir, const char *new_subdir,
 	for (mxoff = oldest_mxoff; mxoff < next_mxoff; oldidx = 0)
 	{
 		bool		old_is_empty;
-		int			oldlen = read_old_segment_page(&oldseg, oldbuf, &old_is_empty);
+		int			oldlen;
 		int			ngroups;
 		int			oldgroup;
 		int			oldmember;
 
-		if (old_is_empty || oldlen <= 0)
-			pg_fatal("cannot read page %llu from segment: %s\n",
-					 (unsigned long long) oldseg.pageno, oldseg.filename);
+		oldlen = read_old_segment_page(&oldseg, oldbuf, &old_is_empty);
 
-		if (oldlen < BLCKSZ)
-		{
-			memset(oldbuf + oldlen, 0, BLCKSZ - oldlen);
-			oldlen = BLCKSZ;
-		}
+		if (oldlen == 0 || old_is_empty)
+			pg_fatal("cannot read page %lld from segment: %s\n",
+					 (long long) oldseg.pageno,
+					 slru_filename_old(oldseg.dir, oldseg.segno));
 
-		ngroups = oldlen / MXACT_MEMBERS_GROUP_SIZE_OLD;
+		ngroups = oldlen / MULTIXACT_MEMBERGROUP_SIZE_OLD;
 
 		/* Iterate through old member groups */
-		for (oldgroup = oldidx / MXACT_MEMBERS_PER_GROUP_OLD,
-			 oldmember = oldidx % MXACT_MEMBERS_PER_GROUP_OLD;
+		for (oldgroup = oldidx / MULTIXACT_MEMBERS_PER_MEMBERGROUP_OLD,
+			 oldmember = oldidx % MULTIXACT_MEMBERS_PER_MEMBERGROUP_OLD;
 			 oldgroup < ngroups && mxoff < next_mxoff;
 			 oldgroup++, oldmember = 0)
 		{
-			char	   *oldflag = (char *) oldbuf + oldgroup * MXACT_MEMBERS_GROUP_SIZE_OLD;
-			TransactionId32 *oldxid = (TransactionId32 *) (oldflag + MXACT_MEMBER_FLAG_BYTES_PER_GROUP_OLD);
+			char	   *oldflag = (char *) oldbuf + oldgroup * MULTIXACT_MEMBERGROUP_SIZE_OLD;
+			TransactionId32 *oldxid = (TransactionId32 *) (oldflag + MULTIXACT_FLAGBYTES_PER_GROUP_OLD);
 
 			oldxid += oldmember;
 			oldflag += oldmember;
 
 			/* Iterate through old members */
-			for (int j = 0;
-				 j < MXACT_MEMBERS_PER_GROUP_OLD && mxoff < next_mxoff;
-				 j++)
+			for (int i = 0;
+				 i < MULTIXACT_MEMBERS_PER_MEMBERGROUP_OLD && mxoff < next_mxoff;
+				 i++)
 			{
 				/* Copy member's xid and flags to the new page */
 				*newflag++ = *oldflag++;
@@ -500,12 +534,12 @@ convert_multixact_members(const char *old_subdir, const char *new_subdir,
 				oldidx++;
 				mxoff++;
 
-				if (++newmember >= MXACT_MEMBERS_PER_GROUP_NEW)
+				if (++newmember >= MULTIXACT_MEMBERS_PER_MEMBERGROUP)
 				{
 					/* Start next member group */
 					newmember = 0;
 
-					if (++newgroup >= MXACT_MEMBER_GROUPS_PER_PAGE_NEW)
+					if (++newgroup >= MULTIXACT_MEMBERGROUPS_PER_PAGE)
 					{
 						/* Write current page and start new */
 						newgroup = 0;
@@ -514,20 +548,20 @@ convert_multixact_members(const char *old_subdir, const char *new_subdir,
 						memset(newbuf, 0, BLCKSZ);
 					}
 
-					newflag = (char *) newbuf + newgroup * MXACT_MEMBERS_GROUP_SIZE_NEW;
-					newxid = (TransactionId *) (newflag + MXACT_MEMBERS_FLAG_BYTES * MXACT_MEMBERS_PER_GROUP_NEW);
+					newflag = (char *) newbuf + newgroup * MULTIXACT_MEMBERGROUP_SIZE;
+					newxid = (TransactionId *) (newflag + MXACT_MEMBER_FLAGS_PER_BYTE * MULTIXACT_MEMBERS_PER_MEMBERGROUP);
 				}
 
 				/* Handle offset wraparound */
 				if (mxoff > MaxMultiXactOffset32)
 				{
-					Assert(mxoff == (uint64) 1 << 32);
-					Assert(oldseg.segno == MaxMultiXactOffset32 / MXACT_MEMBERS_PER_PAGE_OLD / SLRU_PAGES_PER_SEGMENT_OLD);
-					Assert(oldseg.pageno == MaxMultiXactOffset32 / MXACT_MEMBERS_PER_PAGE_OLD % SLRU_PAGES_PER_SEGMENT_OLD);
-					Assert(oldmember == MaxMultiXactOffset32 % MXACT_MEMBERS_PER_PAGE_OLD);
+					Assert(mxoff == (MultiXactOffset) 1 << 32);
+					Assert(oldseg.segno == MaxMultiXactOffset32 / MULTIXACT_MEMBERS_PER_PAGE_OLD / SLRU_PAGES_PER_SEGMENT_OLD);
+					Assert(oldseg.pageno == MaxMultiXactOffset32 / MULTIXACT_MEMBERS_PER_PAGE_OLD % SLRU_PAGES_PER_SEGMENT_OLD);
+					Assert(oldmember == MaxMultiXactOffset32 % MULTIXACT_MEMBERS_PER_PAGE_OLD);
 
 					/* Switch to segment 0000 */
-					close_segment(&oldseg);
+					close_file(&oldseg, slru_filename_old);
 					oldseg.segno = 0;
 					oldseg.pageno = 0;
 
@@ -542,8 +576,8 @@ convert_multixact_members(const char *old_subdir, const char *new_subdir,
 		write_new_segment_page(&newseg, newbuf, false);
 
 	/* Release resources */
-	close_segment(&oldseg);
-	close_segment(&newseg);
+	close_file(&oldseg, slru_filename_old);
+	close_file(&newseg, slru_filename_new);
 
 	pfree((char *) oldseg.dir);
 	pfree((char *) newseg.dir);
