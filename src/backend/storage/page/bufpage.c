@@ -517,7 +517,7 @@ heap_page_double_xmax_get_min_max(Page page,
  * format.
  */
 static void
-heap_page_add_special_area(itemIdCompact itemidbase, int nitems, Page page,
+heap_page_add_special_area(ItemIdCompact itemidbase, int nitems, Page page,
 						   TransactionId xid_base, MultiXactId multi_base)
 {
 	char		newPage[BLCKSZ];
@@ -542,7 +542,7 @@ heap_page_add_special_area(itemIdCompact itemidbase, int nitems, Page page,
 	upper = new_phdr->pd_special;
 	for (i = 0; i < nitems; i++)
 	{
-		itemIdCompact itemidptr = &itemidbase[i];
+		ItemIdCompact itemidptr = &itemidbase[i];
 		ItemId		lp;
 		HeapTupleHeader old_htup;
 		HeapTupleHeader new_htup;
@@ -602,14 +602,14 @@ heap_page_add_special_area(itemIdCompact itemidbase, int nitems, Page page,
  * Callers must ensure that nitems is > 0
  */
 static void
-compactify_tuples(itemIdCompact itemidbase, int nitems, Page page,
+compactify_tuples(ItemIdCompact itemidbase, int nitems, Page page,
 				  bool presorted, bool addspecial)
 {
 	PageHeader	phdr = (PageHeader) page;
 	Offset		upper;
 	Offset		copy_tail;
 	Offset		copy_head;
-	itemIdCompact itemidptr;
+	ItemIdCompact itemidptr;
 	int			i;
 
 	/* Code within will not work correctly if nitems == 0 */
@@ -869,7 +869,7 @@ PageRepairFragmentation(Page page)
 	Offset		pd_special = ((PageHeader) page)->pd_special;
 	Offset		last_offset;
 	ItemIdCompactData itemidbase[MaxHeapTuplesPerPage];
-	itemIdCompact itemidptr;
+	ItemIdCompact itemidptr;
 	ItemId		lp;
 	int			nline,
 				nstorage,
@@ -1337,7 +1337,7 @@ PageIndexMultiDelete(Page page, OffsetNumber *itemnos, int nitems)
 	Offset		last_offset;
 	ItemIdCompactData itemidbase[MaxIndexTuplesPerPage];
 	ItemIdData	newitemids[MaxIndexTuplesPerPage];
-	itemIdCompact itemidptr;
+	ItemIdCompact itemidptr;
 	ItemId		lp;
 	int			nline,
 				nused;
