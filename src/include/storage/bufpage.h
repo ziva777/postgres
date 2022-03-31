@@ -182,8 +182,6 @@ typedef struct HeapPageSpecialData
 	TransactionId pd_multi_base;	/* base value for multixact IDs on page */
 }			HeapPageSpecialData;
 
-#define SizeOfPageSpecial MAXALIGN(sizeof(HeapPageSpecialData))
-
 typedef HeapPageSpecialData * HeapPageSpecial;
 
 extern PGDLLIMPORT HeapPageSpecial doubleXmaxSpecial;
@@ -519,7 +517,7 @@ typedef struct ItemIdCompactData
 	uint16		alignedlen;		/* MAXALIGN(item data len) */
 } ItemIdCompactData;
 
-typedef ItemIdCompactData *itemIdCompact;
+typedef ItemIdCompactData *ItemIdCompact;
 
 extern int	itemoffcompare(const void *item1, const void *item2);
 

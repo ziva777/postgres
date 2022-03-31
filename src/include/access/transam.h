@@ -39,9 +39,6 @@
 #define MaxTransactionId			UINT64CONST(0xFFFFFFFFFFFFFFFF)
 #define MaxShortTransactionId		((TransactionId) 0x7FFFFFFF)
 
-/* First TransactionId after upgrade from 32bit xid */
-#define FirstUpgradedTransactionId  ((TransactionId) 1 << 32)
-
 /* ----------------
  *		transaction ID manipulation macros
  * ----------------

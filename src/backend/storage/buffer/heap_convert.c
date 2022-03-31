@@ -13,49 +13,32 @@
 
 #include "postgres.h"
 
-#include "access/brin_page.h"
-#include "access/ginblock.h"
 #include "access/generic_xlog.h"
 #include "access/heapam.h"
-#include "access/htup_details.h"
 #include "access/multixact.h"
-#include "access/nbtree.h"
-#include "access/transam.h"
-#include "access/xact.h"
-#include "catalog/pg_am.h"
-#include "catalog/pg_control.h"
-#include "common/controldata_utils.h"
-#include "miscadmin.h"
 #include "storage/bufmgr.h"
-#include "storage/bufpage.h"
 #include "storage/checksum.h"
-#include "utils/memutils.h"
-#include "utils/rel.h"
 
-/* Initialize special heap page area */
-static void
-InitHeapPageSpecial(PageHeader new, TransactionId xid_base,
-					MultiXactId multi_base, TransactionId prune_xid)
-{
-	HeapPageSpecial special;
-
-	new->pd_special = BLCKSZ - MAXALIGN(sizeof(HeapPageSpecialData));
-
-	special = (HeapPageSpecial) ((char *) new + new->pd_special);
-	special->pd_xid_base = xid_base;
-	special->pd_multi_base = multi_base;
-	HeapPageSetPruneXid(new, prune_xid);
-}
-
-/* Used by get_previous_edition() */
-ControlFileData *ControlFile = NULL;
-
-static bool was_32bit_xid(PageHeader page);
 static void convert_heap(Relation rel, Page page, Buffer buf, BlockNumber blkno);
 static void repack_heap_tuples(Relation rel, Page page, Buffer buf,
 							   BlockNumber blkno, bool double_xmax);
-static void tuple_set_double_xmax(HeapTupleHeader tuple);
 
+/*
+ * Initialize special heap page area.
+ */
+static void
+init_heap_page_special(PageHeader hdr, TransactionId xid_base,
+					   MultiXactId multi_base, TransactionId prune_xid)
+{
+	HeapPageSpecial special;
+
+	hdr->pd_special = BLCKSZ - MAXALIGN(sizeof(HeapPageSpecialData));
+
+	special = (HeapPageSpecial) ((char *) hdr + hdr->pd_special);
+	special->pd_xid_base = xid_base;
+	special->pd_multi_base = multi_base;
+	HeapPageSetPruneXid(hdr, prune_xid);
+}
 
 /*
  * itemoffcompare
@@ -66,30 +49,24 @@ itemoffcompare(const void *item1, const void *item2)
 {
 	/* Sort in decreasing itemoff order */
 	return ((ItemIdCompactData *) item2)->itemoff -
-		((ItemIdCompactData *) item1)->itemoff;
+		   ((ItemIdCompactData *) item1)->itemoff;
 }
 
-static bool
-was_32bit_xid(PageHeader page)
-{
-	return PageGetPageLayoutVersion(page) < 5;
-}
-
+/*
+ * Lazy page conversion from 32-bit to 64-bit XID at first read.
+ */
 void
 convert_page(Relation rel, Page page, Buffer buf, BlockNumber blkno)
 {
-	static unsigned logcnt = 0;
-	bool		logit;
-	bool		recovery;
-	PageHeader	hdr = (PageHeader) page;
-	GenericXLogState *state = NULL;
-	Page		tmp_page = page;
-	uint16		checksum;
+	static unsigned		logcnt = 0;
+	bool				logit;
+	PageHeader			hdr = (PageHeader) page;
+	GenericXLogState   *state = NULL;
+	Page				tmp_page = page;
+	uint16				checksum;
 
 	/* Not during XLog replaying */
 	Assert(rel != NULL);
-
-	recovery = RecoveryInProgress();
 
 	/* Verify checksum */
 	if (hdr->pd_checksum)
@@ -108,7 +85,7 @@ convert_page(Relation rel, Page page, Buffer buf, BlockNumber blkno)
 	 * to log neither too much nor too little.
 	 */
 #define FORCE_LOG_EVERY 128
-	logit = !recovery && XLogIsNeeded() && RelationNeedsWAL(rel);
+	logit = !RecoveryInProgress() && XLogIsNeeded() && RelationNeedsWAL(rel);
 	logit = logit && (++logcnt % FORCE_LOG_EVERY) == 0;
 	if (logit)
 	{
@@ -120,7 +97,10 @@ convert_page(Relation rel, Page page, Buffer buf, BlockNumber blkno)
 	PageSetPageSizeAndVersion((hdr), PageGetPageSize(hdr),
 							  PG_PAGE_LAYOUT_VERSION);
 
-	if (was_32bit_xid(hdr))
+	/*
+	 * Page from 32-bit XID version have version < 5. It should be converted.
+	 */
+	if (PageGetPageLayoutVersion(hdr) < 5)
 	{
 		switch (rel->rd_rel->relkind)
 		{
@@ -136,9 +116,11 @@ convert_page(Relation rel, Page page, Buffer buf, BlockNumber blkno)
 				/* no real need to convert sequences */
 				break;
 			default:
-				elog(ERROR,
-					 "Conversion for relkind '%c' is not implemented",
-					 rel->rd_rel->relkind);
+				ereport(ERROR,
+						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+						 errmsg("conversion for relation \"%s\" cannot be done",
+								RelationGetRelationName(rel)),
+						 errdetail_relkind_not_supported(rel->rd_rel->relkind)));
 		}
 	}
 
@@ -168,32 +150,36 @@ static void
 convert_heap(Relation rel, Page page, Buffer buf, BlockNumber blkno)
 {
 	PageHeader	page_hdr = (PageHeader) page;
-	bool		heap_special_fits;
+	bool		try_double_xmax;
 
-	/* Is there enough space to fit new page format? */
-	heap_special_fits = page_hdr->pd_upper - page_hdr->pd_lower >= SizeOfPageSpecial;
-	repack_heap_tuples(rel, page, buf, blkno, !heap_special_fits);
+	/*
+	 * If page has enough space for PageSpecial no need to use double xmax.
+	 */
+	try_double_xmax = page_hdr->pd_upper - page_hdr->pd_lower <
+							MAXALIGN(sizeof(HeapPageSpecialData));
+	repack_heap_tuples(rel, page, buf, blkno, try_double_xmax);
 }
 
 /*
- * Convert possibly wrapped around heap tuple's transaction and
- * multixact IDs after pg_upgrade.
+ * Convert xmin and xmax in a tuple.
+ * This also considers special cases: "double xmax" page format and multixact
+ * in xmax.
  */
 static void
 convert_heap_tuple_xids(HeapTupleHeader tuple, TransactionId xid_base,
 						MultiXactId mxid_base, bool double_xmax)
 {
-	TransactionId xid;
-
-	/* Convert xmin xid */
+	/* Convert xmin */
 	if (double_xmax)
-		tuple_set_double_xmax(tuple);
+	{
+		/* Prepare tuple for "double xmax" page format */
+		tuple->t_infomask |= HEAP_XMIN_FROZEN;
+	}
 	else
 	{
-		/* Subtract xid_base from normal xmin */
-		xid = tuple->t_choice.t_heap.t_xmin;
+		TransactionId xmin = tuple->t_choice.t_heap.t_xmin;
 
-		if (TransactionIdIsNormal(xid))
+		if (TransactionIdIsNormal(xmin))
 		{
 			if (HeapTupleHeaderXminFrozen(tuple))
 				tuple->t_choice.t_heap.t_xmin = FrozenTransactionId;
@@ -201,8 +187,9 @@ convert_heap_tuple_xids(HeapTupleHeader tuple, TransactionId xid_base,
 				tuple->t_choice.t_heap.t_xmin = InvalidTransactionId;
 			else
 			{
-				Assert(xid >= xid_base + FirstNormalTransactionId);
-				tuple->t_choice.t_heap.t_xmin = xid - xid_base;
+				Assert(xmin >= xid_base + FirstNormalTransactionId);
+				/* Subtract xid_base from normal xmin */
+				tuple->t_choice.t_heap.t_xmin = xmin - xid_base;
 			}
 		}
 	}
@@ -222,7 +209,7 @@ convert_heap_tuple_xids(HeapTupleHeader tuple, TransactionId xid_base,
 
 		if (double_xmax)
 		{
-			/* Save converted mxid into xmin/max */
+			/* Save converted mxid into "double xmax" format */
 			HeapTupleHeaderSetDoubleXmax(tuple, mxid);
 		}
 		else
@@ -236,34 +223,34 @@ convert_heap_tuple_xids(HeapTupleHeader tuple, TransactionId xid_base,
 				(uint32) (mxid - mxid_base + FirstMultiXactId);
 		}
 	}
-	/* Convert xmax xid */
+	/* Convert xmax */
 	else if (!(tuple->t_infomask & HEAP_XMAX_INVALID))
 	{
-		xid = tuple->t_choice.t_heap.t_xmax;
+		TransactionId xmax = tuple->t_choice.t_heap.t_xmax;
 
 		if (double_xmax)
 		{
-			/* Save converted mxid into xmin/max */
-			HeapTupleHeaderSetDoubleXmax(tuple, xid);
+			/* Save converted xmax into "double xmax" format */
+			HeapTupleHeaderSetDoubleXmax(tuple, xmax);
 		}
-		else if (TransactionIdIsNormal(xid))
+		else if (TransactionIdIsNormal(xmax))
 		{
 			/* Subtract xid_base from normal xmax */
-			Assert(xid >= xid_base + FirstNormalTransactionId);
-			tuple->t_choice.t_heap.t_xmax = xid - xid_base;
+			Assert(xmax >= xid_base + FirstNormalTransactionId);
+			tuple->t_choice.t_heap.t_xmax = xmax - xid_base;
 		}
 	}
 }
 
 /*
- * Compute page's [m]xid min/max values for based/"double xmax"
- * format conversions
+ * Correct page xmin/xmax based on tuple xmin/xmax values.
  */
 static void
 compute_xid_min_max(HeapTuple tuple, MultiXactId mxid_base,
 					TransactionId *xid_min, TransactionId *xid_max,
 					MultiXactId *mxid_min, MultiXactId *mxid_max)
 {
+	/* xmin */
 	if (!HeapTupleHeaderXminInvalid(tuple->t_data) &&
 		!HeapTupleHeaderXminFrozen(tuple->t_data))
 	{
@@ -271,13 +258,12 @@ compute_xid_min_max(HeapTuple tuple, MultiXactId mxid_base,
 
 		if (TransactionIdIsNormal(xid))
 		{
-			if (*xid_max < xid)
-				*xid_max = xid;
-			if (*xid_min > xid)
-				*xid_min = xid;
+			*xid_max = Max(*xid_max, xid);
+			*xid_min = Min(*xid_min, xid);
 		}
 	}
 
+	/* xmax */
 	if (!(tuple->t_data->t_infomask & HEAP_XMAX_INVALID))
 	{
 		TransactionId xid;
@@ -295,10 +281,8 @@ compute_xid_min_max(HeapTuple tuple, MultiXactId mxid_base,
 				Assert(mxid >= mxid_base);
 			}
 
-			if (*mxid_max < mxid)
-				*mxid_max = mxid;
-			if (*mxid_min > mxid)
-				*mxid_min = mxid;
+			*mxid_max = Max(*mxid_max, mxid);
+			*mxid_min = Min(*mxid_min, mxid);
 
 			/*
 			 * Also take into account hidden update xid, which can be
@@ -316,15 +300,17 @@ compute_xid_min_max(HeapTuple tuple, MultiXactId mxid_base,
 
 		if (TransactionIdIsNormal(xid))
 		{
-			if (*xid_max < xid)
-				*xid_max = xid;
-			if (*xid_min > xid)
-				*xid_min = xid;
+			*xid_max = Max(*xid_max, xid);
+			*xid_min = Min(*xid_min, xid);
 		}
 	}
 }
 
-/* Returns true, if "double xmax" format */
+/*
+ * Create PageHeader for page converted from 32-bit to 64-bit XID format.
+ *
+ * Return true, if "double xmax" format used.
+ */
 static bool
 init_heap_page_header(Relation rel, BlockNumber blkno, PageHeader new_hdr,
 					  TransactionId prune_xid, bool header_fits,
@@ -332,18 +318,24 @@ init_heap_page_header(Relation rel, BlockNumber blkno, PageHeader new_hdr,
 					  MultiXactId mxid_min, MultiXactId mxid_max,
 					  TransactionId *xid_base, MultiXactId *mxid_base)
 {
-	if (header_fits &&
-		(xid_max == InvalidTransactionId ||
-		 xid_max - xid_min <= MaxShortTransactionId - FirstNormalTransactionId) &&
-		(mxid_max == InvalidMultiXactId ||
-		 mxid_max - mxid_min <= MaxShortTransactionId - FirstMultiXactId))
-	{
-		Assert(xid_max == InvalidTransactionId || xid_max >= xid_min);
-		Assert(mxid_max == InvalidMultiXactId || mxid_max >= mxid_min);
-		*xid_base = xid_max == InvalidTransactionId ? InvalidTransactionId : xid_min - FirstNormalTransactionId;
-		*mxid_base = mxid_max == InvalidMultiXactId ? InvalidMultiXactId : mxid_min - FirstMultiXactId;
+	bool	xid_max_invalid = xid_max == InvalidTransactionId;
+	bool	mxid_max_invalid = mxid_max == InvalidMultiXactId;
+	bool	xid_max_fits = xid_max_invalid || xid_max - xid_min <=
+								MaxShortTransactionId - FirstNormalTransactionId;
+	bool	mxid_max_fits = mxid_max_invalid || mxid_max - mxid_min <=
+								MaxShortTransactionId - FirstMultiXactId;
 
-		InitHeapPageSpecial(new_hdr, *xid_base, *mxid_base, prune_xid);
+	if (header_fits && xid_max_fits && mxid_max_fits)
+	{
+		Assert(xid_max_invalid || xid_max >= xid_min);
+		Assert(mxid_max_invalid || mxid_max >= mxid_min);
+
+		*xid_base = xid_max_invalid ? InvalidTransactionId :
+									  xid_min - FirstNormalTransactionId;
+		*mxid_base = mxid_max_invalid ? InvalidMultiXactId :
+										mxid_min - FirstMultiXactId;
+
+		init_heap_page_special(new_hdr, *xid_base, *mxid_base, prune_xid);
 		return false;
 	}
 	else
@@ -354,8 +346,8 @@ init_heap_page_header(Relation rel, BlockNumber blkno, PageHeader new_hdr,
 		*xid_base = InvalidTransactionId;
 		*mxid_base = InvalidMultiXactId;
 
-		elog(DEBUG2, "convert heap page %u of relation %u to double xmax format",
-			 blkno, RelationGetRelid(rel));
+		elog(DEBUG2, "convert heap page %u of relation \"%s\" to double xmax format",
+			 blkno, RelationGetRelationName(rel));
 		return true;
 	}
 }
@@ -366,31 +358,26 @@ init_heap_page_header(Relation rel, BlockNumber blkno, PageHeader new_hdr,
  */
 static void
 repack_heap_tuples(Relation rel, Page page, Buffer buf, BlockNumber blkno,
-				   bool perhaps_double_xmax)
+				   bool try_double_xmax)
 {
-	ItemIdCompactData items[MaxHeapTuplesPerPage];
-	itemIdCompact itemPtr = items;
-	ItemId		lp;
-	int			nitems = 0;
-	int			maxoff = PageGetMaxOffsetNumber(page);
-	Offset		upper;
-	int			idx;
-	bool		double_xmax;
-
-	PageHeader	hdr;
-	PageHeader	new_hdr;
-	char		new_page[BLCKSZ];
-	MultiXactId mxid_base = rel->rd_rel->relminmxid;
-	MultiXactId mxid_min = MaxMultiXactId;
-	MultiXactId mxid_max = InvalidMultiXactId;
-	TransactionId xid_base = rel->rd_rel->relfrozenxid;
-	TransactionId xid_min = MaxTransactionId;
-	TransactionId xid_max = InvalidTransactionId;
-
-	int			occupied_space = 0;
-
-	memset(new_page, 0, sizeof(new_page));
-	hdr = (PageHeader) page;
+	ItemIdCompactData	items[MaxHeapTuplesPerPage];
+	ItemIdCompact		itemPtr = items;
+	ItemId				lp;
+	int					nitems = 0,
+						maxoff = PageGetMaxOffsetNumber(page),
+						idx,
+						occupied_space = 0;
+	Offset				upper;
+	bool				double_xmax;
+	PageHeader			hdr = (PageHeader) page,
+						new_hdr;
+	char				new_page[BLCKSZ] = {0};
+	MultiXactId			mxid_base = rel->rd_rel->relminmxid,
+						mxid_min = MaxMultiXactId,
+						mxid_max = InvalidMultiXactId;
+	TransactionId		xid_base = rel->rd_rel->relfrozenxid,
+						xid_min = MaxTransactionId,
+						xid_max = InvalidTransactionId;
 
 	if (TransactionIdIsNormal(hdr->pd_prune_xid))
 		xid_min = xid_max = hdr->pd_prune_xid;
@@ -418,8 +405,9 @@ repack_heap_tuples(Relation rel, Page page, Buffer buf, BlockNumber blkno,
 		 * page after pg_upgrade, it cannot be HEAPTUPLE_RECENTLY_DEAD. See
 		 * HeapTupleSatisfiesVacuum() for details
 		 */
-		if (perhaps_double_xmax &&
-			HeapTupleSatisfiesVacuum(&tuple, FirstUpgradedTransactionId, buf) == HEAPTUPLE_DEAD)
+		if (try_double_xmax &&
+			HeapTupleSatisfiesVacuum(&tuple,
+									 (TransactionId) 1 << 32, buf) == HEAPTUPLE_DEAD)
 		{
 			ItemIdSetDead(lp);
 		}
@@ -430,15 +418,18 @@ repack_heap_tuples(Relation rel, Page page, Buffer buf, BlockNumber blkno,
 			itemPtr->itemoff = ItemIdGetOffset(lp);
 			if (unlikely(itemPtr->itemoff < hdr->pd_upper ||
 						 itemPtr->itemoff >= hdr->pd_special))
+			{
 				ereport(ERROR,
 						(errcode(ERRCODE_DATA_CORRUPTED),
 						 errmsg("corrupted item pointer: %u",
 								itemPtr->itemoff)));
+			}
+
 			itemPtr->alignedlen = MAXALIGN(ItemIdGetLength(lp));
 			occupied_space += itemPtr->alignedlen;
 			nitems++;
 			itemPtr++;
-			if (perhaps_double_xmax)
+			if (try_double_xmax)
 			{
 				HeapTupleSetXmin(&tuple, FrozenTransactionId);
 				HeapTupleHeaderSetXminFrozen(tuple.t_data);
@@ -461,12 +452,12 @@ repack_heap_tuples(Relation rel, Page page, Buffer buf, BlockNumber blkno,
 										xid_min, xid_max,
 										mxid_min, mxid_max,
 										&xid_base, &mxid_base);
-	if (!perhaps_double_xmax && double_xmax)
+	if (!try_double_xmax && double_xmax)
 		return repack_heap_tuples(rel, page, buf, blkno, true);
 
 	/* Copy ItemIds with an offset */
-	memcpy(new_page + SizeOfPageHeaderData,
-		   page + SizeOfPageHeaderData,
+	memcpy((char *) new_page + SizeOfPageHeaderData,
+		   (char *) page + SizeOfPageHeaderData,
 		   hdr->pd_lower - SizeOfPageHeaderData);
 
 	/* Move live tuples */
@@ -491,22 +482,13 @@ repack_heap_tuples(Relation rel, Page page, Buffer buf, BlockNumber blkno,
 
 		occupied_space -= itemPtr->alignedlen;
 	}
+
 	Assert(occupied_space == 0);
 
 	new_hdr->pd_upper = upper;
 	if (new_hdr->pd_lower > new_hdr->pd_upper)
-		elog(ERROR, "cannot convert block %u of relation '%s'",
+		elog(ERROR, "cannot convert block %u of relation \"%s\"",
 			 blkno, RelationGetRelationName(rel));
 
 	memcpy(page, new_page, BLCKSZ);
-}
-
-/*
- * Convert tuple for "double xmax" page format.
- */
-static void
-tuple_set_double_xmax(HeapTupleHeader tuple)
-{
-	tuple->t_infomask |= HEAP_XMIN_FROZEN;
-	tuple->t_choice.t_heap.t_xmin = 0;
 }

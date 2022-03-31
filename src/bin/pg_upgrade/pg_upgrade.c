@@ -579,7 +579,7 @@ copy_xact_xlog_xid(void)
 	/* Set next xid to 2^32 if we're upgrading from 32 bit postgres */
 	next_xid = ALREADY_64bit_XID(old_cluster) == ALREADY_64bit_XID(new_cluster) ?
 		old_cluster.controldata.chkpnt_nxtxid :
-		FirstUpgradedTransactionId;
+		((TransactionId) 1 << 32);
 
 	if (ALREADY_64bit_XID(old_cluster) == ALREADY_64bit_XID(new_cluster))
 	{
