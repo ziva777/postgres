@@ -73,7 +73,6 @@ NormalTransactionIdToShort(TransactionId base, TransactionId xid)
 }
 
 #define XidFromFullTransactionId(x)		((x).value)
-#define U64FromFullTransactionId(x)		((x).value)
 #define FullTransactionIdEquals(a, b)	((a).value == (b).value)
 #define FullTransactionIdPrecedes(a, b)	((a).value < (b).value)
 #define FullTransactionIdPrecedesOrEquals(a, b) ((a).value <= (b).value)

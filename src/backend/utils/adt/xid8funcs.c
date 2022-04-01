@@ -108,7 +108,7 @@ TransactionIdInRecentPast(FullTransactionId fxid, TransactionId *extracted_xid)
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 				 errmsg("transaction ID %llu is in the future",
-						(unsigned long long) U64FromFullTransactionId(fxid))));
+						(unsigned long long) XidFromFullTransactionId(fxid))));
 
 	/*
 	 * ShmemVariableCache->oldestClogXid is protected by XactTruncationLock,
@@ -426,16 +426,16 @@ pg_snapshot_out(PG_FUNCTION_ARGS)
 	initStringInfo(&str);
 
 	appendStringInfo(&str, UINT64_FORMAT ":",
-					 U64FromFullTransactionId(snap->xmin));
+					 XidFromFullTransactionId(snap->xmin));
 	appendStringInfo(&str, UINT64_FORMAT ":",
-					 U64FromFullTransactionId(snap->xmax));
+					 XidFromFullTransactionId(snap->xmax));
 
 	for (i = 0; i < snap->nxip; i++)
 	{
 		if (i > 0)
 			appendStringInfoChar(&str, ',');
 		appendStringInfo(&str, UINT64_FORMAT,
-						 U64FromFullTransactionId(snap->xip[i]));
+						 XidFromFullTransactionId(snap->xip[i]));
 	}
 
 	PG_RETURN_CSTRING(str.data);
@@ -523,10 +523,10 @@ pg_snapshot_send(PG_FUNCTION_ARGS)
 
 	pq_begintypsend(&buf);
 	pq_sendint32(&buf, snap->nxip);
-	pq_sendint64(&buf, (int64) U64FromFullTransactionId(snap->xmin));
-	pq_sendint64(&buf, (int64) U64FromFullTransactionId(snap->xmax));
+	pq_sendint64(&buf, (int64) XidFromFullTransactionId(snap->xmin));
+	pq_sendint64(&buf, (int64) XidFromFullTransactionId(snap->xmax));
 	for (i = 0; i < snap->nxip; i++)
-		pq_sendint64(&buf, (int64) U64FromFullTransactionId(snap->xip[i]));
+		pq_sendint64(&buf, (int64) XidFromFullTransactionId(snap->xip[i]));
 	PG_RETURN_BYTEA_P(pq_endtypsend(&buf));
 }
 
