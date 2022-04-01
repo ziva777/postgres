@@ -279,7 +279,7 @@ get_control_data(ClusterInfo *cluster, bool live_check)
 			 * xids 64-bit in the future. Here we support both controldata
 			 * formats.
 			 */
-			xid.value = strtou64(p, NULL, 10);
+			xid = strtou64(p, NULL, 10);
 
 			/*
 			 * Try to read 32-bit XID format 'epoch:xid'.
@@ -299,7 +299,7 @@ get_control_data(ClusterInfo *cluster, bool live_check)
 			if (p == NULL)
 			{
 				/* FullTransactionId representation */
-				cluster->controldata.chkpnt_nxtxid = xid.value;
+				cluster->controldata.chkpnt_nxtxid = xid;
 			}
 			else
 			{

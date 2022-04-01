@@ -299,17 +299,7 @@ TransactionIdAbortTree(TransactionId xid, int nxids, TransactionId *xids)
 bool
 TransactionIdPrecedes(TransactionId id1, TransactionId id2)
 {
-	/*
-	 * If either ID is a permanent XID then we can just do unsigned
-	 * comparison.  If both are normal, do a modulo-2^64 comparison.
-	 */
-	int64		diff;
-
-	if (!TransactionIdIsNormal(id1) || !TransactionIdIsNormal(id2))
-		return (id1 < id2);
-
-	diff = (int64) (id1 - id2);
-	return (diff < 0);
+	return (id1 < id2);
 }
 
 /*
@@ -318,13 +308,7 @@ TransactionIdPrecedes(TransactionId id1, TransactionId id2)
 bool
 TransactionIdPrecedesOrEquals(TransactionId id1, TransactionId id2)
 {
-	int64		diff;
-
-	if (!TransactionIdIsNormal(id1) || !TransactionIdIsNormal(id2))
-		return (id1 <= id2);
-
-	diff = (int64) (id1 - id2);
-	return (diff <= 0);
+	return (id1 <= id2);
 }
 
 /*
@@ -333,13 +317,7 @@ TransactionIdPrecedesOrEquals(TransactionId id1, TransactionId id2)
 bool
 TransactionIdFollows(TransactionId id1, TransactionId id2)
 {
-	int64		diff;
-
-	if (!TransactionIdIsNormal(id1) || !TransactionIdIsNormal(id2))
-		return (id1 > id2);
-
-	diff = (int64) (id1 - id2);
-	return (diff > 0);
+	return (id1 > id2);
 }
 
 /*
@@ -348,13 +326,7 @@ TransactionIdFollows(TransactionId id1, TransactionId id2)
 bool
 TransactionIdFollowsOrEquals(TransactionId id1, TransactionId id2)
 {
-	int64		diff;
-
-	if (!TransactionIdIsNormal(id1) || !TransactionIdIsNormal(id2))
-		return (id1 >= id2);
-
-	diff = (int64) (id1 - id2);
-	return (diff >= 0);
+	return (id1 >= id2);
 }
 
 

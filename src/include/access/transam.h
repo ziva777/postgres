@@ -72,12 +72,12 @@ NormalTransactionIdToShort(TransactionId base, TransactionId xid)
 	return (ShortTransactionId) (xid - base);
 }
 
-#define XidFromFullTransactionId(x)		((x).value)
-#define FullTransactionIdEquals(a, b)	((a).value == (b).value)
-#define FullTransactionIdPrecedes(a, b)	((a).value < (b).value)
-#define FullTransactionIdPrecedesOrEquals(a, b) ((a).value <= (b).value)
-#define FullTransactionIdFollows(a, b) ((a).value > (b).value)
-#define FullTransactionIdFollowsOrEquals(a, b) ((a).value >= (b).value)
+#define XidFromFullTransactionId(x)		((x))
+#define FullTransactionIdEquals(a, b)	((a) == (b))
+#define FullTransactionIdPrecedes(a, b)	((a) < (b))
+#define FullTransactionIdPrecedesOrEquals(a, b) ((a) <= (b))
+#define FullTransactionIdFollows(a, b) ((a) > (b))
+#define FullTransactionIdFollowsOrEquals(a, b) ((a) >= (b))
 #define FullTransactionIdIsValid(x)		TransactionIdIsValid(XidFromFullTransactionId(x))
 #define InvalidFullTransactionId		FullTransactionIdFromXid(InvalidTransactionId)
 #define FirstNormalFullTransactionId	FullTransactionIdFromXid(FirstNormalTransactionId)
@@ -88,17 +88,14 @@ NormalTransactionIdToShort(TransactionId base, TransactionId xid)
  * wrapped in a struct to prevent implicit conversion to/from TransactionId.
  * Not all values represent valid normal XIDs.
  */
-typedef struct FullTransactionId
-{
-	uint64		value;
-} FullTransactionId;
+typedef TransactionId FullTransactionId;
 
 static inline FullTransactionId
 FullTransactionIdFromXid(TransactionId xid)
 {
 	FullTransactionId result;
 
-	result.value = xid;
+	result = xid;
 
 	return result;
 }
@@ -117,7 +114,7 @@ FullTransactionIdFromXid(TransactionId xid)
 static inline void
 FullTransactionIdRetreat(FullTransactionId *dest)
 {
-	dest->value--;
+	(*dest)--;
 
 	/*
 	 * In contrast to 32bit XIDs don't step over the "actual" special xids.
@@ -132,7 +129,7 @@ FullTransactionIdRetreat(FullTransactionId *dest)
 	 * XIDs.
 	 */
 	while (XidFromFullTransactionId(*dest) < FirstNormalTransactionId)
-		dest->value--;
+		(*dest)--;
 }
 
 /*
@@ -142,14 +139,14 @@ FullTransactionIdRetreat(FullTransactionId *dest)
 static inline void
 FullTransactionIdAdvance(FullTransactionId *dest)
 {
-	dest->value++;
+	(*dest)++;
 
 	/* see FullTransactionIdAdvance() */
 	if (FullTransactionIdPrecedes(*dest, FirstNormalFullTransactionId))
 		return;
 
 	while (XidFromFullTransactionId(*dest) < FirstNormalTransactionId)
-		dest->value++;
+		(*dest)++;
 }
 
 /* back up a transaction ID variable, handling wraparound correctly */

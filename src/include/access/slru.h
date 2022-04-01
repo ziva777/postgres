@@ -116,8 +116,7 @@ typedef struct SlruCtlData
 	 * !PagePrecedes(a,b) && !PagePrecedes(b,a) need not imply a==b; it also
 	 * arises when some entries are older and some are not.  For SLRUs using
 	 * SimpleLruTruncate(), this must use modular arithmetic.  (For others,
-	 * the behavior of this callback has no functional implications.)  Use
-	 * SlruPagePrecedesUnitTests() in SLRUs meeting its criteria.
+	 * the behavior of this callback has no functional implications.)
 	 */
 	bool		(*PagePrecedes) (int64, int64);
 
@@ -142,11 +141,6 @@ extern int	SimpleLruReadPage_ReadOnly(SlruCtl ctl, int64 pageno,
 									   TransactionId xid);
 extern void SimpleLruWritePage(SlruCtl ctl, int slotno);
 extern void SimpleLruWriteAll(SlruCtl ctl, bool allow_redirtied);
-#ifdef USE_ASSERT_CHECKING
-extern void SlruPagePrecedesUnitTests(SlruCtl ctl, int per_page);
-#else
-#define SlruPagePrecedesUnitTests(ctl, per_page) do {} while (0)
-#endif
 extern void SimpleLruTruncate(SlruCtl ctl, int64 cutoffPage);
 extern bool SimpleLruDoesPhysicalPageExist(SlruCtl ctl, int64 pageno);
 

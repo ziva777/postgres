@@ -790,74 +790,8 @@ FlagSxactUnsafe(SERIALIZABLEXACT *sxact)
 static bool
 SerialPagePrecedesLogically(int64 page1, int64 page2)
 {
-	TransactionId xid1;
-	TransactionId xid2;
-
-	xid1 = ((TransactionId) page1) * SERIAL_ENTRIESPERPAGE;
-	xid1 += FirstNormalTransactionId + 1;
-	xid2 = ((TransactionId) page2) * SERIAL_ENTRIESPERPAGE;
-	xid2 += FirstNormalTransactionId + 1;
-
-	return (TransactionIdPrecedes(xid1, xid2) &&
-			TransactionIdPrecedes(xid1, xid2 + SERIAL_ENTRIESPERPAGE - 1));
+	return page1 < page2;
 }
-
-#ifdef USE_ASSERT_CHECKING
-static void
-SerialPagePrecedesLogicallyUnitTests(void)
-{
-	int			per_page = SERIAL_ENTRIESPERPAGE,
-				offset = per_page / 2;
-	int64		newestPage,
-				oldestPage,
-				headPage,
-				targetPage;
-	TransactionId newestXact,
-				oldestXact;
-
-	/* GetNewTransactionId() has assigned the last XID it can safely use. */
-	newestPage = 2 * SLRU_PAGES_PER_SEGMENT - 1;	/* nothing special */
-	newestXact = newestPage * per_page + offset;
-	Assert(newestXact / per_page == newestPage);
-	oldestXact = newestXact + 1;
-	oldestXact -= 1U << 31;
-	oldestPage = oldestXact / per_page;
-
-	/*
-	 * In this scenario, the SLRU headPage pertains to the last ~1000 XIDs
-	 * assigned.  oldestXact finishes, ~2B XIDs having elapsed since it
-	 * started.  Further transactions cause us to summarize oldestXact to
-	 * tailPage.  Function must return false so SerialAdd() doesn't zero
-	 * tailPage (which may contain entries for other old, recently-finished
-	 * XIDs) and half the SLRU.  Reaching this requires burning ~2B XIDs in
-	 * single-user mode, a negligible possibility.
-	 */
-	headPage = newestPage;
-	targetPage = oldestPage;
-	Assert(!SerialPagePrecedesLogically(headPage, targetPage));
-
-	/*
-	 * In this scenario, the SLRU headPage pertains to oldestXact.  We're
-	 * summarizing an XID near newestXact.  (Assume few other XIDs used
-	 * SERIALIZABLE, hence the minimal headPage advancement.  Assume
-	 * oldestXact was long-running and only recently reached the SLRU.)
-	 * Function must return true to make SerialAdd() create targetPage.
-	 *
-	 * Today's implementation mishandles this case, but it doesn't matter
-	 * enough to fix.  Verify that the defect affects just one page by
-	 * asserting correct treatment of its prior page.  Reaching this case
-	 * requires burning ~2B XIDs in single-user mode, a negligible
-	 * possibility.  Moreover, if it does happen, the consequence would be
-	 * mild, namely a new transaction failing in SimpleLruReadPage().
-	 */
-	headPage = oldestPage;
-	targetPage = newestPage;
-	Assert(SerialPagePrecedesLogically(headPage, targetPage - 1));
-#if 0
-	Assert(SerialPagePrecedesLogically(headPage, targetPage));
-#endif
-}
-#endif
 
 /*
  * Initialize for the tracking of old serializable committed xids.
@@ -874,10 +808,6 @@ SerialInit(void)
 	SimpleLruInit(SerialSlruCtl, "Serial",
 				  NUM_SERIAL_BUFFERS, 0, SerialSLRULock, "pg_serial",
 				  LWTRANCHE_SERIAL_BUFFER, SYNC_HANDLER_NONE);
-#ifdef USE_ASSERT_CHECKING
-	SerialPagePrecedesLogicallyUnitTests();
-#endif
-	SlruPagePrecedesUnitTests(SerialSlruCtl, SERIAL_ENTRIESPERPAGE);
 
 	/*
 	 * Create or attach to the SerialControl structure.
