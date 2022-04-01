@@ -255,12 +255,12 @@ parse_snapshot(const char *str)
 	char	   *endp;
 	StringInfo	buf;
 
-	xmin = FullTransactionIdFromU64(strtou64(str, &endp, 10));
+	xmin = FullTransactionIdFromXid(strtou64(str, &endp, 10));
 	if (*endp != ':')
 		goto bad_format;
 	str = endp + 1;
 
-	xmax = FullTransactionIdFromU64(strtou64(str, &endp, 10));
+	xmax = FullTransactionIdFromXid(strtou64(str, &endp, 10));
 	if (*endp != ':')
 		goto bad_format;
 	str = endp + 1;
@@ -278,7 +278,7 @@ parse_snapshot(const char *str)
 	while (*str != '\0')
 	{
 		/* read next value */
-		val = FullTransactionIdFromU64(strtou64(str, &endp, 10));
+		val = FullTransactionIdFromXid(strtou64(str, &endp, 10));
 		str = endp;
 
 		/* require the input to be in order */
@@ -464,8 +464,8 @@ pg_snapshot_recv(PG_FUNCTION_ARGS)
 	if (nxip < 0 || nxip > PG_SNAPSHOT_MAX_NXIP)
 		goto bad_format;
 
-	xmin = FullTransactionIdFromU64((uint64) pq_getmsgint64(buf));
-	xmax = FullTransactionIdFromU64((uint64) pq_getmsgint64(buf));
+	xmin = FullTransactionIdFromXid((uint64) pq_getmsgint64(buf));
+	xmax = FullTransactionIdFromXid((uint64) pq_getmsgint64(buf));
 	if (!FullTransactionIdIsValid(xmin) ||
 		!FullTransactionIdIsValid(xmax) ||
 		FullTransactionIdPrecedes(xmax, xmin))
@@ -478,7 +478,7 @@ pg_snapshot_recv(PG_FUNCTION_ARGS)
 	for (i = 0; i < nxip; i++)
 	{
 		FullTransactionId cur =
-		FullTransactionIdFromU64((uint64) pq_getmsgint64(buf));
+		FullTransactionIdFromXid((uint64) pq_getmsgint64(buf));
 
 		if (FullTransactionIdPrecedes(cur, last) ||
 			FullTransactionIdPrecedes(cur, xmin) ||

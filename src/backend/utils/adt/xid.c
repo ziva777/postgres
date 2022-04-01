@@ -195,7 +195,7 @@ xid8in(PG_FUNCTION_ARGS)
 {
 	char	   *str = PG_GETARG_CSTRING(0);
 
-	PG_RETURN_FULLTRANSACTIONID(FullTransactionIdFromU64(strtou64(str, NULL, 0)));
+	PG_RETURN_FULLTRANSACTIONID(FullTransactionIdFromXid(strtou64(str, NULL, 0)));
 }
 
 Datum
@@ -215,7 +215,7 @@ xid8recv(PG_FUNCTION_ARGS)
 	uint64		value;
 
 	value = (uint64) pq_getmsgint64(buf);
-	PG_RETURN_FULLTRANSACTIONID(FullTransactionIdFromU64(value));
+	PG_RETURN_FULLTRANSACTIONID(FullTransactionIdFromXid(value));
 }
 
 Datum

@@ -103,16 +103,6 @@ FullTransactionIdFromXid(TransactionId xid)
 	return result;
 }
 
-static inline FullTransactionId
-FullTransactionIdFromU64(uint64 value)
-{
-	FullTransactionId result;
-
-	result.value = value;
-
-	return result;
-}
-
 /* advance a transaction ID variable, handling wraparound correctly */
 #define TransactionIdAdvance(dest)	\
 	do { \
