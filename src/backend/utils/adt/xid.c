@@ -195,7 +195,7 @@ xid8in(PG_FUNCTION_ARGS)
 {
 	char	   *str = PG_GETARG_CSTRING(0);
 
-	PG_RETURN_FULLTRANSACTIONID(FullTransactionIdFromU64(strtou64(str, NULL, 0)));
+	PG_RETURN_FULLTRANSACTIONID(FullTransactionIdFromXid(strtou64(str, NULL, 0)));
 }
 
 Datum
@@ -204,7 +204,7 @@ xid8out(PG_FUNCTION_ARGS)
 	FullTransactionId fxid = PG_GETARG_FULLTRANSACTIONID(0);
 	char	   *result = (char *) palloc(21);
 
-	snprintf(result, 21, UINT64_FORMAT, U64FromFullTransactionId(fxid));
+	snprintf(result, 21, UINT64_FORMAT, XidFromFullTransactionId(fxid));
 	PG_RETURN_CSTRING(result);
 }
 
@@ -215,7 +215,7 @@ xid8recv(PG_FUNCTION_ARGS)
 	uint64		value;
 
 	value = (uint64) pq_getmsgint64(buf);
-	PG_RETURN_FULLTRANSACTIONID(FullTransactionIdFromU64(value));
+	PG_RETURN_FULLTRANSACTIONID(FullTransactionIdFromXid(value));
 }
 
 Datum
@@ -225,7 +225,7 @@ xid8send(PG_FUNCTION_ARGS)
 	StringInfoData buf;
 
 	pq_begintypsend(&buf);
-	pq_sendint64(&buf, (uint64) U64FromFullTransactionId(arg1));
+	pq_sendint64(&buf, (uint64) XidFromFullTransactionId(arg1));
 	PG_RETURN_BYTEA_P(pq_endtypsend(&buf));
 }
 

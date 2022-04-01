@@ -485,8 +485,8 @@ ResolveRecoveryConflictWithSnapshotFullXid(FullTransactionId latestRemovedFullXi
 	FullTransactionId nextXid = ReadNextFullTransactionId();
 	uint64		diff;
 
-	diff = U64FromFullTransactionId(nextXid) -
-		U64FromFullTransactionId(latestRemovedFullXid);
+	diff = XidFromFullTransactionId(nextXid) -
+		XidFromFullTransactionId(latestRemovedFullXid);
 	if (diff < MaxTransactionId / 2)
 	{
 		TransactionId latestRemovedXid;
