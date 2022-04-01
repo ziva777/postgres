@@ -241,11 +241,11 @@ typedef struct BTMetaPageData
  */
 typedef struct BTDeletedPageData
 {
-	FullTransactionId safexid;	/* See BTPageIsRecyclable() */
+	TransactionId safexid;	/* See BTPageIsRecyclable() */
 } BTDeletedPageData;
 
 static inline void
-BTPageSetDeleted(Page page, FullTransactionId safexid)
+BTPageSetDeleted(Page page, TransactionId safexid)
 {
 	BTPageOpaque opaque;
 	PageHeader	header;
@@ -265,7 +265,7 @@ BTPageSetDeleted(Page page, FullTransactionId safexid)
 	contents->safexid = safexid;
 }
 
-static inline FullTransactionId
+static inline TransactionId
 BTPageGetDeleteXid(Page page)
 {
 	BTPageOpaque opaque;
@@ -278,7 +278,7 @@ BTPageGetDeleteXid(Page page)
 
 	/* pg_upgrade'd deleted page -- must be safe to delete now */
 	if (!P_HAS_FULLXID(opaque))
-		return FirstNormalFullTransactionId;
+		return FirstNormalTransactionId;
 
 	/* Get safexid from deleted page */
 	contents = ((BTDeletedPageData *) PageGetContents(page));
@@ -321,7 +321,7 @@ BTPageIsRecyclable(Page page)
 		 * recycling deleted pages in non-catalog relations.  For now we just
 		 * pass NULL.  That is at least simple and consistent.
 		 */
-		return GlobalVisCheckRemovableFullXid(NULL, BTPageGetDeleteXid(page));
+		return GlobalVisCheckRemovableXid(NULL, BTPageGetDeleteXid(page));
 	}
 
 	return false;
@@ -334,7 +334,7 @@ BTPageIsRecyclable(Page page)
 typedef struct BTPendingFSM
 {
 	BlockNumber target;			/* Page deleted by current VACUUM */
-	FullTransactionId safexid;	/* Page's BTDeletedPageData.safexid */
+	TransactionId safexid;	/* Page's BTDeletedPageData.safexid */
 } BTPendingFSM;
 
 typedef struct BTVacState

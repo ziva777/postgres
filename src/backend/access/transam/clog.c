@@ -714,7 +714,7 @@ BootStrapCLOG(void)
 	int			slotno;
 	int64		pageno;
 
-	pageno = TransactionIdToPage(XidFromFullTransactionId(ShmemVariableCache->nextXid));
+	pageno = TransactionIdToPage(ShmemVariableCache->nextXid);
 
 	LWLockAcquire(XactSLRULock, LW_EXCLUSIVE);
 
@@ -767,8 +767,7 @@ ZeroCLOGPage(int64 pageno, bool writeXlog)
 void
 StartupCLOG(void)
 {
-	TransactionId xid = XidFromFullTransactionId(ShmemVariableCache->nextXid);
-	int64		pageno = TransactionIdToPage(xid);
+	int64		pageno = TransactionIdToPage(ShmemVariableCache->nextXid);
 
 	LWLockAcquire(XactSLRULock, LW_EXCLUSIVE);
 
@@ -786,7 +785,7 @@ StartupCLOG(void)
 void
 TrimCLOG(void)
 {
-	TransactionId xid = XidFromFullTransactionId(ShmemVariableCache->nextXid);
+	TransactionId xid = ShmemVariableCache->nextXid;
 	int64		pageno = TransactionIdToPage(xid);
 
 	LWLockAcquire(XactSLRULock, LW_EXCLUSIVE);

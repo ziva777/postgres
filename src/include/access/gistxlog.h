@@ -84,7 +84,7 @@ typedef struct gistxlogPageSplit
  */
 typedef struct gistxlogPageDelete
 {
-	FullTransactionId deleteXid;	/* last Xid which could see page in scan */
+	TransactionId deleteXid;		/* last Xid which could see page in scan */
 	OffsetNumber downlinkOffset;	/* Offset of downlink referencing this
 									 * page */
 } gistxlogPageDelete;
@@ -99,10 +99,10 @@ typedef struct gistxlogPageReuse
 {
 	RelFileNode node;
 	BlockNumber block;
-	FullTransactionId latestRemovedFullXid;
+	TransactionId latestRemovedXid;
 } gistxlogPageReuse;
 
-#define SizeOfGistxlogPageReuse	(offsetof(gistxlogPageReuse, latestRemovedFullXid) + sizeof(FullTransactionId))
+#define SizeOfGistxlogPageReuse	(offsetof(gistxlogPageReuse, latestRemovedXid) + sizeof(TransactionId))
 
 extern void gist_redo(XLogReaderState *record);
 extern void gist_desc(StringInfo buf, XLogReaderState *record);

@@ -805,7 +805,7 @@ btree_xlog_unlink_page(uint8 info, XLogReaderState *record)
 	BlockNumber rightsib;
 	uint32		level;
 	bool		isleaf;
-	FullTransactionId safexid;
+	TransactionId safexid;
 	Buffer		leftbuf;
 	Buffer		target;
 	Buffer		rightbuf;
@@ -993,9 +993,9 @@ btree_xlog_newroot(XLogReaderState *record)
  * xl_btree_reuse_page record at the point that a page is actually recycled
  * and reused for an entirely unrelated page inside _bt_split().  These
  * records include the same safexid value from the original deleted page,
- * stored in the record's latestRemovedFullXid field.
+ * stored in the record's latestRemovedXid field.
  *
- * The GlobalVisCheckRemovableFullXid() test in BTPageIsRecyclable() is used
+ * The GlobalVisCheckRemovableXid() test in BTPageIsRecyclable() is used
  * to determine if it's safe to recycle a page.  This mirrors our own test:
  * the PGPROC->xmin > limitXmin test inside GetConflictingVirtualXIDs().
  * Consequently, one XID value achieves the same exclusion effect on primary
@@ -1007,8 +1007,8 @@ btree_xlog_reuse_page(XLogReaderState *record)
 	xl_btree_reuse_page *xlrec = (xl_btree_reuse_page *) XLogRecGetData(record);
 
 	if (InHotStandby)
-		ResolveRecoveryConflictWithSnapshotFullXid(xlrec->latestRemovedFullXid,
-												   xlrec->node);
+		ResolveRecoveryConflictWithSnapshot(xlrec->latestRemovedXid,
+											xlrec->node);
 }
 
 void

@@ -169,10 +169,10 @@ typedef struct ProcArrayStruct
 struct GlobalVisState
 {
 	/* XIDs >= are considered running by some backend */
-	FullTransactionId definitely_needed;
+	TransactionId definitely_needed;
 
 	/* XIDs < are not considered to be running by any backend */
-	FullTransactionId maybe_needed;
+	TransactionId maybe_needed;
 };
 
 /*
@@ -184,7 +184,7 @@ typedef struct ComputeXidHorizonsResult
 	 * The value of ShmemVariableCache->latestCompletedXid when
 	 * ComputeXidHorizons() held ProcArrayLock.
 	 */
-	FullTransactionId latest_completed;
+	TransactionId latest_completed;
 
 	/*
 	 * The same for procArray->replication_slot_xmin and.
@@ -958,19 +958,19 @@ ProcArrayClearTransaction(PGPROC *proc)
 static void
 MaintainLatestCompletedXid(TransactionId latestXid)
 {
-	FullTransactionId cur_latest = ShmemVariableCache->latestCompletedXid;
+	TransactionId cur_latest = ShmemVariableCache->latestCompletedXid;
 
-	Assert(FullTransactionIdIsValid(cur_latest));
+	Assert(TransactionIdIsValid(cur_latest));
 	Assert(!RecoveryInProgress());
 	Assert(LWLockHeldByMe(ProcArrayLock));
 
-	if (TransactionIdPrecedes(XidFromFullTransactionId(cur_latest), latestXid))
+	if (TransactionIdPrecedes(cur_latest, latestXid))
 	{
-		ShmemVariableCache->latestCompletedXid = FullTransactionIdFromXid(latestXid);
+		ShmemVariableCache->latestCompletedXid = latestXid;
 	}
 
 	Assert(IsBootstrapProcessingMode() ||
-		   FullTransactionIdIsNormal(ShmemVariableCache->latestCompletedXid));
+		   TransactionIdIsNormal(ShmemVariableCache->latestCompletedXid));
 }
 
 /*
@@ -979,25 +979,25 @@ MaintainLatestCompletedXid(TransactionId latestXid)
 static void
 MaintainLatestCompletedXidRecovery(TransactionId latestXid)
 {
-	FullTransactionId cur_latest = ShmemVariableCache->latestCompletedXid;
+	TransactionId cur_latest = ShmemVariableCache->latestCompletedXid;
 
 	Assert(AmStartupProcess() || !IsUnderPostmaster);
 	Assert(LWLockHeldByMe(ProcArrayLock));
 
 	/*
-	 * Need a FullTransactionId to compare latestXid with. Can't rely on
+	 * Need a TransactionId to compare latestXid with. Can't rely on
 	 * latestCompletedXid to be initialized in recovery. But in recovery it's
 	 * safe to access nextXid without a lock for the startup process.
 	 */
-	Assert(FullTransactionIdIsValid(ShmemVariableCache->nextXid));
+	Assert(TransactionIdIsValid(ShmemVariableCache->nextXid));
 
-	if (!FullTransactionIdIsValid(cur_latest) ||
-		TransactionIdPrecedes(XidFromFullTransactionId(cur_latest), latestXid))
+	if (!TransactionIdIsValid(cur_latest) ||
+		TransactionIdPrecedes(cur_latest, latestXid))
 	{
-		ShmemVariableCache->latestCompletedXid = FullTransactionIdFromXid(latestXid);
+		ShmemVariableCache->latestCompletedXid = latestXid;
 	}
 
-	Assert(FullTransactionIdIsNormal(ShmemVariableCache->latestCompletedXid));
+	Assert(TransactionIdIsNormal(ShmemVariableCache->latestCompletedXid));
 }
 
 /*
@@ -1267,7 +1267,7 @@ ProcArrayApplyRecoveryInfo(RunningTransactions running)
 	/* ShmemVariableCache->nextXid must be beyond any observed xid. */
 	AdvanceNextFullTransactionIdPastXid(latestObservedXid);
 
-	Assert(FullTransactionIdIsValid(ShmemVariableCache->nextXid));
+	Assert(TransactionIdIsValid(ShmemVariableCache->nextXid));
 
 	KnownAssignedXidsDisplay(trace_recovery(DEBUG3));
 	if (standbyState == STANDBY_SNAPSHOT_READY)
@@ -1444,8 +1444,7 @@ TransactionIdIsInProgress(TransactionId xid)
 	 * Now that we have the lock, we can check latestCompletedXid; if the
 	 * target Xid is after that, it's surely still running.
 	 */
-	latestCompletedXid =
-		XidFromFullTransactionId(ShmemVariableCache->latestCompletedXid);
+	latestCompletedXid = ShmemVariableCache->latestCompletedXid;
 	if (TransactionIdPrecedes(latestCompletedXid, xid))
 	{
 		LWLockRelease(ProcArrayLock);
@@ -1731,7 +1730,7 @@ ComputeXidHorizons(ComputeXidHorizonsResult *h)
 	{
 		TransactionId initial;
 
-		initial = XidFromFullTransactionId(h->latest_completed);
+		initial = h->latest_completed;
 		Assert(TransactionIdIsValid(initial));
 		TransactionIdAdvance(initial);
 
@@ -2225,7 +2224,7 @@ GetSnapshotData(Snapshot snapshot)
 	int			count = 0;
 	int			subcount = 0;
 	bool		suboverflowed = false;
-	FullTransactionId latest_completed;
+	TransactionId latest_completed;
 	TransactionId oldestxid;
 	int			mypgxactoff;
 	TransactionId myxid;
@@ -2289,7 +2288,7 @@ GetSnapshotData(Snapshot snapshot)
 	curXactCompletionCount = ShmemVariableCache->xactCompletionCount;
 
 	/* xmax is always latestCompletedXid + 1 */
-	xmax = XidFromFullTransactionId(latest_completed);
+	xmax = latest_completed;
 	TransactionIdAdvance(xmax);
 	Assert(TransactionIdIsNormal(xmax));
 
@@ -2463,11 +2462,6 @@ GetSnapshotData(Snapshot snapshot)
 	{
 		TransactionId def_vis_xid;
 		TransactionId def_vis_xid_data;
-		FullTransactionId def_vis_fxid;
-		FullTransactionId def_vis_fxid_data;
-		FullTransactionId oldestfxid;
-
-		oldestfxid = FullTransactionIdFromXid(oldestxid);
 
 		/* apply vacuum_defer_cleanup_age */
 		def_vis_xid_data =
@@ -2490,27 +2484,23 @@ GetSnapshotData(Snapshot snapshot)
 		def_vis_xid =
 			TransactionIdOlder(replication_slot_catalog_xmin, def_vis_xid);
 
-		def_vis_fxid = FullTransactionIdFromXid(def_vis_xid);
-		def_vis_fxid_data = FullTransactionIdFromXid(def_vis_xid_data);
-
 		/*
 		 * Check if we can increase upper bound. As a previous
 		 * GlobalVisUpdate() might have computed more aggressive values, don't
 		 * overwrite them if so.
 		 */
 		GlobalVisSharedRels.definitely_needed =
-			FullTransactionIdNewer(def_vis_fxid,
+			TransactionIdNewer(def_vis_xid,
 								   GlobalVisSharedRels.definitely_needed);
 		GlobalVisCatalogRels.definitely_needed =
-			FullTransactionIdNewer(def_vis_fxid,
+			TransactionIdNewer(def_vis_xid,
 								   GlobalVisCatalogRels.definitely_needed);
 		GlobalVisDataRels.definitely_needed =
-			FullTransactionIdNewer(def_vis_fxid_data,
+			TransactionIdNewer(def_vis_xid_data,
 								   GlobalVisDataRels.definitely_needed);
 		/* See temp_oldest_nonremovable computation in ComputeXidHorizons() */
 		if (TransactionIdIsNormal(myxid))
-			GlobalVisTempRels.definitely_needed =
-				FullTransactionIdFromXid(myxid);
+			GlobalVisTempRels.definitely_needed = myxid;
 		else
 		{
 			GlobalVisTempRels.definitely_needed = latest_completed;
@@ -2526,14 +2516,14 @@ GetSnapshotData(Snapshot snapshot)
 		 * global lower bound value into ShmemVariableCache.
 		 */
 		GlobalVisSharedRels.maybe_needed =
-			FullTransactionIdNewer(GlobalVisSharedRels.maybe_needed,
-								   oldestfxid);
+			TransactionIdNewer(GlobalVisSharedRels.maybe_needed,
+								   oldestxid);
 		GlobalVisCatalogRels.maybe_needed =
-			FullTransactionIdNewer(GlobalVisCatalogRels.maybe_needed,
-								   oldestfxid);
+			TransactionIdNewer(GlobalVisCatalogRels.maybe_needed,
+								   oldestxid);
 		GlobalVisDataRels.maybe_needed =
-			FullTransactionIdNewer(GlobalVisDataRels.maybe_needed,
-								   oldestfxid);
+			TransactionIdNewer(GlobalVisDataRels.maybe_needed,
+								   oldestxid);
 		/* accurate value known */
 		GlobalVisTempRels.maybe_needed = GlobalVisTempRels.definitely_needed;
 	}
@@ -2777,10 +2767,8 @@ GetRunningTransactionData(void)
 	LWLockAcquire(ProcArrayLock, LW_SHARED);
 	LWLockAcquire(XidGenLock, LW_SHARED);
 
-	latestCompletedXid =
-		XidFromFullTransactionId(ShmemVariableCache->latestCompletedXid);
-	oldestRunningXid =
-		XidFromFullTransactionId(ShmemVariableCache->nextXid);
+	latestCompletedXid = ShmemVariableCache->latestCompletedXid;
+	oldestRunningXid = ShmemVariableCache->nextXid;
 
 	/*
 	 * Spin over procArray collecting all xids
@@ -2871,7 +2859,7 @@ GetRunningTransactionData(void)
 	CurrentRunningXacts->xcnt = count - subcount;
 	CurrentRunningXacts->subxcnt = subcount;
 	CurrentRunningXacts->subxid_overflow = suboverflowed;
-	CurrentRunningXacts->nextXid = XidFromFullTransactionId(ShmemVariableCache->nextXid);
+	CurrentRunningXacts->nextXid = ShmemVariableCache->nextXid;
 	CurrentRunningXacts->oldestRunningXid = oldestRunningXid;
 	CurrentRunningXacts->latestCompletedXid = latestCompletedXid;
 
@@ -2917,7 +2905,7 @@ GetOldestActiveTransactionId(void)
 	 * have already completed), when we spin over it.
 	 */
 	LWLockAcquire(XidGenLock, LW_SHARED);
-	oldestRunningXid = XidFromFullTransactionId(ShmemVariableCache->nextXid);
+	oldestRunningXid = ShmemVariableCache->nextXid;
 	LWLockRelease(XidGenLock);
 
 	/*
@@ -2983,7 +2971,7 @@ GetOldestSafeDecodingTransactionId(bool catalogOnly)
 	 * a safe, albeit pessimal, value.
 	 */
 	LWLockAcquire(XidGenLock, LW_SHARED);
-	oldestSafeXid = XidFromFullTransactionId(ShmemVariableCache->nextXid);
+	oldestSafeXid = ShmemVariableCache->nextXid;
 
 	/*
 	 * If there's already a slot pegging the xmin horizon, we can start with
@@ -4078,8 +4066,8 @@ GlobalVisTestFor(Relation rel)
 			break;
 	}
 
-	Assert(FullTransactionIdIsValid(state->definitely_needed) &&
-		   FullTransactionIdIsValid(state->maybe_needed));
+	Assert(TransactionIdIsValid(state->definitely_needed) &&
+		   TransactionIdIsValid(state->maybe_needed));
 
 	return state;
 }
@@ -4105,7 +4093,7 @@ GlobalVisTestShouldUpdate(GlobalVisState *state)
 	 * If the maybe_needed/definitely_needed boundaries are the same, it's
 	 * unlikely to be beneficial to refresh boundaries.
 	 */
-	if (FullTransactionIdFollowsOrEquals(state->maybe_needed,
+	if (TransactionIdFollowsOrEquals(state->maybe_needed,
 										 state->definitely_needed))
 		return false;
 
@@ -4116,14 +4104,10 @@ GlobalVisTestShouldUpdate(GlobalVisState *state)
 static void
 GlobalVisUpdateApply(ComputeXidHorizonsResult *horizons)
 {
-	GlobalVisSharedRels.maybe_needed =
-		FullTransactionIdFromXid(horizons->shared_oldest_nonremovable);
-	GlobalVisCatalogRels.maybe_needed =
-		FullTransactionIdFromXid(horizons->catalog_oldest_nonremovable);
-	GlobalVisDataRels.maybe_needed =
-		FullTransactionIdFromXid(horizons->data_oldest_nonremovable);
-	GlobalVisTempRels.maybe_needed =
-		FullTransactionIdFromXid(horizons->temp_oldest_nonremovable);
+	GlobalVisSharedRels.maybe_needed = horizons->shared_oldest_nonremovable;
+	GlobalVisCatalogRels.maybe_needed = horizons->catalog_oldest_nonremovable;
+	GlobalVisDataRels.maybe_needed = horizons->data_oldest_nonremovable;
+	GlobalVisTempRels.maybe_needed = horizons->temp_oldest_nonremovable;
 
 	/*
 	 * In longer running transactions it's possible that transactions we
@@ -4131,13 +4115,13 @@ GlobalVisUpdateApply(ComputeXidHorizonsResult *horizons)
 	 * definitely_needed to not be earlier than maybe_needed.
 	 */
 	GlobalVisSharedRels.definitely_needed =
-		FullTransactionIdNewer(GlobalVisSharedRels.maybe_needed,
+		TransactionIdNewer(GlobalVisSharedRels.maybe_needed,
 							   GlobalVisSharedRels.definitely_needed);
 	GlobalVisCatalogRels.definitely_needed =
-		FullTransactionIdNewer(GlobalVisCatalogRels.maybe_needed,
+		TransactionIdNewer(GlobalVisCatalogRels.maybe_needed,
 							   GlobalVisCatalogRels.definitely_needed);
 	GlobalVisDataRels.definitely_needed =
-		FullTransactionIdNewer(GlobalVisDataRels.maybe_needed,
+		TransactionIdNewer(GlobalVisDataRels.maybe_needed,
 							   GlobalVisDataRels.definitely_needed);
 	GlobalVisTempRels.definitely_needed = GlobalVisTempRels.maybe_needed;
 
@@ -4158,107 +4142,65 @@ GlobalVisUpdate(void)
 }
 
 /*
- * Return true if no snapshot still considers fxid to be running.
+ * Return true if no snapshot still considers xid to be running.
  *
- * The state passed needs to have been initialized for the relation fxid is
+ * The state passed needs to have been initialized for the relation xid is
  * from (NULL is also OK), otherwise the result may not be correct.
  *
  * See comment for GlobalVisState for details.
  */
 bool
-GlobalVisTestIsRemovableFullXid(GlobalVisState *state,
-								FullTransactionId fxid)
+GlobalVisTestIsRemovableXid(GlobalVisState *state,
+								TransactionId xid)
 {
 	/*
-	 * If fxid is older than maybe_needed bound, it definitely is visible to
+	 * If xid is older than maybe_needed bound, it definitely is visible to
 	 * everyone.
 	 */
-	if (FullTransactionIdPrecedes(fxid, state->maybe_needed))
+	if (TransactionIdPrecedes(xid, state->maybe_needed))
 		return true;
 
 	/*
-	 * If fxid is >= definitely_needed bound, it is very likely to still be
+	 * If xid is >= definitely_needed bound, it is very likely to still be
 	 * considered running.
 	 */
-	if (FullTransactionIdFollowsOrEquals(fxid, state->definitely_needed))
+	if (TransactionIdFollowsOrEquals(xid, state->definitely_needed))
 		return false;
 
 	/*
-	 * fxid is between maybe_needed and definitely_needed, i.e. there might or
-	 * might not exist a snapshot considering fxid running. If it makes sense,
+	 * xid is between maybe_needed and definitely_needed, i.e. there might or
+	 * might not exist a snapshot considering xid running. If it makes sense,
 	 * update boundaries and recheck.
 	 */
 	if (GlobalVisTestShouldUpdate(state))
 	{
 		GlobalVisUpdate();
 
-		Assert(FullTransactionIdPrecedes(fxid, state->definitely_needed));
+		Assert(TransactionIdPrecedes(xid, state->definitely_needed));
 
-		return FullTransactionIdPrecedes(fxid, state->maybe_needed);
+		return TransactionIdPrecedes(xid, state->maybe_needed);
 	}
 	else
 		return false;
 }
 
 /*
- * Wrapper around GlobalVisTestIsRemovableFullXid() for 32bit xids.
- *
- * It is crucial that this only gets called for xids from a source that
- * protects against xid wraparounds (e.g. from a table and thus protected by
- * relfrozenxid).
- */
-bool
-GlobalVisTestIsRemovableXid(GlobalVisState *state, TransactionId xid)
-{
-	FullTransactionId fxid;
-
-	fxid = FullTransactionIdFromXid(xid);
-
-	return GlobalVisTestIsRemovableFullXid(state, fxid);
-}
-
-/*
- * Return FullTransactionId below which all transactions are not considered
+ * Return TransactionId below which all transactions are not considered
  * running anymore.
  *
  * Note: This is less efficient than testing with
- * GlobalVisTestIsRemovableFullXid as it likely requires building an accurate
+ * GlobalVisTestIsRemovableXid as it likely requires building an accurate
  * cutoff, even in the case all the XIDs compared with the cutoff are outside
  * [maybe_needed, definitely_needed).
  */
-FullTransactionId
-GlobalVisTestNonRemovableFullHorizon(GlobalVisState *state)
+TransactionId
+GlobalVisTestNonRemovableHorizon(GlobalVisState *state)
 {
 	/* acquire accurate horizon if not already done */
 	if (GlobalVisTestShouldUpdate(state))
 		GlobalVisUpdate();
 
 	return state->maybe_needed;
-}
-
-/* Convenience wrapper around GlobalVisTestNonRemovableFullHorizon */
-TransactionId
-GlobalVisTestNonRemovableHorizon(GlobalVisState *state)
-{
-	FullTransactionId cutoff;
-
-	cutoff = GlobalVisTestNonRemovableFullHorizon(state);
-
-	return XidFromFullTransactionId(cutoff);
-}
-
-/*
- * Convenience wrapper around GlobalVisTestFor() and
- * GlobalVisTestIsRemovableFullXid(), see their comments.
- */
-bool
-GlobalVisCheckRemovableFullXid(Relation rel, FullTransactionId fxid)
-{
-	GlobalVisState *state;
-
-	state = GlobalVisTestFor(rel);
-
-	return GlobalVisTestIsRemovableFullXid(state, fxid);
 }
 
 /*

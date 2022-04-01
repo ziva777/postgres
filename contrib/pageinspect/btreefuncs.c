@@ -127,7 +127,7 @@ GetBTPageStatistics(BlockNumber blkno, Buffer buffer, BTPageStat *stat)
 		 * called "bpto").
 		 */
 		if (P_HAS_FULLXID(opaque))
-			safexid = XidFromFullTransactionId(BTPageGetDeleteXid(page));
+			safexid = BTPageGetDeleteXid(page);
 		else
 		{
 			safexid = BTP_GET_XACT(opaque);

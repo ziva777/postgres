@@ -388,14 +388,14 @@ gistRedoPageReuse(XLogReaderState *record)
 	 * pages in the index via the FSM.  That's all they do though.
 	 *
 	 * latestRemovedXid was the page's deleteXid.  The
-	 * GlobalVisCheckRemovableFullXid(deleteXid) test in gistPageRecyclable()
+	 * GlobalVisCheckRemovableXid(deleteXid) test in gistPageRecyclable()
 	 * conceptually mirrors the PGPROC->xmin > limitXmin test in
 	 * GetConflictingVirtualXIDs().  Consequently, one XID value achieves the
 	 * same exclusion effect on primary and standby.
 	 */
 	if (InHotStandby)
-		ResolveRecoveryConflictWithSnapshotFullXid(xlrec->latestRemovedFullXid,
-												   xlrec->node);
+		ResolveRecoveryConflictWithSnapshot(xlrec->latestRemovedXid,
+											xlrec->node);
 }
 
 void
@@ -554,7 +554,7 @@ gistXLogSplit(bool page_is_leaf,
  * downlink from the parent page.
  */
 XLogRecPtr
-gistXLogPageDelete(Buffer buffer, FullTransactionId xid,
+gistXLogPageDelete(Buffer buffer, TransactionId xid,
 				   Buffer parentBuffer, OffsetNumber downlinkOffset)
 {
 	gistxlogPageDelete xlrec;
@@ -596,7 +596,7 @@ gistXLogAssignLSN(void)
  * Write XLOG record about reuse of a deleted page.
  */
 void
-gistXLogPageReuse(Relation rel, BlockNumber blkno, FullTransactionId latestRemovedXid)
+gistXLogPageReuse(Relation rel, BlockNumber blkno, TransactionId latestRemovedXid)
 {
 	gistxlogPageReuse xlrec_reuse;
 
@@ -609,7 +609,7 @@ gistXLogPageReuse(Relation rel, BlockNumber blkno, FullTransactionId latestRemov
 	/* XLOG stuff */
 	xlrec_reuse.node = rel->rd_node;
 	xlrec_reuse.block = blkno;
-	xlrec_reuse.latestRemovedFullXid = latestRemovedXid;
+	xlrec_reuse.latestRemovedXid = latestRemovedXid;
 
 	XLogBeginInsert();
 	XLogRegisterData((char *) &xlrec_reuse, SizeOfGistxlogPageReuse);

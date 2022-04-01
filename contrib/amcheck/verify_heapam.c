@@ -84,11 +84,8 @@ typedef struct HeapCheckContext
 	 * Cached copies of values from ShmemVariableCache and computed values
 	 * from them.
 	 */
-	FullTransactionId next_fxid;	/* ShmemVariableCache->nextXid */
-	TransactionId next_xid;		/* 64-bit version of next_fxid */
+	TransactionId next_xid;		/* ShmemVariableCache->nextXid */
 	TransactionId oldest_xid;	/* ShmemVariableCache->oldestXid */
-	FullTransactionId oldest_fxid;	/* 64-bit version of oldest_xid, computed
-									 * relative to next_fxid */
 	TransactionId safe_xmin;	/* this XID and newer ones can't become
 								 * all-visible while we're running */
 
@@ -107,7 +104,6 @@ typedef struct HeapCheckContext
 	/* Values concerning the heap relation being checked */
 	Relation	rel;
 	TransactionId relfrozenxid;
-	FullTransactionId relfrozenfxid;
 	TransactionId relminmxid;
 	Relation	toast_rel;
 	Relation   *toast_indexes;
@@ -389,7 +385,6 @@ verify_heapam(PG_FUNCTION_ARGS)
 	update_cached_xid_range(&ctx);
 	update_cached_mxid_range(&ctx);
 	ctx.relfrozenxid = ctx.rel->rd_rel->relfrozenxid;
-	ctx.relfrozenfxid = FullTransactionIdFromXid(ctx.relfrozenxid);
 	ctx.relminmxid = ctx.rel->rd_rel->relminmxid;
 
 	if (TransactionIdIsNormal(ctx.relfrozenxid))
@@ -750,19 +745,19 @@ check_tuple_visibility(HeapCheckContext *ctx)
 			report_corruption(ctx,
 							  psprintf("xmin %llu equals or exceeds next valid transaction ID %llu",
 									   (unsigned long long) xmin,
-									   (unsigned long long) XidFromFullTransactionId(ctx->next_fxid)));
+									   (unsigned long long) ctx->next_xid));
 			return false;
 		case XID_PRECEDES_CLUSTERMIN:
 			report_corruption(ctx,
 							  psprintf("xmin %llu precedes oldest valid transaction ID %llu",
 									   (unsigned long long) xmin,
-									   (unsigned long long) XidFromFullTransactionId(ctx->oldest_fxid)));
+									   (unsigned long long) ctx->oldest_xid));
 			return false;
 		case XID_PRECEDES_RELMIN:
 			report_corruption(ctx,
 							  psprintf("xmin %llu precedes relation freeze threshold %llu",
 									   (unsigned long long) xmin,
-									   (unsigned long long) XidFromFullTransactionId(ctx->relfrozenfxid)));
+									   (unsigned long long) ctx->relfrozenxid));
 			return false;
 	}
 
@@ -788,19 +783,19 @@ check_tuple_visibility(HeapCheckContext *ctx)
 					report_corruption(ctx,
 									  psprintf("old-style VACUUM FULL transaction ID %llu for moved off tuple equals or exceeds next valid transaction ID %llu",
 											   (unsigned long long) xvac,
-											   (unsigned long long) XidFromFullTransactionId(ctx->next_fxid)));
+											   (unsigned long long) ctx->next_xid));
 					return false;
 				case XID_PRECEDES_RELMIN:
 					report_corruption(ctx,
 									  psprintf("old-style VACUUM FULL transaction ID %llu for moved off tuple precedes relation freeze threshold %llu",
 											   (unsigned long long) xvac,
-											   (unsigned long long) XidFromFullTransactionId(ctx->relfrozenfxid)));
+											   (unsigned long long) ctx->relfrozenxid));
 					return false;
 				case XID_PRECEDES_CLUSTERMIN:
 					report_corruption(ctx,
 									  psprintf("old-style VACUUM FULL transaction ID %llu for moved off tuple precedes oldest valid transaction ID %llu",
 											   (unsigned long long) xvac,
-											   (unsigned long long) XidFromFullTransactionId(ctx->oldest_fxid)));
+											   (unsigned long long) ctx->oldest_xid));
 					return false;
 				case XID_BOUNDS_OK:
 					break;
@@ -854,19 +849,19 @@ check_tuple_visibility(HeapCheckContext *ctx)
 					report_corruption(ctx,
 									  psprintf("old-style VACUUM FULL transaction ID %llu for moved in tuple equals or exceeds next valid transaction ID %llu",
 											   (unsigned long long) xvac,
-											   (unsigned long long) XidFromFullTransactionId(ctx->next_fxid)));
+											   (unsigned long long) ctx->next_xid));
 					return false;
 				case XID_PRECEDES_RELMIN:
 					report_corruption(ctx,
 									  psprintf("old-style VACUUM FULL transaction ID %llu for moved in tuple precedes relation freeze threshold %llu",
 											   (unsigned long long) xvac,
-											   (unsigned long long) XidFromFullTransactionId(ctx->relfrozenfxid)));
+											   (unsigned long long) ctx->relfrozenxid));
 					return false;
 				case XID_PRECEDES_CLUSTERMIN:
 					report_corruption(ctx,
 									  psprintf("old-style VACUUM FULL transaction ID %llu for moved in tuple precedes oldest valid transaction ID %llu",
 											   (unsigned long long) xvac,
-											   (unsigned long long) XidFromFullTransactionId(ctx->oldest_fxid)));
+											   (unsigned long long) ctx->oldest_xid));
 					return false;
 				case XID_BOUNDS_OK:
 					break;
@@ -1014,19 +1009,19 @@ check_tuple_visibility(HeapCheckContext *ctx)
 				report_corruption(ctx,
 								  psprintf("update xid %llu equals or exceeds next valid transaction ID %llu",
 										   (unsigned long long) xmax,
-										   (unsigned long long) XidFromFullTransactionId(ctx->next_fxid)));
+										   (unsigned long long) ctx->next_xid));
 				return true;
 			case XID_PRECEDES_RELMIN:
 				report_corruption(ctx,
 								  psprintf("update xid %llu precedes relation freeze threshold %llu",
 										   (unsigned long long) xmax,
-										   (unsigned long long) XidFromFullTransactionId(ctx->relfrozenfxid)));
+										   (unsigned long long) ctx->relfrozenxid));
 				return true;
 			case XID_PRECEDES_CLUSTERMIN:
 				report_corruption(ctx,
 								  psprintf("update xid %llu precedes oldest valid transaction ID %llu",
 										   (unsigned long long) xmax,
-										   (unsigned long long) XidFromFullTransactionId(ctx->oldest_fxid)));
+										   (unsigned long long) ctx->oldest_xid));
 				return true;
 			case XID_BOUNDS_OK:
 				break;
@@ -1073,19 +1068,19 @@ check_tuple_visibility(HeapCheckContext *ctx)
 			report_corruption(ctx,
 							  psprintf("xmax %llu equals or exceeds next valid transaction ID %llu",
 									   (unsigned long long) xmax,
-									   (unsigned long long) XidFromFullTransactionId(ctx->next_fxid)));
+									   (unsigned long long) ctx->next_xid));
 			return false;		/* corrupt */
 		case XID_PRECEDES_RELMIN:
 			report_corruption(ctx,
 							  psprintf("xmax %llu precedes relation freeze threshold %llu",
 									   (unsigned long long) xmax,
-									   (unsigned long long) XidFromFullTransactionId(ctx->relfrozenfxid)));
+									   (unsigned long long) ctx->relfrozenxid));
 			return false;		/* corrupt */
 		case XID_PRECEDES_CLUSTERMIN:
 			report_corruption(ctx,
 							  psprintf("xmax %llu precedes oldest valid transaction ID %llu",
 									   (unsigned long long) xmax,
-									   (unsigned long long) XidFromFullTransactionId(ctx->oldest_fxid)));
+									   (unsigned long long) ctx->oldest_xid));
 			return false;		/* corrupt */
 		case XID_BOUNDS_OK:
 		case XID_INVALID:
@@ -1576,13 +1571,9 @@ update_cached_xid_range(HeapCheckContext *ctx)
 {
 	/* Make cached copies */
 	LWLockAcquire(XidGenLock, LW_SHARED);
-	ctx->next_fxid = ShmemVariableCache->nextXid;
+	ctx->next_xid = ShmemVariableCache->nextXid;
 	ctx->oldest_xid = ShmemVariableCache->oldestXid;
 	LWLockRelease(XidGenLock);
-
-	/* And compute alternate versions of the same */
-	ctx->oldest_fxid = FullTransactionIdFromXid(ctx->oldest_xid);
-	ctx->next_xid = XidFromFullTransactionId(ctx->next_fxid);
 }
 
 /*
@@ -1595,14 +1586,14 @@ update_cached_mxid_range(HeapCheckContext *ctx)
 }
 
 /*
- * Return whether the given FullTransactionId is within our cached valid
+ * Return whether the given TransactionId is within our cached valid
  * transaction ID range.
  */
 static inline bool
-fxid_in_cached_range(FullTransactionId fxid, const HeapCheckContext *ctx)
+xid_in_cached_range(TransactionId xid, const HeapCheckContext *ctx)
 {
-	return (FullTransactionIdPrecedesOrEquals(ctx->oldest_fxid, fxid) &&
-			FullTransactionIdPrecedes(fxid, ctx->next_fxid));
+	return (TransactionIdPrecedesOrEquals(ctx->oldest_xid, xid) &&
+			TransactionIdPrecedes(xid, ctx->next_xid));
 }
 
 /*
@@ -1667,8 +1658,7 @@ static XidBoundsViolation
 get_xid_status(TransactionId xid, HeapCheckContext *ctx,
 			   XidCommitStatus *status)
 {
-	FullTransactionId fxid;
-	FullTransactionId clog_horizon;
+	TransactionId clog_horizon;
 
 	/* Quick check for special xids */
 	if (!TransactionIdIsValid(xid))
@@ -1681,8 +1671,7 @@ get_xid_status(TransactionId xid, HeapCheckContext *ctx,
 	}
 
 	/* Check if the xid is within bounds */
-	fxid = FullTransactionIdFromXid(xid);
-	if (!fxid_in_cached_range(fxid, ctx))
+	if (!xid_in_cached_range(xid, ctx))
 	{
 		/*
 		 * We may have been checking against stale values.  Update the cached
@@ -1692,11 +1681,11 @@ get_xid_status(TransactionId xid, HeapCheckContext *ctx,
 		update_cached_xid_range(ctx);
 	}
 
-	if (FullTransactionIdPrecedesOrEquals(ctx->next_fxid, fxid))
+	if (TransactionIdPrecedesOrEquals(ctx->next_xid, xid))
 		return XID_IN_FUTURE;
-	if (FullTransactionIdPrecedes(fxid, ctx->oldest_fxid))
+	if (TransactionIdPrecedes(xid, ctx->oldest_xid))
 		return XID_PRECEDES_CLUSTERMIN;
-	if (FullTransactionIdPrecedes(fxid, ctx->relfrozenfxid))
+	if (TransactionIdPrecedes(xid, ctx->relfrozenxid))
 		return XID_PRECEDES_RELMIN;
 
 	/* Early return if the caller does not request clog checking */
@@ -1712,9 +1701,8 @@ get_xid_status(TransactionId xid, HeapCheckContext *ctx,
 
 	*status = XID_COMMITTED;
 	LWLockAcquire(XactTruncationLock, LW_SHARED);
-	clog_horizon =
-		FullTransactionIdFromXid(ShmemVariableCache->oldestClogXid);
-	if (FullTransactionIdPrecedesOrEquals(clog_horizon, fxid))
+	clog_horizon = ShmemVariableCache->oldestClogXid;
+	if (TransactionIdPrecedesOrEquals(clog_horizon, xid))
 	{
 		if (TransactionIdIsCurrentTransactionId(xid))
 			*status = XID_IS_CURRENT_XID;

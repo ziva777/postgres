@@ -72,33 +72,12 @@ NormalTransactionIdToShort(TransactionId base, TransactionId xid)
 	return (ShortTransactionId) (xid - base);
 }
 
-#define XidFromFullTransactionId(x)		((x))
-#define FullTransactionIdEquals(a, b)	((a) == (b))
-#define FullTransactionIdPrecedes(a, b)	((a) < (b))
-#define FullTransactionIdPrecedesOrEquals(a, b) ((a) <= (b))
-#define FullTransactionIdFollows(a, b) ((a) > (b))
-#define FullTransactionIdFollowsOrEquals(a, b) ((a) >= (b))
-#define FullTransactionIdIsValid(x)		TransactionIdIsValid(XidFromFullTransactionId(x))
-#define InvalidFullTransactionId		FullTransactionIdFromXid(InvalidTransactionId)
-#define FirstNormalFullTransactionId	FullTransactionIdFromXid(FirstNormalTransactionId)
-#define FullTransactionIdIsNormal(x)	FullTransactionIdFollowsOrEquals(x, FirstNormalFullTransactionId)
-
 /*
  * A 64 bit value that contains an epoch and a TransactionId.  This is
  * wrapped in a struct to prevent implicit conversion to/from TransactionId.
  * Not all values represent valid normal XIDs.
  */
 typedef TransactionId FullTransactionId;
-
-static inline FullTransactionId
-FullTransactionIdFromXid(TransactionId xid)
-{
-	FullTransactionId result;
-
-	result = xid;
-
-	return result;
-}
 
 /* advance a transaction ID variable, handling wraparound correctly */
 #define TransactionIdAdvance(dest)	\
@@ -108,11 +87,11 @@ FullTransactionIdFromXid(TransactionId xid)
 	} while(0)
 
 /*
- * Retreat a FullTransactionId variable, stepping over xids that would appear
+ * Retreat a TransactionId variable, stepping over xids that would appear
  * to be special only when viewed as 32bit XIDs.
  */
 static inline void
-FullTransactionIdRetreat(FullTransactionId *dest)
+FullTransactionIdRetreat(TransactionId *dest)
 {
 	(*dest)--;
 
@@ -121,14 +100,14 @@ FullTransactionIdRetreat(FullTransactionId *dest)
 	 * For 64bit xids these can't be reached as part of a wraparound as they
 	 * can in the 32bit case.
 	 */
-	if (FullTransactionIdPrecedes(*dest, FirstNormalFullTransactionId))
+	if (TransactionIdPrecedes(*dest, FirstNormalTransactionId))
 		return;
 
 	/*
 	 * But we do need to step over XIDs that'd appear special only for 32bit
 	 * XIDs.
 	 */
-	while (XidFromFullTransactionId(*dest) < FirstNormalTransactionId)
+	while ((*dest) < FirstNormalTransactionId)
 		(*dest)--;
 }
 
@@ -142,10 +121,10 @@ FullTransactionIdAdvance(FullTransactionId *dest)
 	(*dest)++;
 
 	/* see FullTransactionIdAdvance() */
-	if (FullTransactionIdPrecedes(*dest, FirstNormalFullTransactionId))
+	if (TransactionIdPrecedes(*dest, FirstNormalTransactionId))
 		return;
 
-	while (XidFromFullTransactionId(*dest) < FirstNormalTransactionId)
+	while ((*dest) < FirstNormalTransactionId)
 		(*dest)++;
 }
 
@@ -234,7 +213,7 @@ typedef struct VariableCacheData
 	/*
 	 * These fields are protected by XidGenLock.
 	 */
-	FullTransactionId nextXid;	/* next XID to assign */
+	TransactionId nextXid;		/* next XID to assign */
 
 	TransactionId oldestXid;	/* cluster-wide minimum datfrozenxid */
 	TransactionId xidVacLimit;	/* start forcing autovacuums here */
@@ -249,8 +228,8 @@ typedef struct VariableCacheData
 	/*
 	 * These fields are protected by ProcArrayLock.
 	 */
-	FullTransactionId latestCompletedXid;	/* newest full XID that has
-											 * committed or aborted */
+	TransactionId latestCompletedXid;	/* newest full XID that has
+										 * committed or aborted */
 
 	/*
 	 * Number of top-level transactions with xids (i.e. which may have
@@ -296,9 +275,9 @@ extern TransactionId TransactionIdLatest(TransactionId mainxid,
 extern XLogRecPtr TransactionIdGetCommitLSN(TransactionId xid);
 
 /* in transam/varsup.c */
-extern FullTransactionId GetNewTransactionId(bool isSubXact);
+extern TransactionId GetNewTransactionId(bool isSubXact);
 extern void AdvanceNextFullTransactionIdPastXid(TransactionId xid);
-extern FullTransactionId ReadNextFullTransactionId(void);
+extern TransactionId ReadNextFullTransactionId(void);
 extern void SetTransactionIdLimit(TransactionId oldest_datfrozenxid,
 								  Oid oldest_datoid);
 extern void AdvanceOldestClogXid(TransactionId oldest_datfrozenxid);
@@ -325,7 +304,7 @@ extern void AssertTransactionIdInAllowableRange(TransactionId xid);
 static inline TransactionId
 ReadNextTransactionId(void)
 {
-	return XidFromFullTransactionId(ReadNextFullTransactionId());
+	return ReadNextFullTransactionId();
 }
 
 /* return transaction ID backed up by amount, handling wraparound correctly */
@@ -367,16 +346,16 @@ NormalTransactionIdOlder(TransactionId a, TransactionId b)
 }
 
 /* return the newer of the two IDs */
-static inline FullTransactionId
-FullTransactionIdNewer(FullTransactionId a, FullTransactionId b)
+static inline TransactionId
+TransactionIdNewer(TransactionId a, TransactionId b)
 {
-	if (!FullTransactionIdIsValid(a))
+	if (!TransactionIdIsValid(a))
 		return b;
 
-	if (!FullTransactionIdIsValid(b))
+	if (!TransactionIdIsValid(b))
 		return a;
 
-	if (FullTransactionIdFollows(a, b))
+	if (TransactionIdFollows(a, b))
 		return a;
 	return b;
 }

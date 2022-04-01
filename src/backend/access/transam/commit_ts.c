@@ -682,7 +682,6 @@ CommitTsParameterChange(bool newvalue, bool oldvalue)
 static void
 ActivateCommitTs(void)
 {
-	TransactionId xid;
 	int64		pageno;
 
 	/* If we've done this already, there's nothing to do */
@@ -694,8 +693,7 @@ ActivateCommitTs(void)
 	}
 	LWLockRelease(CommitTsLock);
 
-	xid = XidFromFullTransactionId(ShmemVariableCache->nextXid);
-	pageno = TransactionIdToCTsPage(xid);
+	pageno = TransactionIdToCTsPage(ShmemVariableCache->nextXid);
 
 	/*
 	 * Re-Initialize our idea of the latest page number.

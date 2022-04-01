@@ -39,7 +39,6 @@
 #include "utils/builtins.h"
 #include "utils/memutils.h"
 #include "utils/snapmgr.h"
-#include "utils/xid8.h"
 
 
 /*
@@ -62,16 +61,16 @@ typedef struct
 	int32		__varsz;
 
 	uint32		nxip;			/* number of fxids in xip array */
-	FullTransactionId xmin;
-	FullTransactionId xmax;
+	TransactionId xmin;
+	TransactionId xmax;
 	/* in-progress fxids, xmin <= xip[i] < xmax: */
-	FullTransactionId xip[FLEXIBLE_ARRAY_MEMBER];
+	TransactionId xip[FLEXIBLE_ARRAY_MEMBER];
 } pg_snapshot;
 
 #define PG_SNAPSHOT_SIZE(nxip) \
-	(offsetof(pg_snapshot, xip) + sizeof(FullTransactionId) * (nxip))
+	(offsetof(pg_snapshot, xip) + sizeof(TransactionId) * (nxip))
 #define PG_SNAPSHOT_MAX_NXIP \
-	((MaxAllocSize - offsetof(pg_snapshot, xip)) / sizeof(FullTransactionId))
+	((MaxAllocSize - offsetof(pg_snapshot, xip)) / sizeof(TransactionId))
 
 /*
  * Helper to get a TransactionId from a 64-bit xid with wraparound detection.
@@ -86,13 +85,8 @@ typedef struct
  * relating to those XIDs.
  */
 static bool
-TransactionIdInRecentPast(FullTransactionId fxid, TransactionId *extracted_xid)
+TransactionIdInRecentPast(TransactionId xid, TransactionId *extracted_xid)
 {
-	TransactionId xid = XidFromFullTransactionId(fxid);
-	FullTransactionId now_fullxid;
-
-	now_fullxid = ReadNextFullTransactionId();
-
 	if (extracted_xid != NULL)
 		*extracted_xid = xid;
 
@@ -104,11 +98,11 @@ TransactionIdInRecentPast(FullTransactionId fxid, TransactionId *extracted_xid)
 		return true;
 
 	/* If the transaction ID is in the future, throw an error. */
-	if (!FullTransactionIdPrecedes(fxid, now_fullxid))
+	if (!TransactionIdPrecedes(xid, ReadNextFullTransactionId()))
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 				 errmsg("transaction ID %llu is in the future",
-						(unsigned long long) XidFromFullTransactionId(fxid))));
+						(unsigned long long) xid)));
 
 	/*
 	 * ShmemVariableCache->oldestClogXid is protected by XactTruncationLock,
@@ -135,12 +129,12 @@ TransactionIdInRecentPast(FullTransactionId fxid, TransactionId *extracted_xid)
 static int
 cmp_fxid(const void *aa, const void *bb)
 {
-	FullTransactionId a = *(const FullTransactionId *) aa;
-	FullTransactionId b = *(const FullTransactionId *) bb;
+	TransactionId a = *(const TransactionId *) aa;
+	TransactionId b = *(const TransactionId *) bb;
 
-	if (FullTransactionIdPrecedes(a, b))
+	if (TransactionIdPrecedes(a, b))
 		return -1;
-	if (FullTransactionIdPrecedes(b, a))
+	if (TransactionIdPrecedes(b, a))
 		return 1;
 	return 0;
 }
@@ -157,8 +151,8 @@ sort_snapshot(pg_snapshot *snap)
 {
 	if (snap->nxip > 1)
 	{
-		qsort(snap->xip, snap->nxip, sizeof(FullTransactionId), cmp_fxid);
-		snap->nxip = qunique(snap->xip, snap->nxip, sizeof(FullTransactionId),
+		qsort(snap->xip, snap->nxip, sizeof(TransactionId), cmp_fxid);
+		snap->nxip = qunique(snap->xip, snap->nxip, sizeof(TransactionId),
 							 cmp_fxid);
 	}
 }
@@ -167,18 +161,18 @@ sort_snapshot(pg_snapshot *snap)
  * check fxid visibility.
  */
 static bool
-is_visible_fxid(FullTransactionId value, const pg_snapshot *snap)
+is_visible_fxid(TransactionId value, const pg_snapshot *snap)
 {
-	if (FullTransactionIdPrecedes(value, snap->xmin))
+	if (TransactionIdPrecedes(value, snap->xmin))
 		return true;
-	else if (!FullTransactionIdPrecedes(value, snap->xmax))
+	else if (!TransactionIdPrecedes(value, snap->xmax))
 		return false;
 #ifdef USE_BSEARCH_IF_NXIP_GREATER
 	else if (snap->nxip > USE_BSEARCH_IF_NXIP_GREATER)
 	{
 		void	   *res;
 
-		res = bsearch(&value, snap->xip, snap->nxip, sizeof(FullTransactionId),
+		res = bsearch(&value, snap->xip, snap->nxip, sizeof(TransactionId),
 					  cmp_fxid);
 		/* if found, transaction is still in progress */
 		return (res) ? false : true;
@@ -190,7 +184,7 @@ is_visible_fxid(FullTransactionId value, const pg_snapshot *snap)
 
 		for (i = 0; i < snap->nxip; i++)
 		{
-			if (FullTransactionIdEquals(value, snap->xip[i]))
+			if (TransactionIdEquals(value, snap->xip[i]))
 				return false;
 		}
 		return true;
@@ -202,7 +196,7 @@ is_visible_fxid(FullTransactionId value, const pg_snapshot *snap)
  */
 
 static StringInfo
-buf_init(FullTransactionId xmin, FullTransactionId xmax)
+buf_init(TransactionId xmin, TransactionId xmax)
 {
 	pg_snapshot snap;
 	StringInfo	buf;
@@ -217,14 +211,14 @@ buf_init(FullTransactionId xmin, FullTransactionId xmax)
 }
 
 static void
-buf_add_txid(StringInfo buf, FullTransactionId fxid)
+buf_add_txid(StringInfo buf, TransactionId xid)
 {
 	pg_snapshot *snap = (pg_snapshot *) buf->data;
 
 	/* do this before possible realloc */
 	snap->nxip++;
 
-	appendBinaryStringInfo(buf, (char *) &fxid, sizeof(fxid));
+	appendBinaryStringInfo(buf, (char *) &xid, sizeof(xid));
 }
 
 static pg_snapshot *
@@ -247,28 +241,28 @@ buf_finalize(StringInfo buf)
 static pg_snapshot *
 parse_snapshot(const char *str)
 {
-	FullTransactionId xmin;
-	FullTransactionId xmax;
-	FullTransactionId last_val = InvalidFullTransactionId;
-	FullTransactionId val;
+	TransactionId xmin;
+	TransactionId xmax;
+	TransactionId last_val = InvalidTransactionId;
+	TransactionId val;
 	const char *str_start = str;
 	char	   *endp;
 	StringInfo	buf;
 
-	xmin = FullTransactionIdFromXid(strtou64(str, &endp, 10));
+	xmin = strtou64(str, &endp, 10);
 	if (*endp != ':')
 		goto bad_format;
 	str = endp + 1;
 
-	xmax = FullTransactionIdFromXid(strtou64(str, &endp, 10));
+	xmax = strtou64(str, &endp, 10);
 	if (*endp != ':')
 		goto bad_format;
 	str = endp + 1;
 
 	/* it should look sane */
-	if (!FullTransactionIdIsValid(xmin) ||
-		!FullTransactionIdIsValid(xmax) ||
-		FullTransactionIdPrecedes(xmax, xmin))
+	if (!TransactionIdIsValid(xmin) ||
+		!TransactionIdIsValid(xmax) ||
+		TransactionIdPrecedes(xmax, xmin))
 		goto bad_format;
 
 	/* allocate buffer */
@@ -278,17 +272,17 @@ parse_snapshot(const char *str)
 	while (*str != '\0')
 	{
 		/* read next value */
-		val = FullTransactionIdFromXid(strtou64(str, &endp, 10));
+		val = strtou64(str, &endp, 10);
 		str = endp;
 
 		/* require the input to be in order */
-		if (FullTransactionIdPrecedes(val, xmin) ||
-			FullTransactionIdFollowsOrEquals(val, xmax) ||
-			FullTransactionIdPrecedes(val, last_val))
+		if (TransactionIdPrecedes(val, xmin) ||
+			TransactionIdFollowsOrEquals(val, xmax) ||
+			TransactionIdPrecedes(val, last_val))
 			goto bad_format;
 
 		/* skip duplicates */
-		if (!FullTransactionIdEquals(val, last_val))
+		if (!TransactionIdEquals(val, last_val))
 			buf_add_txid(buf, val);
 		last_val = val;
 
@@ -325,7 +319,7 @@ pg_current_xact_id(PG_FUNCTION_ARGS)
 	 */
 	PreventCommandDuringRecovery("pg_current_xact_id()");
 
-	PG_RETURN_FULLTRANSACTIONID(GetTopFullTransactionId());
+	PG_RETURN_TRANSACTIONID(GetTopTransactionId());
 }
 
 /*
@@ -335,12 +329,12 @@ pg_current_xact_id(PG_FUNCTION_ARGS)
 Datum
 pg_current_xact_id_if_assigned(PG_FUNCTION_ARGS)
 {
-	FullTransactionId topfxid = GetTopFullTransactionIdIfAny();
+	TransactionId topxid = GetTopTransactionIdIfAny();
 
-	if (!FullTransactionIdIsValid(topfxid))
+	if (!TransactionIdIsValid(topxid))
 		PG_RETURN_NULL();
 
-	PG_RETURN_FULLTRANSACTIONID(topfxid);
+	PG_RETURN_TRANSACTIONID(topxid);
 }
 
 /*
@@ -374,11 +368,11 @@ pg_current_snapshot(PG_FUNCTION_ARGS)
 	snap = palloc(PG_SNAPSHOT_SIZE(nxip));
 
 	/* fill */
-	snap->xmin = FullTransactionIdFromXid(cur->xmin);
-	snap->xmax = FullTransactionIdFromXid(cur->xmax);
+	snap->xmin = cur->xmin;
+	snap->xmax = cur->xmax;
 	snap->nxip = nxip;
 	for (i = 0; i < nxip; i++)
-		snap->xip[i] = FullTransactionIdFromXid(cur->xip[i]);
+		snap->xip[i] = cur->xip[i];
 
 	/*
 	 * We want them guaranteed to be in ascending order.  This also removes
@@ -425,17 +419,14 @@ pg_snapshot_out(PG_FUNCTION_ARGS)
 
 	initStringInfo(&str);
 
-	appendStringInfo(&str, UINT64_FORMAT ":",
-					 XidFromFullTransactionId(snap->xmin));
-	appendStringInfo(&str, UINT64_FORMAT ":",
-					 XidFromFullTransactionId(snap->xmax));
+	appendStringInfo(&str, UINT64_FORMAT ":", snap->xmin);
+	appendStringInfo(&str, UINT64_FORMAT ":", snap->xmax);
 
 	for (i = 0; i < snap->nxip; i++)
 	{
 		if (i > 0)
 			appendStringInfoChar(&str, ',');
-		appendStringInfo(&str, UINT64_FORMAT,
-						 XidFromFullTransactionId(snap->xip[i]));
+		appendStringInfo(&str, UINT64_FORMAT, snap->xip[i]);
 	}
 
 	PG_RETURN_CSTRING(str.data);
@@ -453,22 +444,22 @@ pg_snapshot_recv(PG_FUNCTION_ARGS)
 {
 	StringInfo	buf = (StringInfo) PG_GETARG_POINTER(0);
 	pg_snapshot *snap;
-	FullTransactionId last = InvalidFullTransactionId;
+	TransactionId last = InvalidTransactionId;
 	int			nxip;
 	int			i;
-	FullTransactionId xmin;
-	FullTransactionId xmax;
+	TransactionId xmin;
+	TransactionId xmax;
 
 	/* load and validate nxip */
 	nxip = pq_getmsgint(buf, 4);
 	if (nxip < 0 || nxip > PG_SNAPSHOT_MAX_NXIP)
 		goto bad_format;
 
-	xmin = FullTransactionIdFromXid((uint64) pq_getmsgint64(buf));
-	xmax = FullTransactionIdFromXid((uint64) pq_getmsgint64(buf));
-	if (!FullTransactionIdIsValid(xmin) ||
-		!FullTransactionIdIsValid(xmax) ||
-		FullTransactionIdPrecedes(xmax, xmin))
+	xmin = (uint64) pq_getmsgint64(buf);
+	xmax = (uint64) pq_getmsgint64(buf);
+	if (!TransactionIdIsValid(xmin) ||
+		!TransactionIdIsValid(xmax) ||
+		TransactionIdPrecedes(xmax, xmin))
 		goto bad_format;
 
 	snap = palloc(PG_SNAPSHOT_SIZE(nxip));
@@ -477,16 +468,15 @@ pg_snapshot_recv(PG_FUNCTION_ARGS)
 
 	for (i = 0; i < nxip; i++)
 	{
-		FullTransactionId cur =
-		FullTransactionIdFromXid((uint64) pq_getmsgint64(buf));
+		TransactionId cur = (uint64) pq_getmsgint64(buf);
 
-		if (FullTransactionIdPrecedes(cur, last) ||
-			FullTransactionIdPrecedes(cur, xmin) ||
-			FullTransactionIdPrecedes(xmax, cur))
+		if (TransactionIdPrecedes(cur, last) ||
+			TransactionIdPrecedes(cur, xmin) ||
+			TransactionIdPrecedes(xmax, cur))
 			goto bad_format;
 
 		/* skip duplicate xips */
-		if (FullTransactionIdEquals(cur, last))
+		if (TransactionIdEquals(cur, last))
 		{
 			i--;
 			nxip--;
@@ -523,10 +513,10 @@ pg_snapshot_send(PG_FUNCTION_ARGS)
 
 	pq_begintypsend(&buf);
 	pq_sendint32(&buf, snap->nxip);
-	pq_sendint64(&buf, (int64) XidFromFullTransactionId(snap->xmin));
-	pq_sendint64(&buf, (int64) XidFromFullTransactionId(snap->xmax));
+	pq_sendint64(&buf, (int64) snap->xmin);
+	pq_sendint64(&buf, (int64) snap->xmax);
 	for (i = 0; i < snap->nxip; i++)
-		pq_sendint64(&buf, (int64) XidFromFullTransactionId(snap->xip[i]));
+		pq_sendint64(&buf, (int64) snap->xip[i]);
 	PG_RETURN_BYTEA_P(pq_endtypsend(&buf));
 }
 
@@ -538,7 +528,7 @@ pg_snapshot_send(PG_FUNCTION_ARGS)
 Datum
 pg_visible_in_snapshot(PG_FUNCTION_ARGS)
 {
-	FullTransactionId value = PG_GETARG_FULLTRANSACTIONID(0);
+	TransactionId value = PG_GETARG_TRANSACTIONID(0);
 	pg_snapshot *snap = (pg_snapshot *) PG_GETARG_VARLENA_P(1);
 
 	PG_RETURN_BOOL(is_visible_fxid(value, snap));
@@ -554,7 +544,7 @@ pg_snapshot_xmin(PG_FUNCTION_ARGS)
 {
 	pg_snapshot *snap = (pg_snapshot *) PG_GETARG_VARLENA_P(0);
 
-	PG_RETURN_FULLTRANSACTIONID(snap->xmin);
+	PG_RETURN_TRANSACTIONID(snap->xmin);
 }
 
 /*
@@ -567,7 +557,7 @@ pg_snapshot_xmax(PG_FUNCTION_ARGS)
 {
 	pg_snapshot *snap = (pg_snapshot *) PG_GETARG_VARLENA_P(0);
 
-	PG_RETURN_FULLTRANSACTIONID(snap->xmax);
+	PG_RETURN_TRANSACTIONID(snap->xmax);
 }
 
 /*
@@ -580,7 +570,7 @@ pg_snapshot_xip(PG_FUNCTION_ARGS)
 {
 	FuncCallContext *fctx;
 	pg_snapshot *snap;
-	FullTransactionId value;
+	TransactionId value;
 
 	/* on first call initialize fctx and get copy of snapshot */
 	if (SRF_IS_FIRSTCALL())
@@ -602,7 +592,7 @@ pg_snapshot_xip(PG_FUNCTION_ARGS)
 	if (fctx->call_cntr < snap->nxip)
 	{
 		value = snap->xip[fctx->call_cntr];
-		SRF_RETURN_NEXT(fctx, FullTransactionIdGetDatum(value));
+		SRF_RETURN_NEXT(fctx, TransactionIdGetDatum(value));
 	}
 	else
 	{
@@ -623,7 +613,7 @@ Datum
 pg_xact_status(PG_FUNCTION_ARGS)
 {
 	const char *status;
-	FullTransactionId fxid = PG_GETARG_FULLTRANSACTIONID(0);
+	TransactionId fxid = PG_GETARG_TRANSACTIONID(0);
 	TransactionId xid;
 
 	/*

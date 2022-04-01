@@ -588,7 +588,7 @@ gistdeletepage(IndexVacuumInfo *info, IndexBulkDeleteResult *stats,
 	ItemId		iid;
 	IndexTuple	idxtuple;
 	XLogRecPtr	recptr;
-	FullTransactionId txid;
+	TransactionId txid;
 
 	/*
 	 * Check that the leaf is still empty and deletable.

@@ -264,7 +264,7 @@ get_control_data(ClusterInfo *cluster, bool live_check)
 		}
 		else if ((p = strstr(bufin, "Latest checkpoint's NextXID:")) != NULL)
 		{
-			FullTransactionId		xid;
+			TransactionId		xid;
 
 			p = strchr(p, ':');
 
@@ -275,7 +275,7 @@ get_control_data(ClusterInfo *cluster, bool live_check)
 
 			/*
 			 * NextXID representation in controldata file changed from Epoch:Xid
-			 * to 64-bit FullTransactionId representation as a part of making
+			 * to 64-bit TransactionId representation as a part of making
 			 * xids 64-bit in the future. Here we support both controldata
 			 * formats.
 			 */
@@ -298,7 +298,7 @@ get_control_data(ClusterInfo *cluster, bool live_check)
 
 			if (p == NULL)
 			{
-				/* FullTransactionId representation */
+				/* TransactionId representation */
 				cluster->controldata.chkpnt_nxtxid = xid;
 			}
 			else
@@ -308,7 +308,7 @@ get_control_data(ClusterInfo *cluster, bool live_check)
 
 				/* Epoch:Xid representation */
 				p++;				/* remove '/' or ':' char */
-				cluster->controldata.chkpnt_nxtxid = (XidFromFullTransactionId(xid)) << 32 |
+				cluster->controldata.chkpnt_nxtxid = (xid) << 32 |
 													  (TransactionId) str2uint(p);
 			}
 

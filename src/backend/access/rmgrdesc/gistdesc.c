@@ -29,7 +29,7 @@ out_gistxlogPageReuse(StringInfo buf, gistxlogPageReuse *xlrec)
 	appendStringInfo(buf, "rel %u/%u/%u; blk %u; latestRemovedXid %llu",
 					 xlrec->node.spcNode, xlrec->node.dbNode,
 					 xlrec->node.relNode, xlrec->block,
-					 (unsigned long long) XidFromFullTransactionId(xlrec->latestRemovedFullXid));
+					 (unsigned long long) xlrec->latestRemovedXid);
 }
 
 static void
@@ -52,7 +52,7 @@ static void
 out_gistxlogPageDelete(StringInfo buf, gistxlogPageDelete *xlrec)
 {
 	appendStringInfo(buf, "deleteXid %llu; downlink %u",
-					 (unsigned long long) XidFromFullTransactionId(xlrec->deleteXid),
+					 (unsigned long long) xlrec->deleteXid,
 					 xlrec->downlinkOffset);
 }
 

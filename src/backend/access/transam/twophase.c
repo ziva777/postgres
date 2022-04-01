@@ -1903,9 +1903,7 @@ restoreTwoPhaseData(void)
 TransactionId
 PrescanPreparedTransactions(TransactionId **xids_p, int *nxids_p)
 {
-	FullTransactionId nextXid = ShmemVariableCache->nextXid;
-	TransactionId origNextXid = XidFromFullTransactionId(nextXid);
-	TransactionId result = origNextXid;
+	TransactionId result = ShmemVariableCache->nextXid;
 	TransactionId *xids = NULL;
 	int			nxids = 0;
 	int			allocsize = 0;
@@ -2130,8 +2128,7 @@ ProcessTwoPhaseBuffer(TransactionId xid,
 					  bool fromdisk,
 					  bool setParent, bool setNextXid)
 {
-	FullTransactionId nextXid = ShmemVariableCache->nextXid;
-	TransactionId origNextXid = XidFromFullTransactionId(nextXid);
+	TransactionId origNextXid = ShmemVariableCache->nextXid;
 	TransactionId *subxids;
 	char	   *buf;
 	TwoPhaseFileHeader *hdr;

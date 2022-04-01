@@ -910,9 +910,9 @@ gistPageRecyclable(Page page)
 		 * anyone. If not, then no scan that's still in progress could have
 		 * seen its downlink, and we can recycle it.
 		 */
-		FullTransactionId deletexid_full = GistPageGetDeleteXid(page);
+		TransactionId deletexid = GistPageGetDeleteXid(page);
 
-		return GlobalVisCheckRemovableFullXid(NULL, deletexid_full);
+		return GlobalVisCheckRemovableXid(NULL, deletexid);
 	}
 	return false;
 }

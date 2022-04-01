@@ -306,7 +306,7 @@ heap_page_prune(Relation relation, Buffer buffer,
 	 *
 	 * This is required for correctness to deal with cases where running HTSV
 	 * twice could result in different results (e.g. RECENTLY_DEAD can turn to
-	 * DEAD if another checked item causes GlobalVisTestIsRemovableFullXid()
+	 * DEAD if another checked item causes GlobalVisTestIsRemovableXid()
 	 * to update the horizon, INSERT_IN_PROGRESS can change to DEAD if the
 	 * inserting transaction aborts, ...). That in turn could cause
 	 * heap_prune_chain() to behave incorrectly if a tuple is reached twice,

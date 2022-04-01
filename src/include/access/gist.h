@@ -197,11 +197,11 @@ typedef struct GISTENTRY
 typedef struct GISTDeletedPageContents
 {
 	/* last xid which could see the page in a scan */
-	FullTransactionId deleteXid;
+	TransactionId deleteXid;
 } GISTDeletedPageContents;
 
 static inline void
-GistPageSetDeleted(Page page, FullTransactionId deletexid)
+GistPageSetDeleted(Page page, TransactionId deletexid)
 {
 	Assert(PageIsEmpty(page));
 
@@ -211,19 +211,19 @@ GistPageSetDeleted(Page page, FullTransactionId deletexid)
 	((GISTDeletedPageContents *) PageGetContents(page))->deleteXid = deletexid;
 }
 
-static inline FullTransactionId
+static inline TransactionId
 GistPageGetDeleteXid(Page page)
 {
 	Assert(GistPageIsDeleted(page));
 
 	/* Is the deleteXid field present? */
 	if (((PageHeader) page)->pd_lower >= MAXALIGN(SizeOfPageHeaderData) +
-		offsetof(GISTDeletedPageContents, deleteXid) + sizeof(FullTransactionId))
+		offsetof(GISTDeletedPageContents, deleteXid) + sizeof(TransactionId))
 	{
 		return ((GISTDeletedPageContents *) PageGetContents(page))->deleteXid;
 	}
 	else
-		return FullTransactionIdFromXid(FirstNormalTransactionId);
+		return FirstNormalTransactionId;
 }
 
 /*

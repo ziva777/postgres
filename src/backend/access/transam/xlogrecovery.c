@@ -794,8 +794,8 @@ InitWalRecovery(ControlFileData *ControlFile, bool *wasShutdown_ptr,
 							 LSN_FORMAT_ARGS(checkPoint.redo),
 							 wasShutdown ? "true" : "false")));
 	ereport(DEBUG1,
-			(errmsg_internal("next transaction ID: " UINT64_FORMAT "; next OID: %u",
-							 XidFromFullTransactionId(checkPoint.nextXid),
+			(errmsg_internal("next transaction ID: %llu; next OID: %u",
+							 (unsigned long long) checkPoint.nextXid,
 							 checkPoint.nextOid)));
 	ereport(DEBUG1,
 			(errmsg_internal("next MultiXactId: %llu; next MultiXactOffset: %llu",
@@ -813,7 +813,7 @@ InitWalRecovery(ControlFileData *ControlFile, bool *wasShutdown_ptr,
 			(errmsg_internal("commit timestamp Xid oldest/newest: %llu/%llu",
 							 (unsigned long long) checkPoint.oldestCommitTsXid,
 							 (unsigned long long) checkPoint.newestCommitTsXid)));
-	if (!TransactionIdIsNormal(XidFromFullTransactionId(checkPoint.nextXid)))
+	if (!TransactionIdIsNormal(checkPoint.nextXid))
 		ereport(PANIC,
 				(errmsg("invalid next transaction ID")));
 

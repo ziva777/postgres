@@ -39,7 +39,7 @@
 
 static BTMetaPageData *_bt_getmeta(Relation rel, Buffer metabuf);
 static void _bt_log_reuse_page(Relation rel, BlockNumber blkno,
-							   FullTransactionId safexid);
+							   TransactionId safexid);
 static void _bt_delitems_delete(Relation rel, Buffer buf,
 								TransactionId latestRemovedXid,
 								OffsetNumber *deletable, int ndeletable,
@@ -60,7 +60,7 @@ static bool _bt_lock_subtree_parent(Relation rel, BlockNumber child,
 									BlockNumber *topparent,
 									BlockNumber *topparentrightsib);
 static void _bt_pendingfsm_add(BTVacState *vstate, BlockNumber target,
-							   FullTransactionId safexid);
+							   TransactionId safexid);
 
 /*
  *	_bt_initmetapage() -- Fill a page buffer with a correct metapage image
@@ -827,7 +827,7 @@ _bt_checkpage(Relation rel, Buffer buf)
  * Log the reuse of a page from the FSM.
  */
 static void
-_bt_log_reuse_page(Relation rel, BlockNumber blkno, FullTransactionId safexid)
+_bt_log_reuse_page(Relation rel, BlockNumber blkno, TransactionId safexid)
 {
 	xl_btree_reuse_page xlrec_reuse;
 
@@ -840,7 +840,7 @@ _bt_log_reuse_page(Relation rel, BlockNumber blkno, FullTransactionId safexid)
 	/* XLOG stuff */
 	xlrec_reuse.node = rel->rd_node;
 	xlrec_reuse.block = blkno;
-	xlrec_reuse.latestRemovedFullXid = safexid;
+	xlrec_reuse.latestRemovedXid = safexid;
 
 	XLogBeginInsert();
 	XLogRegisterData((char *) &xlrec_reuse, SizeOfBtreeReusePage);
@@ -2320,7 +2320,7 @@ _bt_unlink_halfdead_page(Relation rel, Buffer leafbuf, BlockNumber scanblkno,
 	ItemId		itemid;
 	Page		page;
 	BTPageOpaque opaque;
-	FullTransactionId safexid;
+	TransactionId safexid;
 	bool		rightsib_is_rightmost;
 	uint32		targetlevel;
 	IndexTuple	leafhikey;
@@ -2986,7 +2986,7 @@ _bt_pendingfsm_finalize(Relation rel, BTVacState *vstate)
 	 * We don't actually care about the oldest non-removable XID.  Computing
 	 * the oldest such XID has a useful side-effect that we rely on: it
 	 * forcibly updates the XID horizon state for this backend.  This step is
-	 * essential; GlobalVisCheckRemovableFullXid() will not reliably recognize
+	 * essential; GlobalVisCheckRemovableXid() will not reliably recognize
 	 * that it is now safe to recycle newly deleted pages without this step.
 	 */
 	GetOldestNonRemovableTransactionId(NULL);
@@ -2994,7 +2994,7 @@ _bt_pendingfsm_finalize(Relation rel, BTVacState *vstate)
 	for (int i = 0; i < vstate->npendingpages; i++)
 	{
 		BlockNumber target = vstate->pendingpages[i].target;
-		FullTransactionId safexid = vstate->pendingpages[i].safexid;
+		TransactionId safexid = vstate->pendingpages[i].safexid;
 
 		/*
 		 * Do the equivalent of checking BTPageIsRecyclable(), but without
@@ -3004,7 +3004,7 @@ _bt_pendingfsm_finalize(Relation rel, BTVacState *vstate)
 		 * must be non-recyclable too, since _bt_pendingfsm_add() adds pages
 		 * to the array in safexid order.
 		 */
-		if (!GlobalVisCheckRemovableFullXid(NULL, safexid))
+		if (!GlobalVisCheckRemovableXid(NULL, safexid))
 			break;
 
 		RecordFreeIndexPage(rel, target);
@@ -3021,7 +3021,7 @@ _bt_pendingfsm_finalize(Relation rel, BTVacState *vstate)
 static void
 _bt_pendingfsm_add(BTVacState *vstate,
 				   BlockNumber target,
-				   FullTransactionId safexid)
+				   TransactionId safexid)
 {
 	Assert(vstate->npendingpages <= vstate->bufsize);
 	Assert(vstate->bufsize <= vstate->maxbufsize);
@@ -3035,10 +3035,10 @@ _bt_pendingfsm_add(BTVacState *vstate,
 	 */
 	if (vstate->npendingpages > 0)
 	{
-		FullTransactionId lastsafexid =
+		TransactionId lastsafexid =
 		vstate->pendingpages[vstate->npendingpages - 1].safexid;
 
-		Assert(FullTransactionIdFollowsOrEquals(safexid, lastsafexid));
+		Assert(TransactionIdFollowsOrEquals(safexid, lastsafexid));
 	}
 #endif
 

@@ -83,7 +83,7 @@ btree_desc(StringInfo buf, XLogReaderState *record)
 
 				appendStringInfo(buf, "left %u; right %u; level %u; safexid %llu; ",
 								 xlrec->leftsib, xlrec->rightsib, xlrec->level,
-								 (unsigned long long) XidFromFullTransactionId(xlrec->safexid));
+								 (unsigned long long) xlrec->safexid);
 				appendStringInfo(buf, "leafleft %u; leafright %u; leaftopparent %u",
 								 xlrec->leafleftsib, xlrec->leafrightsib,
 								 xlrec->leaftopparent);
@@ -103,7 +103,7 @@ btree_desc(StringInfo buf, XLogReaderState *record)
 				appendStringInfo(buf, "rel %u/%u/%u; latestRemovedXid %llu",
 								 xlrec->node.spcNode, xlrec->node.dbNode,
 								 xlrec->node.relNode,
-								 (unsigned long long) XidFromFullTransactionId(xlrec->latestRemovedFullXid));
+								 (unsigned long long) xlrec->latestRemovedXid);
 				break;
 			}
 		case XLOG_BTREE_META_CLEANUP:

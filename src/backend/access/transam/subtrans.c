@@ -213,7 +213,7 @@ BootStrapSUBTRANS(void)
 	int			slotno;
 	int64		pageno;
 
-	pageno = TransactionIdToPage(XidFromFullTransactionId(ShmemVariableCache->nextXid));
+	pageno = TransactionIdToPage(ShmemVariableCache->nextXid);
 
 	LWLockAcquire(SubtransSLRULock, LW_EXCLUSIVE);
 
@@ -251,7 +251,6 @@ ZeroSUBTRANSPage(int64 pageno)
 void
 StartupSUBTRANS(TransactionId oldestActiveXID)
 {
-	FullTransactionId nextXid;
 	int64		startPage;
 	int64		endPage;
 
@@ -264,8 +263,7 @@ StartupSUBTRANS(TransactionId oldestActiveXID)
 	LWLockAcquire(SubtransSLRULock, LW_EXCLUSIVE);
 
 	startPage = TransactionIdToPage(oldestActiveXID);
-	nextXid = ShmemVariableCache->nextXid;
-	endPage = TransactionIdToPage(XidFromFullTransactionId(nextXid));
+	endPage = TransactionIdToPage(ShmemVariableCache->nextXid);
 
 	while (startPage != endPage)
 	{

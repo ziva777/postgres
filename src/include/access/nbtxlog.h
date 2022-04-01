@@ -187,7 +187,7 @@ typedef struct xl_btree_reuse_page
 {
 	RelFileNode node;
 	BlockNumber block;
-	FullTransactionId latestRemovedFullXid;
+	TransactionId latestRemovedXid;
 } xl_btree_reuse_page;
 
 #define SizeOfBtreeReusePage	(sizeof(xl_btree_reuse_page))
@@ -300,7 +300,7 @@ typedef struct xl_btree_unlink_page
 	BlockNumber leftsib;		/* target block's left sibling, if any */
 	BlockNumber rightsib;		/* target block's right sibling */
 	uint32		level;			/* target block's level */
-	FullTransactionId safexid;	/* target block's BTPageSetDeleted() XID */
+	TransactionId safexid;	/* target block's BTPageSetDeleted() XID */
 
 	/*
 	 * Information needed to recreate a half-dead leaf page with correct

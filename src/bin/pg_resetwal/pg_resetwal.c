@@ -437,7 +437,7 @@ main(int argc, char *argv[])
 	}
 
 	if (set_xid != 0)
-		ControlFile.checkPointCopy.nextXid = FullTransactionIdFromXid(set_xid);
+		ControlFile.checkPointCopy.nextXid = set_xid;
 
 	if (set_oldest_commit_ts_xid != 0)
 		ControlFile.checkPointCopy.oldestCommitTsXid = set_oldest_commit_ts_xid;
@@ -676,8 +676,7 @@ GuessControlValues(void)
 	ControlFile.checkPointCopy.ThisTimeLineID = 1;
 	ControlFile.checkPointCopy.PrevTimeLineID = 1;
 	ControlFile.checkPointCopy.fullPageWrites = false;
-	ControlFile.checkPointCopy.nextXid =
-		FullTransactionIdFromXid(FirstNormalTransactionId);
+	ControlFile.checkPointCopy.nextXid = FirstNormalTransactionId;
 	ControlFile.checkPointCopy.nextOid = FirstGenbkiObjectId;
 	ControlFile.checkPointCopy.nextMulti = FirstMultiXactId;
 	ControlFile.checkPointCopy.nextMultiOffset = 0;
@@ -750,7 +749,7 @@ PrintControlValues(bool guessed)
 	printf(_("Latest checkpoint's full_page_writes: %s\n"),
 		   ControlFile.checkPointCopy.fullPageWrites ? _("on") : _("off"));
 	printf(_("Latest checkpoint's NextXID:          %llu\n"),
-		   (unsigned long long) XidFromFullTransactionId(ControlFile.checkPointCopy.nextXid));
+		   (unsigned long long)  ControlFile.checkPointCopy.nextXid);
 	printf(_("Latest checkpoint's NextOID:          %u\n"),
 		   ControlFile.checkPointCopy.nextOid);
 	printf(_("Latest checkpoint's NextMultiXactId:  %llu\n"),
@@ -840,7 +839,7 @@ PrintNewControlValues(void)
 	if (set_xid != 0)
 	{
 		printf(_("NextXID:                              %llu\n"),
-			   (unsigned long long) XidFromFullTransactionId(ControlFile.checkPointCopy.nextXid));
+			   (unsigned long long) ControlFile.checkPointCopy.nextXid);
 		printf(_("OldestXID:                            %llu\n"),
 			   (unsigned long long) ControlFile.checkPointCopy.oldestXid);
 		printf(_("OldestXID's DB:                       %u\n"),
