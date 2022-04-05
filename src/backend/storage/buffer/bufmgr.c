@@ -1044,20 +1044,9 @@ ReadBuffer_common(Relation rel, SMgrRelation smgr, char relpersistence, ForkNumb
 			{
 				Buffer		buf = BufferDescriptorGetBuffer(bufHdr);
 
-				/*
-				 * Normally we should not be here with rel == NULL, since XLog
-				 * replayer should read new page versions from Full Page Write
-				 * records.
-				 *
-				 * But there is TryReadRepairBlock in repairworker.c that
-				 * could. (PgProEE feature).
-				 */
-				if (rel != NULL)
-				{
-					LWLockAcquire(BufferDescriptorGetContentLock(bufHdr), LW_EXCLUSIVE);
-					convert_page(rel, bufBlock, buf, blockNum);
-					LWLockRelease(BufferDescriptorGetContentLock(bufHdr));
-				}
+				LWLockAcquire(BufferDescriptorGetContentLock(bufHdr), LW_EXCLUSIVE);
+				convert_page(rel, bufBlock, buf, blockNum);
+				LWLockRelease(BufferDescriptorGetContentLock(bufHdr));
 			}
 		}
 	}
