@@ -221,14 +221,22 @@ ShortTransactionId HeapPageSetPruneXidInternal(Page page, TransactionId xid);
 #define HeapPageSetPruneXid(page, xid)  \
 	HeapPageSetPruneXidInternal((Page)(page), xid)
 
-#define HeapPageGetPruneXid(page) \
-( \
-	ShortTransactionIdToNormal(HeapPageGetSpecial(page)->pd_xid_base, ((PageHeader) (page))->pd_prune_xid) \
-)
-
 /* Check if page is in "double xmax" format */
 #define HeapPageIsDoubleXmax(page) \
 	(((PageHeader) (page))->pd_special == BLCKSZ)
+
+/*
+ * Read pd_prune_xid from locked page.
+ */
+static inline TransactionId
+HeapPageGetPruneXid(Page page)
+{
+	if (HeapPageIsDoubleXmax(page))
+		return ((PageHeader) (page))->pd_prune_xid;
+
+	return ShortTransactionIdToNormal(HeapPageGetSpecial(page)->pd_xid_base,
+									  ((PageHeader) (page))->pd_prune_xid);
+}
 
 /*
  * Read pd_prune_xid from non-locked page.  May return invalid value, but doen't
