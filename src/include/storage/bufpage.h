@@ -216,17 +216,27 @@ extern PGDLLIMPORT HeapPageSpecial doubleXmaxSpecial;
 	(HeapPageSpecial) ((Pointer) (page) + BLCKSZ - MAXALIGN(sizeof(HeapPageSpecialData))) \
 )
 
-ShortTransactionId HeapPageSetPruneXidInternal(Page page, TransactionId xid);
-
-#define HeapPageSetPruneXid(page, xid)  \
-	HeapPageSetPruneXidInternal((Page)(page), xid)
-
 /* Check if page is in "double xmax" format */
 #define HeapPageIsDoubleXmax(page) \
 	(((PageHeader) (page))->pd_special == BLCKSZ)
 
 /*
- * Read pd_prune_xid from locked page.
+ * Set pd_prune_xid.
+ */
+static inline void
+HeapPageSetPruneXid(Page page, TransactionId xid)
+{
+	if (HeapPageIsDoubleXmax(page))
+		return;
+
+	((PageHeader) (page))->pd_prune_xid =
+		NormalTransactionIdToShort(HeapPageGetSpecial(page)->pd_xid_base, (xid));
+
+	Assert(((PageHeader) (page))->pd_prune_xid <= MaxShortTransactionId);
+}
+
+/*
+ * Get pd_prune_xid from locked page.
  */
 static inline TransactionId
 HeapPageGetPruneXid(Page page)
@@ -239,7 +249,7 @@ HeapPageGetPruneXid(Page page)
 }
 
 /*
- * Read pd_prune_xid from non-locked page.  May return invalid value, but doen't
+ * Get pd_prune_xid from non-locked page.  May return invalid value, but doen't
  * causes assert failures.
  */
 static inline TransactionId

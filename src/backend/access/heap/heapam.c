@@ -220,26 +220,6 @@ static const int MultiXactStatusLock[MaxMultiXactStatus + 1] =
 #define TUPLOCK_from_mxstatus(status) \
 			(MultiXactStatusLock[(status)])
 
-ShortTransactionId
-HeapPageSetPruneXidInternal(Page page, TransactionId xid)
-{
-	ShortTransactionId pd_prune_xid;
-
-	if (HeapPageIsDoubleXmax(page))
-		return ((PageHeader) (page))->pd_prune_xid;
-
-	pd_prune_xid = ((PageHeader) (page))->pd_prune_xid =
-		NormalTransactionIdToShort(HeapPageGetSpecial(page)->pd_xid_base, (xid));
-
-	if (((PageHeader) (page))->pd_prune_xid > MaxShortTransactionId)
-		elog(WARNING, "pd_prune_xid is out of range");
-
-	((PageHeader) (page))->pd_prune_xid =
-		NormalTransactionIdToShort(HeapPageGetSpecial(page)->pd_xid_base, xid);
-
-	return pd_prune_xid;
-}
-
 /* ----------------------------------------------------------------
  *						 heap support routines
  * ----------------------------------------------------------------
