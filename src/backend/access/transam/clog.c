@@ -831,8 +831,14 @@ check_transaction_buffers(int *newval, void **extra, GucSource source)
 void
 BootStrapCLOG(void)
 {
+	int64	pageno;
+
 	/* Zero the initial page and flush it to disk */
 	SimpleLruZeroAndWritePage(XactCtl, 0);
+
+	pageno = TransactionIdToPage(XidFromFullTransactionId(TransamVariables->nextXid));
+	if (pageno)
+		SimpleLruZeroAndWritePage(XactCtl, pageno);
 }
 
 /*
@@ -1019,7 +1025,6 @@ CLOGPagePrecedes(int64 page1, int64 page2)
 	return (TransactionIdPrecedes(xid1, xid2) &&
 			TransactionIdPrecedes(xid1, xid2 + CLOG_XACTS_PER_PAGE - 1));
 }
-
 
 /*
  * Write a TRUNCATE xlog record
