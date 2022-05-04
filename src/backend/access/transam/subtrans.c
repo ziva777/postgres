@@ -271,8 +271,11 @@ void
 BootStrapSUBTRANS(void)
 {
 	int			slotno;
-	LWLock	   *lock = SimpleLruGetBankLock(SubTransCtl, 0);
-	int64		pageno = TransactionIdToPage(XidFromFullTransactionId(TransamVariables->nextXid));
+	LWLock	   *lock;
+	int64		pageno;
+
+	pageno = TransactionIdToPage(XidFromFullTransactionId(TransamVariables->nextXid));
+	lock = SimpleLruGetBankLock(SubTransCtl, pageno);
 
 	LWLockAcquire(lock, LW_EXCLUSIVE);
 
