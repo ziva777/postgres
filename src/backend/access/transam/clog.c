@@ -1074,7 +1074,6 @@ CLOGPagePrecedes(int64 page1, int64 page2)
 			TransactionIdPrecedes(xid1, xid2 + CLOG_XACTS_PER_PAGE - 1));
 }
 
-
 /*
  * Write a ZEROPAGE xlog record
  */
