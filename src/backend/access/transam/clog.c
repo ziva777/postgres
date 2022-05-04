@@ -721,6 +721,7 @@ void
 BootStrapCLOG(void)
 {
 	int			slotno;
+	int64		pageno;
 
 	LWLockAcquire(XactSLRULock, LW_EXCLUSIVE);
 
@@ -730,6 +731,17 @@ BootStrapCLOG(void)
 	/* Make sure it's written out */
 	SimpleLruWritePage(XactCtl, slotno);
 	Assert(!XactCtl->shared->page_dirty[slotno]);
+
+	pageno = TransactionIdToPage(XidFromFullTransactionId(ShmemVariableCache->nextXid));
+	if (pageno != 0)
+	{
+		/* Create and zero the first page of the commit log */
+		slotno = ZeroCLOGPage(pageno, false);
+
+		/* Make sure it's written out */
+		SimpleLruWritePage(XactCtl, slotno);
+		Assert(!XactCtl->shared->page_dirty[slotno]);
+	}
 
 	LWLockRelease(XactSLRULock);
 }
@@ -940,7 +952,6 @@ CLOGPagePrecedes(int64 page1, int64 page2)
 	return (TransactionIdPrecedes(xid1, xid2) &&
 			TransactionIdPrecedes(xid1, xid2 + CLOG_XACTS_PER_PAGE - 1));
 }
-
 
 /*
  * Write a ZEROPAGE xlog record
