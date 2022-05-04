@@ -15,7 +15,7 @@ use Test::More;
 
 # Create publisher node
 my $node_publisher = PostgreSQL::Test::Cluster->new('publisher');
-$node_publisher->init(allows_streaming => 'logical');
+$node_publisher->init(allows_streaming => 'logical', extra => ['-x', '4294966545']);
 $node_publisher->append_conf('postgresql.conf',
 	'logical_decoding_work_mem = 64kB');
 $node_publisher->start;
