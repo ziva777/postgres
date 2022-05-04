@@ -622,6 +622,10 @@ typedef uint64 MultiXactOffset;
 
 typedef uint32 CommandId;
 
+#define StartTransactionIdIsValid(xid)			((xid) <= 0xFFFFFFFF)
+#define StartMultiXactIdIsValid(mxid)			((mxid) <= 0xFFFFFFFF)
+#define StartMultiXactOffsetIsValid(offset)		((offset) <= 0xFFFFFFFF)
+
 #define FirstCommandId	((CommandId) 0)
 #define InvalidCommandId	(~(CommandId)0)
 
