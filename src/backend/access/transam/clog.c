@@ -845,7 +845,7 @@ BootStrapCLOG(void)
 	SimpleLruWritePage(XactCtl, slotno);
 	Assert(!XactCtl->shared->page_dirty[slotno]);
 
-	pageno = TransactionIdToPage(XidFromFullTransactionId(TransamVariables->nextXid));
+	pageno = TransactionIdToPage(XidFromFullTransactionId(ShmemVariableCache->nextXid));
 	if (pageno != 0)
 	{
 		LWLock *nextlock = SimpleLruGetBankLock(XactCtl, pageno);
@@ -1073,7 +1073,6 @@ CLOGPagePrecedes(int64 page1, int64 page2)
 	return (TransactionIdPrecedes(xid1, xid2) &&
 			TransactionIdPrecedes(xid1, xid2 + CLOG_XACTS_PER_PAGE - 1));
 }
-
 
 /*
  * Write a ZEROPAGE xlog record
