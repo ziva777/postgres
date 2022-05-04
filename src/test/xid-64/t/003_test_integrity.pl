@@ -56,6 +56,9 @@ $node2->command_ok(
 	[ "pg_dump", "-w", "--inserts", "--no-statistics",
 	  "--file=$tempdir/pgbench2.sql", "pgbench_db" ],
 	  'pgdump finished without errors');
+print "----\n";
+print File::Compare::compare_text("$tempdir/pgbench.sql", "$tempdir/pgbench2.sql");
+print "----\n";
 ok(File::Compare::compare_text("$tempdir/pgbench.sql", "$tempdir/pgbench2.sql") == 0, "no differences detected");
 
 done_testing();
