@@ -834,6 +834,7 @@ BootStrapCLOG(void)
 {
 	int			slotno;
 	LWLock	   *lock = SimpleLruGetBankLock(XactCtl, 0);
+	int64		pageno;
 
 	LWLockAcquire(lock, LW_EXCLUSIVE);
 
@@ -843,6 +844,26 @@ BootStrapCLOG(void)
 	/* Make sure it's written out */
 	SimpleLruWritePage(XactCtl, slotno);
 	Assert(!XactCtl->shared->page_dirty[slotno]);
+
+	pageno = TransactionIdToPage(XidFromFullTransactionId(TransamVariables->nextXid));
+	if (pageno != 0)
+	{
+		LWLock *nextlock = SimpleLruGetBankLock(XactCtl, pageno);
+
+		if (nextlock != lock)
+		{
+			LWLockRelease(lock);
+			LWLockAcquire(nextlock, LW_EXCLUSIVE);
+			lock = nextlock;
+		}
+
+		/* Create and zero the first page of the commit log */
+		slotno = ZeroCLOGPage(pageno, false);
+
+		/* Make sure it's written out */
+		SimpleLruWritePage(XactCtl, slotno);
+		Assert(!XactCtl->shared->page_dirty[slotno]);
+	}
 
 	LWLockRelease(lock);
 }
