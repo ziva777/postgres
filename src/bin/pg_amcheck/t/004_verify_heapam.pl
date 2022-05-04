@@ -320,6 +320,8 @@ my $relfrozenxid = $node->safe_psql('postgres',
 	q(select relfrozenxid from pg_class where relname = 'test'));
 my $datfrozenxid = $node->safe_psql('postgres',
 	q(select datfrozenxid from pg_database where datname = 'postgres'));
+my $datminmxid = $node->safe_psql('postgres',
+	q(select datminmxid from pg_database where datname = 'postgres'));
 
 # Sanity check that our 'test' table has a relfrozenxid newer than the
 # datfrozenxid for the database, and that the datfrozenxid is greater than the
@@ -454,40 +456,39 @@ for (my $tupidx = 0; $tupidx < $ROWCOUNT; $tupidx++)
 
 		# Expected corruption report
 		push @expected,
-		  qr/${header}xmin $xmin precedes relation freeze threshold 0:\d+/;
+		  qr/${header}xmin $xmin precedes relation freeze threshold \d+/;
 	}
 	elsif ($offnum == 2)
 	{
 		# Corruptly set xmin < datfrozenxid
-		my $xmin = 3;
+		my $xmin = $datfrozenxid - 12;
 		$tup->{t_xmin} = $xmin;
 		$tup->{t_infomask} &= ~HEAP_XMIN_COMMITTED;
 		$tup->{t_infomask} &= ~HEAP_XMIN_INVALID;
 
 		push @expected,
-		  qr/${$header}xmin $xmin precedes oldest valid transaction ID 0:\d+/;
+		  qr/${$header}xmin $xmin precedes oldest valid transaction ID \d+/;
 	}
 	elsif ($offnum == 3)
 	{
-		# Corruptly set xmin < datfrozenxid, further back, noting circularity
-		# of xid comparison.
-		my $xmin = 4026531839;
+		# Corruptly set xmin > next transaction id.
+		my $xmin = $relfrozenxid + 1000000;
 		$tup->{t_xmin} = $xmin;
 		$tup->{t_infomask} &= ~HEAP_XMIN_COMMITTED;
 		$tup->{t_infomask} &= ~HEAP_XMIN_INVALID;
 
 		push @expected,
-		  qr/${$header}xmin ${xmin} precedes oldest valid transaction ID 0:\d+/;
+		  qr/${$header}xmin $xmin equals or exceeds next valid transaction ID \d+/;
 	}
 	elsif ($offnum == 4)
 	{
-		# Corruptly set xmax < relminmxid;
-		my $xmax = 4026531839;
+		# Corruptly set xmax > next transaction id.
+        my $xmax = $relfrozenxid + 1000000;
 		$tup->{t_xmax} = $xmax;
 		$tup->{t_infomask} &= ~HEAP_XMAX_INVALID;
 
 		push @expected,
-		  qr/${$header}xmax ${xmax} precedes oldest valid transaction ID 0:\d+/;
+		  qr/${$header}xmax $xmax equals or exceeds next valid transaction ID \d+/;
 	}
 	elsif ($offnum == 5)
 	{
@@ -590,31 +591,33 @@ for (my $tupidx = 0; $tupidx < $ROWCOUNT; $tupidx++)
 		# Set both HEAP_XMAX_COMMITTED and HEAP_XMAX_IS_MULTI
 		$tup->{t_infomask} |= HEAP_XMAX_COMMITTED;
 		$tup->{t_infomask} |= HEAP_XMAX_IS_MULTI;
-		$tup->{t_xmax} = 4;
+        my $xmax = $datminmxid + 1000000;
+		$tup->{t_xmax} = $xmax;
 
 		push @expected,
-		  qr/${header}multitransaction ID 4 equals or exceeds next valid multitransaction ID 1/;
+		  qr/${header}multitransaction ID $xmax equals or exceeds next valid multitransaction ID \d+/;
 	}
 	elsif ($offnum == 15)
 	{
 		# Set both HEAP_XMAX_COMMITTED and HEAP_XMAX_IS_MULTI
 		$tup->{t_infomask} |= HEAP_XMAX_COMMITTED;
 		$tup->{t_infomask} |= HEAP_XMAX_IS_MULTI;
-		$tup->{t_xmax} = 4000000000;
+		my $xmax = $datminmxid - 10;
+		$tup->{t_xmax} = $xmax;
 
 		push @expected,
-		  qr/${header}multitransaction ID 4000000000 precedes relation minimum multitransaction ID threshold 1/;
+		  qr/${header}multitransaction ID $xmax precedes relation minimum multitransaction ID threshold \d+/;
 	}
 	elsif ($offnum == 16)    # Last offnum must equal ROWCOUNT
 	{
 		# Corruptly set xmin > next_xid to be in the future.
-		my $xmin = 123456;
+		my $xmin = $relfrozenxid + 1000000;
 		$tup->{t_xmin} = $xmin;
 		$tup->{t_infomask} &= ~HEAP_XMIN_COMMITTED;
 		$tup->{t_infomask} &= ~HEAP_XMIN_INVALID;
 
 		push @expected,
-		  qr/${$header}xmin ${xmin} equals or exceeds next valid transaction ID 0:\d+/;
+		  qr/${$header}xmin ${xmin} equals or exceeds next valid transaction ID \d+/;
 	}
 	elsif ($offnum == 17)
 	{

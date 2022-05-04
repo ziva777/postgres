@@ -270,12 +270,16 @@ void
 BootStrapSUBTRANS(void)
 {
 	int			slotno;
-	LWLock	   *lock = SimpleLruGetBankLock(SubTransCtl, 0);
+	LWLock	   *lock;
+	int64		pageno;
+
+	pageno = TransactionIdToPage(XidFromFullTransactionId(TransamVariables->nextXid));
+	lock = SimpleLruGetBankLock(SubTransCtl, pageno);
 
 	LWLockAcquire(lock, LW_EXCLUSIVE);
 
 	/* Create and zero the first page of the subtrans log */
-	slotno = ZeroSUBTRANSPage(0);
+	slotno = ZeroSUBTRANSPage(pageno);
 
 	/* Make sure it's written out */
 	SimpleLruWritePage(SubTransCtl, slotno);

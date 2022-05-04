@@ -643,7 +643,9 @@ sub init
 	{
 		note("initializing database system by running initdb");
 		PostgreSQL::Test::Utils::system_or_bail('initdb', '-D', $pgdata, '-A',
-			'trust', '-N', @{ $params{extra} });
+			'trust', '-N',
+			'-x', '124983', '-m', '242236', '-o', '359488',
+			@{ $params{extra} });
 	}
 	else
 	{
