@@ -57,13 +57,13 @@ sub gen_multixact
 # Initialize master node with the random xid-related parameters
 $node->safe_psql("postgres", "CREATE TABLE foo (a int); INSERT INTO foo VALUES (1);");
 
-is(relminmxid(), 2, "relminmxid is default");
+is(relminmxid(), 1, "relminmxid is default");
 
 vacuum();
-is(relminmxid(), 2, "relminmxid is still default");
+is(relminmxid(), 1, "relminmxid is still default");
 
 gen_multixact();
-is(relminmxid(), 2, "relminmxid is still still default");
+is(relminmxid(), 1, "relminmxid is still still default");
 
 unlike(vacuum(), qr/multixact.*before relminmxid/, "no relminmxid error");
 
@@ -80,10 +80,10 @@ cmp_ok(relminmxid(), '>', 2**62, "relminmxid broken (still)");
 
 # Fix relminmxid by setting to default
 $node->safe_psql("postgres", qq(
-    UPDATE pg_class SET relminmxid = '2'
+    UPDATE pg_class SET relminmxid = '1'
     WHERE relname = 'foo'
 ));
-is(relminmxid(), 2, "relminmxid is default again");
+is(relminmxid(), 1, "relminmxid is default again");
 
 unlike(vacuum(), qr/multixact.*before relminmxid/, "no relminmxid error again");
 

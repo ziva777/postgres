@@ -117,7 +117,8 @@ FullTransactionIdFromXid(TransactionId xid)
 #define TransactionIdAdvance(dest)	\
 	do { \
 		(dest)++; \
-		Assert((dest) > FirstNormalTransactionId); \
+		if ((dest) < FirstNormalTransactionId) \
+			(dest) = FirstNormalTransactionId; \
 	} while(0)
 
 /*
@@ -165,9 +166,8 @@ FullTransactionIdAdvance(FullTransactionId *dest)
 /* back up a transaction ID variable, handling wraparound correctly */
 #define TransactionIdRetreat(dest)	\
 	do { \
-		Assert((dest) > FirstNormalTransactionId); \
 		(dest)--; \
-	} while(0)
+	} while ((dest) < FirstNormalTransactionId)
 
 /* compare two XIDs already known to be normal; this is a macro for speed */
 #define NormalTransactionIdPrecedes(id1, id2) \

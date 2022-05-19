@@ -4545,14 +4545,14 @@ BootStrapXLOG(void)
 	checkPoint.PrevTimeLineID = BootstrapTimeLineID;
 	checkPoint.fullPageWrites = fullPageWrites;
 	checkPoint.nextXid =
-		FullTransactionIdFromXid(Max(FirstNormalTransactionId + 1,
+		FullTransactionIdFromXid(Max(FirstNormalTransactionId,
 									 start_xid));
 	checkPoint.nextOid = FirstGenbkiObjectId;
-	checkPoint.nextMulti = Max(FirstMultiXactId + 1, start_mxid);
+	checkPoint.nextMulti = Max(FirstMultiXactId, start_mxid);
 	checkPoint.nextMultiOffset = start_mxoff;
-	checkPoint.oldestXid = XidFromFullTransactionId(checkPoint.nextXid) - 1;
+	checkPoint.oldestXid = XidFromFullTransactionId(checkPoint.nextXid);
 	checkPoint.oldestXidDB = Template1DbOid;
-	checkPoint.oldestMulti = checkPoint.nextMulti - 1;
+	checkPoint.oldestMulti = checkPoint.nextMulti;
 	checkPoint.oldestMultiDB = Template1DbOid;
 	checkPoint.oldestCommitTsXid = InvalidTransactionId;
 	checkPoint.newestCommitTsXid = InvalidTransactionId;
