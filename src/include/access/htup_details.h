@@ -612,8 +612,16 @@ do { \
  * an otherwise-empty page can indeed hold a tuple of this size.  Because
  * ItemIds and tuples have different alignment requirements, don't assume that
  * you can, say, fit 2 tuples of size MaxHeapTupleSize/2 on the same page.
+ *
+ * On shift to 64-bit XIDs MaxHeapTupleSize decreased by sizeof(HeapPageSpecialData).
+ * Extant tuples with length over new MaxHeapTupleSize are inherited on DoubleXmax
+ * pages. They could be read, but can not be updated unless their length decreases
+ * to fit MaxHeapTupleSize. Vacuum full will also copy these double xmax pages
+ * without change.
  */
+
 #define MaxHeapTupleSize  (BLCKSZ - MAXALIGN(SizeOfPageHeaderData + sizeof(ItemIdData)) - MAXALIGN(sizeof(HeapPageSpecialData)))
+#define MaxHeapTupleSize_32  (BLCKSZ - MAXALIGN(SizeOfPageHeaderData + sizeof(ItemIdData)))
 #define MinHeapTupleSize  MAXALIGN(SizeofHeapTupleHeader)
 
 /*
