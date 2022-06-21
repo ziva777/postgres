@@ -612,6 +612,8 @@ static Tuplesortstate *tuplesort_begin_common(int workMem,
 											  int sortopt);
 static void tuplesort_begin_batch(Tuplesortstate *state);
 static void puttuple_common(Tuplesortstate *state, SortTuple *tuple);
+static void writetuple_common(Tuplesortstate *state, LogicalTape *tape,
+							  SortTuple *stup);
 static bool consider_abort_common(Tuplesortstate *state);
 static void inittapes(Tuplesortstate *state, bool mergeruns);
 static void inittapestate(Tuplesortstate *state, int maxTapes);
@@ -1838,7 +1840,6 @@ tuplesort_puttupleslot(Tuplesortstate *state, TupleTableSlot *slot)
 	/* copy the tuple into sort storage */
 	tuple = ExecCopySlotMinimalTuple(slot);
 	stup.tuple = (void *) tuple;
-	USEMEM(state, GetMemoryChunkSpace(tuple));
 	/* set up first-column key value */
 	htup.t_len = tuple->t_len + MINIMAL_TUPLE_OFFSET;
 	htup.t_data = (HeapTupleHeader) ((char *) tuple - MINIMAL_TUPLE_OFFSET);
@@ -1846,8 +1847,6 @@ tuplesort_puttupleslot(Tuplesortstate *state, TupleTableSlot *slot)
 							   state->sortKeys[0].ssup_attno,
 							   state->tupDesc,
 							   &stup.isnull1);
-
-	MemoryContextSwitchTo(state->sortcontext);
 
 	puttuple_common(state, &stup);
 
@@ -1868,9 +1867,6 @@ tuplesort_putheaptuple(Tuplesortstate *state, HeapTuple tup)
 	/* copy the tuple into sort storage */
 	tup = heap_copytuple(tup);
 	stup.tuple = (void *) tup;
-	USEMEM(state, GetMemoryChunkSpace(tup));
-
-	MemoryContextSwitchTo(state->sortcontext);
 
 	/*
 	 * set up first-column key value, and potentially abbreviate, if it's a
@@ -1905,14 +1901,11 @@ tuplesort_putindextuplevalues(Tuplesortstate *state, Relation rel,
 	stup.tuple = index_form_tuple(RelationGetDescr(rel), values, isnull);
 	tuple = ((IndexTuple) stup.tuple);
 	tuple->t_tid = *self;
-	USEMEM(state, GetMemoryChunkSpace(stup.tuple));
 	/* set up first-column key value */
 	stup.datum1 = index_getattr(tuple,
 								1,
 								RelationGetDescr(state->indexRel),
 								&stup.isnull1);
-
-	MemoryContextSwitchTo(state->sortcontext);
 
 	puttuple_common(state, &stup);
 
@@ -1951,15 +1944,12 @@ tuplesort_putdatum(Tuplesortstate *state, Datum val, bool isNull)
 		stup.datum1 = !isNull ? val : (Datum) 0;
 		stup.isnull1 = isNull;
 		stup.tuple = NULL;		/* no separate storage */
-		MemoryContextSwitchTo(state->sortcontext);
 	}
 	else
 	{
 		stup.isnull1 = false;
 		stup.datum1 = datumCopy(val, false, state->datumTypeLen);
 		stup.tuple = DatumGetPointer(stup.datum1);
-		USEMEM(state, GetMemoryChunkSpace(stup.tuple));
-		MemoryContextSwitchTo(state->sortcontext);
 	}
 
 	puttuple_common(state, &stup);
@@ -1973,7 +1963,12 @@ tuplesort_putdatum(Tuplesortstate *state, Datum val, bool isNull)
 static void
 puttuple_common(Tuplesortstate *state, SortTuple *tuple)
 {
+	MemoryContext oldcontext = MemoryContextSwitchTo(state->sortcontext);
+
 	Assert(!LEADER(state));
+
+	if (tuple->tuple != NULL)
+		USEMEM(state, GetMemoryChunkSpace(tuple->tuple));
 
 	if (!state->sortKeys || !state->haveDatum1 || !state->tuples ||
 		!state->sortKeys->abbrev_converter || tuple->isnull1)
@@ -2052,6 +2047,7 @@ puttuple_common(Tuplesortstate *state, SortTuple *tuple)
 						 pg_rusage_show(&state->ru_start));
 #endif
 				make_bounded_heap(state);
+				MemoryContextSwitchTo(oldcontext);
 				return;
 			}
 
@@ -2059,7 +2055,10 @@ puttuple_common(Tuplesortstate *state, SortTuple *tuple)
 			 * Done if we still fit in available memory and have array slots.
 			 */
 			if (state->memtupcount < state->memtupsize && !LACKMEM(state))
+			{
+				MemoryContextSwitchTo(oldcontext);
 				return;
+			}
 
 			/*
 			 * Nope; time to switch to tape-based operation.
@@ -2112,6 +2111,19 @@ puttuple_common(Tuplesortstate *state, SortTuple *tuple)
 		default:
 			elog(ERROR, "invalid tuplesort state");
 			break;
+	}
+	MemoryContextSwitchTo(oldcontext);
+}
+
+static void
+writetuple_common(Tuplesortstate *state, LogicalTape *tape, SortTuple *stup)
+{
+	WRITETUP(state, tape, stup);
+
+	if (!state->slabAllocatorUsed && stup->tuple)
+	{
+		FREEMEM(state, GetMemoryChunkSpace(stup->tuple));
+		pfree(stup->tuple);
 	}
 }
 
@@ -3170,7 +3182,7 @@ mergeonerun(Tuplesortstate *state)
 		/* write the tuple to destTape */
 		srcTapeIndex = state->memtuples[0].srctape;
 		srcTape = state->inputTapes[srcTapeIndex];
-		WRITETUP(state, state->destTape, &state->memtuples[0]);
+		writetuple_common(state, state->destTape, &state->memtuples[0]);
 
 		/* recycle the slot of the tuple we just wrote out, for the next read */
 		if (state->memtuples[0].tuple)
@@ -3316,7 +3328,7 @@ dumptuples(Tuplesortstate *state, bool alltuples)
 	memtupwrite = state->memtupcount;
 	for (i = 0; i < memtupwrite; i++)
 	{
-		WRITETUP(state, state->destTape, &state->memtuples[i]);
+		writetuple_common(state, state->destTape, &state->memtuples[i]);
 		state->memtupcount--;
 	}
 
@@ -3947,12 +3959,6 @@ writetup_heap(Tuplesortstate *state, LogicalTape *tape, SortTuple *stup)
 	if (state->sortopt & TUPLESORT_RANDOMACCESS)	/* need trailing length
 													 * word? */
 		LogicalTapeWrite(tape, (void *) &tuplen, sizeof(tuplen));
-
-	if (!state->slabAllocatorUsed)
-	{
-		FREEMEM(state, GetMemoryChunkSpace(tuple));
-		heap_free_minimal_tuple(tuple);
-	}
 }
 
 static void
@@ -4123,12 +4129,6 @@ writetup_cluster(Tuplesortstate *state, LogicalTape *tape, SortTuple *stup)
 	if (state->sortopt & TUPLESORT_RANDOMACCESS)	/* need trailing length
 													 * word? */
 		LogicalTapeWrite(tape, &tuplen, sizeof(tuplen));
-
-	if (!state->slabAllocatorUsed)
-	{
-		FREEMEM(state, GetMemoryChunkSpace(tuple));
-		heap_freetuple(tuple);
-	}
 }
 
 static void
@@ -4380,12 +4380,6 @@ writetup_index(Tuplesortstate *state, LogicalTape *tape, SortTuple *stup)
 	if (state->sortopt & TUPLESORT_RANDOMACCESS)	/* need trailing length
 													 * word? */
 		LogicalTapeWrite(tape, (void *) &tuplen, sizeof(tuplen));
-
-	if (!state->slabAllocatorUsed)
-	{
-		FREEMEM(state, GetMemoryChunkSpace(tuple));
-		pfree(tuple);
-	}
 }
 
 static void
@@ -4469,12 +4463,6 @@ writetup_datum(Tuplesortstate *state, LogicalTape *tape, SortTuple *stup)
 	if (state->sortopt & TUPLESORT_RANDOMACCESS)	/* need trailing length
 													 * word? */
 		LogicalTapeWrite(tape, (void *) &writtenlen, sizeof(writtenlen));
-
-	if (!state->slabAllocatorUsed && stup->tuple)
-	{
-		FREEMEM(state, GetMemoryChunkSpace(stup->tuple));
-		pfree(stup->tuple);
-	}
 }
 
 static void
