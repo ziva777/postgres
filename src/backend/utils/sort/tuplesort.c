@@ -1832,7 +1832,6 @@ tuplesort_puttupleslot(Tuplesortstate *state, TupleTableSlot *slot)
 {
 	MemoryContext oldcontext = MemoryContextSwitchTo(state->tuplecontext);
 	SortTuple	stup;
-	Datum		original;
 	MinimalTuple tuple;
 	HeapTupleData htup;
 
@@ -1843,50 +1842,12 @@ tuplesort_puttupleslot(Tuplesortstate *state, TupleTableSlot *slot)
 	/* set up first-column key value */
 	htup.t_len = tuple->t_len + MINIMAL_TUPLE_OFFSET;
 	htup.t_data = (HeapTupleHeader) ((char *) tuple - MINIMAL_TUPLE_OFFSET);
-	original = heap_getattr(&htup,
-							state->sortKeys[0].ssup_attno,
-							state->tupDesc,
-							&stup.isnull1);
+	stup.datum1 = heap_getattr(&htup,
+							   state->sortKeys[0].ssup_attno,
+							   state->tupDesc,
+							   &stup.isnull1);
 
 	MemoryContextSwitchTo(state->sortcontext);
-
-	if (!state->sortKeys->abbrev_converter || stup.isnull1)
-	{
-		/*
-		 * Store ordinary Datum representation, or NULL value.  If there is a
-		 * converter it won't expect NULL values, and cost model is not
-		 * required to account for NULL, so in that case we avoid calling
-		 * converter and just set datum1 to zeroed representation (to be
-		 * consistent, and to support cheap inequality tests for NULL
-		 * abbreviated keys).
-		 */
-		stup.datum1 = original;
-	}
-	else if (!consider_abort_common(state))
-	{
-		/* Store abbreviated key representation */
-		stup.datum1 = state->sortKeys->abbrev_converter(original,
-														state->sortKeys);
-	}
-	else
-	{
-		/* Abort abbreviation */
-		int			i;
-
-		stup.datum1 = original;
-
-		/*
-		 * Set state to be consistent with never trying abbreviation.
-		 *
-		 * Alter datum1 representation in already-copied tuples, so as to
-		 * ensure a consistent representation (current tuple was just
-		 * handled).  It does not matter if some dumped tuples are already
-		 * sorted on tape, since serialized tuples lack abbreviated keys
-		 * (TSS_BUILDRUNS state prevents control reaching here in any case).
-		 */
-		for (i = 0; i < state->memtupcount; i++)
-			GETDATUM1(state, &state->memtuples[i]);
-	}
 
 	puttuple_common(state, &stup);
 
@@ -1902,7 +1863,6 @@ void
 tuplesort_putheaptuple(Tuplesortstate *state, HeapTuple tup)
 {
 	SortTuple	stup;
-	Datum		original;
 	MemoryContext oldcontext = MemoryContextSwitchTo(state->tuplecontext);
 
 	/* copy the tuple into sort storage */
@@ -1918,48 +1878,10 @@ tuplesort_putheaptuple(Tuplesortstate *state, HeapTuple tup)
 	 */
 	if (state->haveDatum1)
 	{
-		original = heap_getattr(tup,
-								state->indexInfo->ii_IndexAttrNumbers[0],
-								state->tupDesc,
-								&stup.isnull1);
-
-		if (!state->sortKeys->abbrev_converter || stup.isnull1)
-		{
-			/*
-			 * Store ordinary Datum representation, or NULL value.  If there is a
-			 * converter it won't expect NULL values, and cost model is not
-			 * required to account for NULL, so in that case we avoid calling
-			 * converter and just set datum1 to zeroed representation (to be
-			 * consistent, and to support cheap inequality tests for NULL
-			 * abbreviated keys).
-			 */
-			stup.datum1 = original;
-		}
-		else if (!consider_abort_common(state))
-		{
-			/* Store abbreviated key representation */
-			stup.datum1 = state->sortKeys->abbrev_converter(original,
-															state->sortKeys);
-		}
-		else
-		{
-			/* Abort abbreviation */
-			int			i;
-
-			stup.datum1 = original;
-
-			/*
-			 * Set state to be consistent with never trying abbreviation.
-			*
-			* Alter datum1 representation in already-copied tuples, so as to
-			* ensure a consistent representation (current tuple was just
-			* handled).  It does not matter if some dumped tuples are already
-			* sorted on tape, since serialized tuples lack abbreviated keys
-			* (TSS_BUILDRUNS state prevents control reaching here in any case).
-			*/
-			for (i = 0; i < state->memtupcount; i++)
-				GETDATUM1(state, &state->memtuples[i]);
-		}
+		stup.datum1 = heap_getattr(tup,
+								   state->indexInfo->ii_IndexAttrNumbers[0],
+								   state->tupDesc,
+								   &stup.isnull1);
 	}
 
 	puttuple_common(state, &stup);
@@ -1978,7 +1900,6 @@ tuplesort_putindextuplevalues(Tuplesortstate *state, Relation rel,
 {
 	MemoryContext oldcontext = MemoryContextSwitchTo(state->tuplecontext);
 	SortTuple	stup;
-	Datum		original;
 	IndexTuple	tuple;
 
 	stup.tuple = index_form_tuple(RelationGetDescr(rel), values, isnull);
@@ -1986,50 +1907,12 @@ tuplesort_putindextuplevalues(Tuplesortstate *state, Relation rel,
 	tuple->t_tid = *self;
 	USEMEM(state, GetMemoryChunkSpace(stup.tuple));
 	/* set up first-column key value */
-	original = index_getattr(tuple,
-							 1,
-							 RelationGetDescr(state->indexRel),
-							 &stup.isnull1);
+	stup.datum1 = index_getattr(tuple,
+								1,
+								RelationGetDescr(state->indexRel),
+								&stup.isnull1);
 
 	MemoryContextSwitchTo(state->sortcontext);
-
-	if (!state->sortKeys || !state->sortKeys->abbrev_converter || stup.isnull1)
-	{
-		/*
-		 * Store ordinary Datum representation, or NULL value.  If there is a
-		 * converter it won't expect NULL values, and cost model is not
-		 * required to account for NULL, so in that case we avoid calling
-		 * converter and just set datum1 to zeroed representation (to be
-		 * consistent, and to support cheap inequality tests for NULL
-		 * abbreviated keys).
-		 */
-		stup.datum1 = original;
-	}
-	else if (!consider_abort_common(state))
-	{
-		/* Store abbreviated key representation */
-		stup.datum1 = state->sortKeys->abbrev_converter(original,
-														state->sortKeys);
-	}
-	else
-	{
-		/* Abort abbreviation */
-		int			i;
-
-		stup.datum1 = original;
-
-		/*
-		 * Set state to be consistent with never trying abbreviation.
-		 *
-		 * Alter datum1 representation in already-copied tuples, so as to
-		 * ensure a consistent representation (current tuple was just
-		 * handled).  It does not matter if some dumped tuples are already
-		 * sorted on tape, since serialized tuples lack abbreviated keys
-		 * (TSS_BUILDRUNS state prevents control reaching here in any case).
-		 */
-		for (i = 0; i < state->memtupcount; i++)
-			GETDATUM1(state, &state->memtuples[i]);
-	}
 
 	puttuple_common(state, &stup);
 
@@ -2072,43 +1955,11 @@ tuplesort_putdatum(Tuplesortstate *state, Datum val, bool isNull)
 	}
 	else
 	{
-		Datum		original = datumCopy(val, false, state->datumTypeLen);
-
 		stup.isnull1 = false;
-		stup.tuple = DatumGetPointer(original);
+		stup.datum1 = datumCopy(val, false, state->datumTypeLen);
+		stup.tuple = DatumGetPointer(stup.datum1);
 		USEMEM(state, GetMemoryChunkSpace(stup.tuple));
 		MemoryContextSwitchTo(state->sortcontext);
-
-		if (!state->sortKeys->abbrev_converter)
-		{
-			stup.datum1 = original;
-		}
-		else if (!consider_abort_common(state))
-		{
-			/* Store abbreviated key representation */
-			stup.datum1 = state->sortKeys->abbrev_converter(original,
-															state->sortKeys);
-		}
-		else
-		{
-			/* Abort abbreviation */
-			int			i;
-
-			stup.datum1 = original;
-
-			/*
-			 * Set state to be consistent with never trying abbreviation.
-			 *
-			 * Alter datum1 representation in already-copied tuples, so as to
-			 * ensure a consistent representation (current tuple was just
-			 * handled).  It does not matter if some dumped tuples are already
-			 * sorted on tape, since serialized tuples lack abbreviated keys
-			 * (TSS_BUILDRUNS state prevents control reaching here in any
-			 * case).
-			 */
-			for (i = 0; i < state->memtupcount; i++)
-				GETDATUM1(state, &state->memtuples[i]);
-		}
 	}
 
 	puttuple_common(state, &stup);
@@ -2123,6 +1974,42 @@ static void
 puttuple_common(Tuplesortstate *state, SortTuple *tuple)
 {
 	Assert(!LEADER(state));
+
+	if (!state->sortKeys || !state->haveDatum1 || !state->tuples ||
+		!state->sortKeys->abbrev_converter || tuple->isnull1)
+	{
+		/*
+		 * Store ordinary Datum representation, or NULL value.  If there is a
+		 * converter it won't expect NULL values, and cost model is not
+		 * required to account for NULL, so in that case we avoid calling
+		 * converter and just set datum1 to zeroed representation (to be
+		 * consistent, and to support cheap inequality tests for NULL
+		 * abbreviated keys).
+		 */
+	}
+	else if (!consider_abort_common(state))
+	{
+		/* Store abbreviated key representation */
+		tuple->datum1 = state->sortKeys->abbrev_converter(tuple->datum1,
+														  state->sortKeys);
+	}
+	else
+	{
+		/* Abort abbreviation */
+		int			i;
+
+		/*
+		 * Set state to be consistent with never trying abbreviation.
+		 *
+		 * Alter datum1 representation in already-copied tuples, so as to
+		 * ensure a consistent representation (current tuple was just
+		 * handled).  It does not matter if some dumped tuples are already
+		 * sorted on tape, since serialized tuples lack abbreviated keys
+		 * (TSS_BUILDRUNS state prevents control reaching here in any case).
+		 */
+		for (i = 0; i < state->memtupcount; i++)
+			GETDATUM1(state, &state->memtuples[i]);
+	}
 
 	switch (state->status)
 	{
