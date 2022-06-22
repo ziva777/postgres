@@ -24,7 +24,6 @@
 #define MESSAGE_WIDTH		60
 
 #define GET_MAJOR_VERSION(v)	((v) / 100)
-#define ALREADY_64bit_XID(cluster) (GET_MAJOR_VERSION((cluster).major_version) >= 1500)
 
 /* contains both global db information and CREATE DATABASE commands */
 #define GLOBALS_DUMP_FILE	"pg_upgrade_dump_globals.sql"
@@ -114,6 +113,11 @@ extern char *output_files[];
  * server versions are both newer than this, or only the new one is.
  */
 #define MULTIXACT_FORMATCHANGE_CAT_VER 201301231
+
+/*
+ * xid format changed from 32-bit to 64-bit.
+ */
+#define XID_FORMATCHANGE_CAT_VER 999999999
 
 /*
  * large object chunk size added to pg_controldata,

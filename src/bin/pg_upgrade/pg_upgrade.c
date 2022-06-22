@@ -514,7 +514,8 @@ create_new_objects(void)
 	 */
 	if (GET_MAJOR_VERSION(old_cluster.major_version) <= 902)
 		set_frozenxids(true);
-	else if (ALREADY_64bit_XID(old_cluster) != ALREADY_64bit_XID(new_cluster))
+	else if (old_cluster.controldata.cat_ver < XID_FORMATCHANGE_CAT_VER &&
+			 new_cluster.controldata.cat_ver >= XID_FORMATCHANGE_CAT_VER)
 	{
 		/*
 		 * During upgrade from 32-bit to 64-bit xids save relfrozenxids if
@@ -615,24 +616,29 @@ copy_xact_xlog_xid(void)
 	GET_MAJOR_VERSION(cluster.major_version) <= 906 ? "pg_clog" : "pg_xact"
 
 	/* Set next xid to 2^32 if we're upgrading from 32 bit postgres */
-	next_xid = ALREADY_64bit_XID(old_cluster) == ALREADY_64bit_XID(new_cluster) ?
-		old_cluster.controldata.chkpnt_nxtxid :
-		((TransactionId) 1 << 32);
-
-	if (ALREADY_64bit_XID(old_cluster) == ALREADY_64bit_XID(new_cluster))
-	{
-		/*
-		 * Copy old commit logs to new data dir. pg_clog has been renamed to
-		 * pg_xact in post-10 clusters.
-		 */
-		copy_subdir_files(GetClogDirName(old_cluster), GetClogDirName(new_cluster));
-	}
+	if (old_cluster.controldata.cat_ver < XID_FORMATCHANGE_CAT_VER &&
+		new_cluster.controldata.cat_ver >= XID_FORMATCHANGE_CAT_VER)
+		next_xid = ((TransactionId) 1 << 32);
 	else
+		next_xid = old_cluster.controldata.chkpnt_nxtxid;
+
+	if (old_cluster.controldata.cat_ver < XID_FORMATCHANGE_CAT_VER &&
+		new_cluster.controldata.cat_ver >= XID_FORMATCHANGE_CAT_VER)
 	{
 		/* Convert commit logs and copy to the new data dir */
 		prep_status("Transforming commit log segments");
 		convert_xact(psprintf("%s/%s", old_cluster.pgdata, GetClogDirName(old_cluster)),
 					 psprintf("%s/%s", new_cluster.pgdata, GetClogDirName(new_cluster)));
+		check_ok();
+	}
+	else
+	{
+		/*
+		 * Copy old commit logs to new data dir. pg_clog has been renamed to
+		 * pg_xact in post-10 clusters.
+		 */
+		prep_status("Copying commit log segments");
+		copy_subdir_files(GetClogDirName(old_cluster), GetClogDirName(new_cluster));
 		check_ok();
 	}
 
@@ -678,7 +684,7 @@ copy_xact_xlog_xid(void)
 		uint64		next_mxid = old_cluster.controldata.chkpnt_nxtmulti;
 		uint64		next_mxoff = old_cluster.controldata.chkpnt_nxtmxoff;
 
-		if (ALREADY_64bit_XID(old_cluster))
+		if (old_cluster.controldata.cat_ver >= XID_FORMATCHANGE_CAT_VER)
 		{
 			copy_subdir_files("pg_multixact/offsets", "pg_multixact/offsets");
 			copy_subdir_files("pg_multixact/members", "pg_multixact/members");
@@ -812,9 +818,11 @@ set_frozenxids(bool minmxid_only)
 
 	conn_template1 = connectToServer(&new_cluster, "template1");
 
-	frozen_xid = ALREADY_64bit_XID(old_cluster) == ALREADY_64bit_XID(new_cluster) ?
-		old_cluster.controldata.chkpnt_nxtxid :
-		FirstNormalTransactionId;
+	if (old_cluster.controldata.cat_ver < XID_FORMATCHANGE_CAT_VER &&
+		new_cluster.controldata.cat_ver >= XID_FORMATCHANGE_CAT_VER)
+		frozen_xid = FirstNormalTransactionId;
+	else
+		frozen_xid = old_cluster.controldata.chkpnt_nxtxid;
 
 	minmxid = old_cluster.controldata.chkpnt_nxtmulti;
 

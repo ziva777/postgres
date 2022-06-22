@@ -170,7 +170,7 @@ check_and_dump_old_cluster(bool live_check)
 		old_9_3_check_for_line_data_type_usage(&old_cluster);
 
 	/* Prepare for 64bit xid */
-	if (!ALREADY_64bit_XID(old_cluster))
+	if (old_cluster.controldata.cat_ver < XID_FORMATCHANGE_CAT_VER)
 	{
 		/* Check if 32-bit xid type is used in tables */
 		check_for_32bit_xid_usage(&old_cluster);
@@ -257,7 +257,7 @@ issue_warnings_and_set_wal_level(void)
 		old_9_6_invalidate_hash_indexes(&new_cluster, false);
 
 	/* Raindex for 64bit xid */
-	if (!ALREADY_64bit_XID(old_cluster))
+	if (old_cluster.controldata.cat_ver < XID_FORMATCHANGE_CAT_VER)
 	{
 		/* Check if 32-bit xid type is used in tables */
 		check_for_32bit_xid_usage(&old_cluster);
