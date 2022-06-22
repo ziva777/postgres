@@ -19,6 +19,7 @@ OBJS = \
 	sharedtuplestore.o \
 	sortsupport.o \
 	tuplesort.o \
+	tuplesortops.o \
 	tuplestore.o
 
 include $(top_srcdir)/src/backend/common.mk
