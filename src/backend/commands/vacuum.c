@@ -1075,7 +1075,6 @@ vacuum_set_xid_limits(Relation rel,
 	*oldestMxact = GetOldestMultiXactId();
 
 	/* compute the cutoff multi, being careful to generate a valid value */
-	*oldestMxact = GetOldestMultiXactId();
 	if (*oldestMxact > FirstMultiXactId + mxid_freezemin)
 		mxactLimit = *oldestMxact - mxid_freezemin;
 	else
