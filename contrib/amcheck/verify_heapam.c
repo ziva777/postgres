@@ -17,6 +17,7 @@
 #include "access/multixact.h"
 #include "access/toast_internals.h"
 #include "access/visibilitymap.h"
+#include "catalog/catalog.h"
 #include "catalog/pg_am.h"
 #include "funcapi.h"
 #include "miscadmin.h"
@@ -507,7 +508,8 @@ verify_heapam(PG_FUNCTION_ARGS)
 			ctx.tuple.t_data = ctx.tuphdr;
 			ctx.tuple.t_len = ItemIdGetLength(ctx.itemid);
 			ctx.tuple.t_tableOid = RelationGetRelid(ctx.rel);
-			HeapTupleCopyBaseFromPage(&ctx.tuple, ctx.page);
+			HeapTupleCopyBaseFromPage(&ctx.tuple, ctx.page,
+									  IsToastRelation(ctx.rel));
 
 			/* Ok, ready to check this next tuple */
 			check_tuple(&ctx);

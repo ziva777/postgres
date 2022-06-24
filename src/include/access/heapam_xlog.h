@@ -100,6 +100,7 @@
 #define XLH_DELETE_CONTAINS_OLD_KEY				(1<<2)
 #define XLH_DELETE_IS_SUPER						(1<<3)
 #define XLH_DELETE_IS_PARTITION_MOVE			(1<<4)
+#define XLH_DELETE_PAGE_ON_TOAST_RELATION		(1<<5)
 
 /* convenience macro for checking whether any form of old tuple was logged */
 #define XLH_DELETE_CONTAINS_OLD						\
@@ -247,10 +248,13 @@ typedef struct xl_heap_prune
 	TransactionId latestRemovedXid;
 	uint16		nredirected;
 	uint16		ndead;
+	uint8		flags;
 	/* OFFSET NUMBERS are in the block reference 0 */
 } xl_heap_prune;
 
-#define SizeOfHeapPrune (offsetof(xl_heap_prune, ndead) + sizeof(uint16))
+#define XLH_PRUNE_ON_TOAST_RELATION		0x01
+
+#define SizeOfHeapPrune (offsetof(xl_heap_prune, flags) + sizeof(uint8))
 
 /*
  * The vacuum page record is similar to the prune record, but can only mark
@@ -338,13 +342,16 @@ typedef struct xl_heap_freeze_tuple
  * Backup block 0's data contains an array of xl_heap_freeze_tuple structs,
  * one for each tuple.
  */
+#define XLH_FREEZE_PAGE_ON_TOAST_RELATION		0x01
+
 typedef struct xl_heap_freeze_page
 {
 	TransactionId cutoff_xid;
 	uint16		ntuples;
+	uint8		flags;
 } xl_heap_freeze_page;
 
-#define SizeOfHeapFreezePage (offsetof(xl_heap_freeze_page, ntuples) + sizeof(uint16))
+#define SizeOfHeapFreezePage (offsetof(xl_heap_freeze_page, flags) + sizeof(uint8))
 
 /*
  * This is what we need to know about setting a visibility map bit
@@ -391,14 +398,17 @@ typedef struct xl_heap_rewrite_mapping
 	XLogRecPtr	start_lsn;		/* Insert LSN at begin of rewrite */
 } xl_heap_rewrite_mapping;
 
+#define XLH_BASE_SHIFT_ON_TOAST_RELATION	0x01
+
 /* shift the base of xids on heap page */
 typedef struct xl_heap_base_shift
 {
 	int64		delta;			/* delta value to shift the base */
 	bool		multi;			/* true to shift multixact base */
+	uint8		flags;
 }			xl_heap_base_shift;
 
-#define SizeOfHeapBaseShift (offsetof(xl_heap_base_shift, multi) + sizeof(bool))
+#define SizeOfHeapBaseShift (offsetof(xl_heap_base_shift, flags) + sizeof(uint8))
 
 extern void HeapTupleHeaderAdvanceLatestRemovedXid(HeapTuple tuple,
 												   TransactionId *latestRemovedXid);
@@ -432,6 +442,9 @@ extern void heap_execute_freeze_tuple(HeapTuple tuple,
 extern XLogRecPtr log_heap_visible(RelFileLocator rlocator, Buffer heap_buffer,
 								   Buffer vm_buffer, TransactionId cutoff_xid, uint8 flags);
 extern void heap_execute_freeze_tuple_page(Page page, HeapTupleHeader htup,
-										   xl_heap_freeze_tuple *xlrec_tp);
+										   xl_heap_freeze_tuple *xlrec_tp,
+										   bool is_toast);
+extern XLogRecPtr log_heap_visible(RelFileLocator rlocator, Buffer heap_buffer,
+								   Buffer vm_buffer, TransactionId cutoff_xid, uint8 flags);
 
 #endif							/* HEAPAM_XLOG_H */

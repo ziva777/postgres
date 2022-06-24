@@ -41,6 +41,11 @@ static HeapPageSpecialData doubleXmaxSpecialData =
 };
 HeapPageSpecial doubleXmaxSpecial = &doubleXmaxSpecialData;
 
+static ToastPageSpecialData toastDoubleXmaxSpecialData =
+{
+	.pd_xid_base = MaxTransactionId
+};
+ToastPageSpecial toastDoubleXmaxSpecial = &toastDoubleXmaxSpecialData;
 
 /* ----------------------------------------------------------------
  *						Page support functions
@@ -518,22 +523,35 @@ heap_page_double_xmax_get_min_max(Page page,
  */
 static void
 heap_page_add_special_area(ItemIdCompact itemidbase, int nitems, Page page,
-						   TransactionId xid_base, MultiXactId multi_base)
+						   TransactionId xid_base, MultiXactId multi_base,
+						   bool is_toast)
 {
 	char		newPage[BLCKSZ];
 	PageHeader	phdr = (PageHeader) page;
 	PageHeader	new_phdr = (PageHeader) newPage;
-	HeapPageSpecial special;
 	Offset		upper;
 	int			i;
 
 	memcpy(newPage, page, phdr->pd_lower);
 
 	/* Add special area */
-	new_phdr->pd_special = PageGetPageSize(newPage) - sizeof(HeapPageSpecialData);
-	special = (HeapPageSpecial) ((Pointer) (newPage) + new_phdr->pd_special);
-	special->pd_xid_base = xid_base;
-	special->pd_multi_base = multi_base;
+	if (is_toast)
+	{
+		ToastPageSpecial special;
+
+		new_phdr->pd_special = PageGetPageSize(newPage) - sizeof(ToastPageSpecialData);
+		special = (ToastPageSpecial) ((Pointer) (newPage) + new_phdr->pd_special);
+		special->pd_xid_base = xid_base;
+	}
+	else
+	{
+		HeapPageSpecial special;
+
+		new_phdr->pd_special = PageGetPageSize(newPage) - sizeof(HeapPageSpecialData);
+		special = (HeapPageSpecial) ((Pointer) (newPage) + new_phdr->pd_special);
+		special->pd_xid_base = xid_base;
+		special->pd_multi_base = multi_base;
+	}
 
 	/* sort itemIdSortData array into decreasing itemoff order */
 	qsort((char *) itemidbase, nitems, sizeof(ItemIdCompactData),
@@ -602,7 +620,7 @@ heap_page_add_special_area(ItemIdCompact itemidbase, int nitems, Page page,
  * Callers must ensure that nitems is > 0
  */
 static void
-compactify_tuples(ItemIdCompact itemidbase, int nitems, Page page,
+compactify_tuples(bool is_toast, ItemIdCompact itemidbase, int nitems, Page page,
 				  bool presorted, bool addspecial)
 {
 	PageHeader	phdr = (PageHeader) page;
@@ -635,7 +653,8 @@ compactify_tuples(ItemIdCompact itemidbase, int nitems, Page page,
 			Assert(multi_min >= FirstNormalTransactionId);
 			heap_page_add_special_area(itemidbase, nitems, page,
 									   xid_min - FirstNormalTransactionId,
-									   multi_min - FirstNormalTransactionId);
+									   multi_min - FirstNormalTransactionId,
+									   is_toast);
 			return;
 		}
 	}
@@ -852,7 +871,7 @@ compactify_tuples(ItemIdCompact itemidbase, int nitems, Page page,
  * the line pointer array following array truncation.
  */
 void
-PageRepairFragmentation(Page page)
+PageRepairFragmentation(Page page, bool is_toast)
 {
 	Offset		pd_lower = ((PageHeader) page)->pd_lower;
 	Offset		pd_upper = ((PageHeader) page)->pd_upper;
@@ -935,10 +954,19 @@ PageRepairFragmentation(Page page)
 	{
 		if (pd_special == PageGetPageSize(page))
 		{
-			pd_special = PageGetPageSize(page) - sizeof(HeapPageSpecialData);
-			((PageHeader) page)->pd_special = pd_special;
-			HeapPageGetSpecial(page)->pd_xid_base = 0;
-			HeapPageGetSpecial(page)->pd_multi_base = 0;
+			if (is_toast)
+			{
+				pd_special = PageGetPageSize(page) - sizeof(ToastPageSpecialData);
+				((PageHeader) page)->pd_special = pd_special;
+				ToastPageGetSpecial(page)->pd_xid_base = 0;
+			}
+			else
+			{
+				pd_special = PageGetPageSize(page) - sizeof(HeapPageSpecialData);
+				((PageHeader) page)->pd_special = pd_special;
+				HeapPageGetSpecial(page)->pd_xid_base = 0;
+				HeapPageGetSpecial(page)->pd_multi_base = 0;
+			}
 		}
 
 		/* Page is completely empty, so just reset it quickly */
@@ -959,11 +987,21 @@ PageRepairFragmentation(Page page)
 		 * Try to add special area to the heap page if it has enough of free
 		 * space.
 		 */
-		if (pd_special == PageGetPageSize(page) &&
-			(Size) (pd_special - pd_lower) - totallen >= sizeof(HeapPageSpecialData))
-			addspecial = true;
+		if (is_toast)
+		{
+			if (pd_special == PageGetPageSize(page) &&
+				(Size) (pd_special - pd_lower) - totallen >= sizeof(ToastPageSpecialData))
+				addspecial = true;
+		}
+		else
+		{
+			if (pd_special == PageGetPageSize(page) &&
+				(Size) (pd_special - pd_lower) - totallen >= sizeof(HeapPageSpecialData))
+				addspecial = true;
+		}
 
-		compactify_tuples(itemidbase, nstorage, page, presorted, addspecial);
+		compactify_tuples(is_toast,
+						  itemidbase, nstorage, page, presorted, addspecial);
 	}
 
 	if (finalusedlp != nline)
@@ -1452,7 +1490,13 @@ PageIndexMultiDelete(Page page, OffsetNumber *itemnos, int nitems)
 
 	/* and compactify the tuple data */
 	if (nused > 0)
-		compactify_tuples(itemidbase, nused, page, presorted, false);
+	{
+		bool	is_toast = false;
+
+		if (BLCKSZ - pd_special == sizeof(ToastPageSpecialData))
+			is_toast = true;
+		compactify_tuples(is_toast, itemidbase, nused, page, presorted, false);
+	}
 	else
 		phdr->pd_upper = pd_special;
 }

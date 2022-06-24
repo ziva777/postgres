@@ -720,11 +720,17 @@ raw_heap_insert(RewriteState state, HeapTuple tup)
 			/* Initialize DoubleXmax page */
 			PageInit(page, BLCKSZ, 0);
 		else
-			PageInit(page, BLCKSZ, sizeof(HeapPageSpecialData));
+		{
+			if (IsToastRelation(state->rs_new_rel))
+				PageInit(page, BLCKSZ, sizeof(ToastPageSpecialData));
+			else
+				PageInit(page, BLCKSZ, sizeof(HeapPageSpecialData));
+		}
 		state->rs_buffer_valid = true;
 	}
 
-	rewrite_page_prepare_for_xid(page, heaptup);
+	rewrite_page_prepare_for_xid(page, heaptup,
+								 IsToastRelation(state->rs_new_rel));
 
 	/*
 	 * Tuple with HEAP_XMIN_FROZEN in t_infomask should have xmin set

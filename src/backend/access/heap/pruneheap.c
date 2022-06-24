@@ -136,7 +136,11 @@ heap_page_prune_opt(Relation relation, Buffer buffer)
 	 * determining the appropriate horizon is a waste if there's no prune_xid
 	 * (i.e. no updates/deletes left potentially dead tuples around).
 	 */
-	prune_xid = HeapPageGetPruneXidNoAssert(page);
+	if (IsToastRelation(relation))
+		prune_xid = ToastPageGetPruneXidNoAssert(page);
+	else
+		prune_xid = HeapPageGetPruneXidNoAssert(page);
+
 	if (!TransactionIdIsValid(prune_xid))
 		return;
 
@@ -340,7 +344,7 @@ heap_page_prune(Relation relation, Buffer buffer,
 		htup = (HeapTupleHeader) PageGetItem(page, itemid);
 		tup.t_data = htup;
 		tup.t_len = ItemIdGetLength(itemid);
-		HeapTupleCopyBaseFromPage(&tup, page);
+		HeapTupleCopyBaseFromPage(&tup, page, IsToastRelation(relation));
 		ItemPointerSet(&(tup.t_self), blockno, offnum);
 
 		/*
@@ -396,14 +400,20 @@ heap_page_prune(Relation relation, Buffer buffer,
 								prstate.redirected, prstate.nredirected,
 								prstate.nowdead, prstate.ndead,
 								prstate.nowunused, prstate.nunused,
-								repairFragmentation);
+								repairFragmentation,
+								IsToastRelation(relation));
 
 		/*
 		 * Update the page's pd_prune_xid field to either zero, or the lowest
 		 * XID of any soon-prunable tuple.
 		 */
-		if (XidFitsPage(page, prstate.new_prune_xid))
-			HeapPageSetPruneXid(page, prstate.new_prune_xid);
+		if (XidFitsPage(IsToastRelation(relation), page, prstate.new_prune_xid))
+		{
+			if (IsToastRelation(relation))
+				ToastPageSetPruneXid(page, prstate.new_prune_xid);
+			else
+				HeapPageSetPruneXid(page, prstate.new_prune_xid);
+		}
 
 		/*
 		 * Also clear the "page is full" flag, since there's no point in
@@ -425,6 +435,11 @@ heap_page_prune(Relation relation, Buffer buffer,
 			xlrec.latestRemovedXid = prstate.latestRemovedXid;
 			xlrec.nredirected = prstate.nredirected;
 			xlrec.ndead = prstate.ndead;
+
+			if (IsToastRelation(relation))
+				xlrec.flags |= XLH_PRUNE_ON_TOAST_RELATION;
+			else
+				xlrec.flags &= ~XLH_PRUNE_ON_TOAST_RELATION;
 
 			XLogBeginInsert();
 			XLogRegisterData((char *) &xlrec, SizeOfHeapPrune);
@@ -465,12 +480,25 @@ heap_page_prune(Relation relation, Buffer buffer,
 		 * point in repeating the prune/defrag process until something else
 		 * happens to the page.
 		 */
-		if (HeapPageGetPruneXid(page) != prstate.new_prune_xid ||
-			PageIsFull(page))
+		if (IsToastRelation(relation))
 		{
-			HeapPageSetPruneXid(page, prstate.new_prune_xid);
-			PageClearFull(page);
-			MarkBufferDirtyHint(buffer, true);
+			if (ToastPageGetPruneXid(page) != prstate.new_prune_xid ||
+				PageIsFull(page))
+			{
+				ToastPageSetPruneXid(page, prstate.new_prune_xid);
+				PageClearFull(page);
+				MarkBufferDirtyHint(buffer, true);
+			}
+		}
+		else
+		{
+			if (HeapPageGetPruneXid(page) != prstate.new_prune_xid ||
+				PageIsFull(page))
+			{
+				HeapPageSetPruneXid(page, prstate.new_prune_xid);
+				PageClearFull(page);
+				MarkBufferDirtyHint(buffer, true);
+			}
 		}
 	}
 
@@ -622,7 +650,7 @@ heap_prune_chain(Buffer buffer, OffsetNumber rootoffnum, PruneState *prstate)
 		tup.t_data = htup;
 		tup.t_len = ItemIdGetLength(rootlp);
 		ItemPointerSet(&(tup.t_self), BufferGetBlockNumber(buffer), rootoffnum);
-		HeapTupleCopyBaseFromPage(&tup, dp);
+		HeapTupleCopyBaseFromPage(&tup, dp, IsToastRelation(prstate->rel));
 
 		if (HeapTupleHeaderIsHeapOnly(htup))
 		{
@@ -717,7 +745,7 @@ heap_prune_chain(Buffer buffer, OffsetNumber rootoffnum, PruneState *prstate)
 
 		tup.t_data = htup;
 		tup.t_len = ItemIdGetLength(lp);
-		HeapTupleCopyBaseFromPage(&tup, dp);
+		HeapTupleCopyBaseFromPage(&tup, dp, IsToastRelation(prstate->rel));
 		ItemPointerSet(&(tup.t_self), BufferGetBlockNumber(buffer), offnum);
 
 		/*
@@ -930,7 +958,8 @@ heap_page_prune_execute(Buffer buffer,
 						OffsetNumber *redirected, int nredirected,
 						OffsetNumber *nowdead, int ndead,
 						OffsetNumber *nowunused, int nunused,
-						bool repairFragmentation)
+						bool repairFragmentation,
+						bool is_toast)
 {
 	Page		page = (Page) BufferGetPage(buffer);
 	OffsetNumber *offnum;
@@ -1055,7 +1084,7 @@ heap_page_prune_execute(Buffer buffer,
 	 * whether it has free pointers.
 	 */
 	if (repairFragmentation)
-		PageRepairFragmentation(page);
+		PageRepairFragmentation(page, is_toast);
 
 	/*
 	 * Now that the page has been modified, assert that redirect items still
@@ -1127,7 +1156,7 @@ page_verify_redirects(Page page)
  * and reused by a completely unrelated tuple.
  */
 void
-heap_get_root_tuples(Page page, OffsetNumber *root_offsets)
+heap_get_root_tuples(Relation relation, Page page, OffsetNumber *root_offsets)
 {
 	OffsetNumber offnum,
 				maxoff;
@@ -1152,7 +1181,7 @@ heap_get_root_tuples(Page page, OffsetNumber *root_offsets)
 		{
 			htup = (HeapTupleHeader) PageGetItem(page, lp);
 			tup.t_data = htup;
-			HeapTupleCopyBaseFromPage(&tup, page);
+			HeapTupleCopyBaseFromPage(&tup, page, IsToastRelation(relation));
 
 			/*
 			 * Check if this tuple is part of a HOT-chain rooted at some other
@@ -1214,7 +1243,7 @@ heap_get_root_tuples(Page page, OffsetNumber *root_offsets)
 
 			htup = (HeapTupleHeader) PageGetItem(page, lp);
 			tup.t_data = htup;
-			HeapTupleCopyBaseFromPage(&tup, page);
+			HeapTupleCopyBaseFromPage(&tup, page, IsToastRelation(relation));
 
 			if (TransactionIdIsValid(priorXmax) &&
 				!TransactionIdEquals(priorXmax, HeapTupleGetXmin(&tup)))

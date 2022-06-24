@@ -148,7 +148,8 @@ extern void heap_insert(Relation relation, HeapTuple tup, CommandId cid,
 						int options, BulkInsertState bistate);
 extern bool heap_page_prepare_for_xid(Relation relation, Buffer buffer,
 									  TransactionId xid, bool multi);
-extern void rewrite_page_prepare_for_xid(Page page, HeapTuple tup);
+extern void rewrite_page_prepare_for_xid(Page page, HeapTuple tup,
+										 bool is_toast);
 extern void heap_multi_insert(Relation relation, struct TupleTableSlot **slots,
 							  int ntuples, CommandId cid, int options,
 							  BulkInsertState bistate);
@@ -198,8 +199,10 @@ extern void heap_page_prune_execute(Buffer buffer,
 									OffsetNumber *redirected, int nredirected,
 									OffsetNumber *nowdead, int ndead,
 									OffsetNumber *nowunused, int nunused,
-									bool repairFragmentation);
-extern void heap_get_root_tuples(Page page, OffsetNumber *root_offsets);
+									bool repairFragmentation,
+									bool is_toast);
+extern void heap_get_root_tuples(Relation relation, Page page,
+								 OffsetNumber *root_offsets);
 
 /* in heap/vacuumlazy.c */
 struct VacuumParams;

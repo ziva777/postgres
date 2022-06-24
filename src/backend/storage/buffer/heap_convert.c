@@ -16,6 +16,7 @@
 #include "access/generic_xlog.h"
 #include "access/heapam.h"
 #include "access/multixact.h"
+#include "catalog/catalog.h"
 #include "storage/bufmgr.h"
 #include "storage/checksum.h"
 
@@ -82,9 +83,13 @@ convert_page(Relation rel, Page page, Buffer buf, BlockNumber blkno)
 
 	switch (rel->rd_rel->relkind)
 	{
+		case 't':
+			try_double_xmax = hdr->pd_upper - hdr->pd_lower <
+									MAXALIGN(sizeof(ToastPageSpecialData));
+			repack_heap_tuples(rel, page, buf, blkno, try_double_xmax);
+			break;
 		case 'r':
 		case 'p':
-		case 't':
 		case 'm':
 			try_double_xmax = hdr->pd_upper - hdr->pd_lower <
 									MAXALIGN(sizeof(HeapPageSpecialData));
@@ -320,13 +325,12 @@ xids_fit_page(TransactionId xid_min, TransactionId xid_max,
  * page special.
  */
 static inline void
-heap_page_set_base(Page page,
+heap_page_set_base(Relation relation, Page page,
 				   TransactionId xid_min, TransactionId xid_max,
 				   MultiXactId multi_min, MultiXactId multi_max,
 				   TransactionId *xid_base, MultiXactId *multi_base)
 {
 	PageHeader			hdr = (PageHeader) page;
-	HeapPageSpecial		special;
 
 	if (xid_max != InvalidTransactionId)
 		*xid_base = xid_min - FirstNormalTransactionId;
@@ -338,10 +342,21 @@ heap_page_set_base(Page page,
 	else
 		*multi_base = InvalidMultiXactId;
 
-	hdr->pd_special = BLCKSZ - MAXALIGN(sizeof(HeapPageSpecialData));
-	special = HeapPageGetSpecial(page);
-	special->pd_xid_base = *xid_base;
-	special->pd_multi_base = *multi_base;
+	if (IsToastRelation(relation))
+	{
+		ToastPageSpecial		special;
+		hdr->pd_special = BLCKSZ - MAXALIGN(sizeof(ToastPageSpecialData));
+		special = ToastPageGetSpecial(page);
+		special->pd_xid_base = *xid_base;
+	}
+	else
+	{
+		HeapPageSpecial		special;
+		hdr->pd_special = BLCKSZ - MAXALIGN(sizeof(HeapPageSpecialData));
+		special = HeapPageGetSpecial(page);
+		special->pd_xid_base = *xid_base;
+		special->pd_multi_base = *multi_base;
+	}
 }
 
 /*
@@ -452,7 +467,7 @@ repack_heap_tuples(Relation rel, Page page, Buffer buf, BlockNumber blkno,
 		Assert(xid_max == InvalidTransactionId || xid_max >= xid_min);
 		Assert(multi_max == InvalidMultiXactId || multi_max >= multi_min);
 
-		heap_page_set_base(new_page,
+		heap_page_set_base(rel, new_page,
 						   xid_min, xid_max,
 						   multi_min, multi_max,
 						   &xid_base, &multi_base);

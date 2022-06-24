@@ -322,7 +322,7 @@ page_header(PG_FUNCTION_ARGS)
 
 	if (PageGetSpecialSize(page) == MAXALIGN(sizeof(HeapPageSpecialData)))
 	{
-		HeapPageSpecial pageSpecial = HeapPageGetSpecial(page);
+		HeapPageSpecial pageSpecial = HeapPageGetSpecial((Page) page);
 
 		values[8] = TransactionIdGetDatum(pageSpecial->pd_xid_base);
 		values[9] = TransactionIdGetDatum(pageSpecial->pd_multi_base);

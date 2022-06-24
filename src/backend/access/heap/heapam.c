@@ -464,7 +464,7 @@ heapgetpage(TableScanDesc sscan, BlockNumber page)
 			loctup.t_tableOid = RelationGetRelid(scan->rs_base.rs_rd);
 			loctup.t_data = (HeapTupleHeader) PageGetItem((Page) dp, lpp);
 			loctup.t_len = ItemIdGetLength(lpp);
-			HeapTupleCopyBaseFromPage(&loctup, dp);
+			HeapTupleCopyBaseFromPage(&loctup, dp, IsToastRelation(scan->rs_base.rs_rd));
 			ItemPointerSet(&(loctup.t_self), page, lineoff);
 
 			if (all_visible)
@@ -681,7 +681,7 @@ heapgettup(HeapScanDesc scan,
 
 		tuple->t_data = (HeapTupleHeader) PageGetItem((Page) dp, lpp);
 		tuple->t_len = ItemIdGetLength(lpp);
-		HeapTupleCopyBaseFromPage(tuple, dp);
+		HeapTupleCopyBaseFromPage(tuple, dp, IsToastRelation(scan->rs_base.rs_rd));
 
 		return;
 	}
@@ -708,7 +708,7 @@ heapgettup(HeapScanDesc scan,
 
 				tuple->t_data = (HeapTupleHeader) PageGetItem((Page) dp, lpp);
 				tuple->t_len = ItemIdGetLength(lpp);
-				HeapTupleCopyBaseFromPage(tuple, dp);
+				HeapTupleCopyBaseFromPage(tuple, dp, IsToastRelation(scan->rs_base.rs_rd));
 				ItemPointerSet(&(tuple->t_self), page, lineoff);
 
 				/*
@@ -1008,7 +1008,7 @@ heapgettup_pagemode(HeapScanDesc scan,
 
 		tuple->t_data = (HeapTupleHeader) PageGetItem((Page) dp, lpp);
 		tuple->t_len = ItemIdGetLength(lpp);
-		HeapTupleCopyBaseFromPage(tuple, dp);
+		HeapTupleCopyBaseFromPage(tuple, dp, IsToastRelation(scan->rs_base.rs_rd));
 
 		/* check that rs_cindex is in sync */
 		Assert(scan->rs_cindex < scan->rs_ntuples);
@@ -1031,7 +1031,7 @@ heapgettup_pagemode(HeapScanDesc scan,
 
 			tuple->t_data = (HeapTupleHeader) PageGetItem((Page) dp, lpp);
 			tuple->t_len = ItemIdGetLength(lpp);
-			HeapTupleCopyBaseFromPage(tuple, dp);
+			HeapTupleCopyBaseFromPage(tuple, dp, IsToastRelation(scan->rs_base.rs_rd));
 			ItemPointerSet(&(tuple->t_self), page, lineoff);
 
 			/*
@@ -1623,7 +1623,7 @@ heap_fetch(Relation relation,
 	tuple->t_data = (HeapTupleHeader) PageGetItem(page, lp);
 	tuple->t_len = ItemIdGetLength(lp);
 	tuple->t_tableOid = RelationGetRelid(relation);
-	HeapTupleCopyBaseFromPage(tuple, page);
+	HeapTupleCopyBaseFromPage(tuple, page, IsToastRelation(relation));
 
 	/*
 	 * check tuple visibility, then release lock
@@ -1746,7 +1746,7 @@ heap_hot_search_buffer(ItemPointer tid, Relation relation, Buffer buffer,
 		heapTuple->t_data = (HeapTupleHeader) PageGetItem(dp, lp);
 		heapTuple->t_len = ItemIdGetLength(lp);
 		heapTuple->t_tableOid = RelationGetRelid(relation);
-		HeapTupleCopyBaseFromPage(heapTuple, dp);
+		HeapTupleCopyBaseFromPage(heapTuple, dp, IsToastRelation(relation));
 		ItemPointerSet(&heapTuple->t_self, blkno, offnum);
 
 		/*
@@ -1904,7 +1904,7 @@ heap_get_latest_tid(TableScanDesc sscan,
 		tp.t_data = (HeapTupleHeader) PageGetItem(page, lp);
 		tp.t_len = ItemIdGetLength(lp);
 		tp.t_tableOid = RelationGetRelid(relation);
-		HeapTupleCopyBaseFromPage(&tp, page);
+		HeapTupleCopyBaseFromPage(&tp, page, IsToastRelation(relation));
 
 		/*
 		 * After following a t_ctid link, we might arrive at an unrelated
@@ -1964,7 +1964,7 @@ heap_get_latest_tid(TableScanDesc sscan,
 static void
 UpdateXmaxHintBits(HeapTupleHeader tuple, Buffer buffer, TransactionId xid)
 {
-	Assert(TransactionIdEquals(HeapTupleHeaderGetRawXmax(BufferGetPage(buffer), tuple), xid));
+	//Assert(TransactionIdEquals(HeapTupleHeaderGetRawXmax(BufferGetPage(buffer), tuple), xid));
 	Assert(!(tuple->t_infomask & HEAP_XMAX_IS_MULTI));
 
 	if (!(tuple->t_infomask & (HEAP_XMAX_COMMITTED | HEAP_XMAX_INVALID)))
@@ -2161,15 +2161,22 @@ heap_insert(Relation relation, HeapTuple tup, CommandId cid,
 		{
 			xlrec.flags |= XLH_INSERT_CONTAINS_NEW_TUPLE;
 			bufflags |= REGBUF_KEEP_DATA;
-
-			if (IsToastRelation(relation))
-				xlrec.flags |= XLH_INSERT_ON_TOAST_RELATION;
 		}
+
+		if (IsToastRelation(relation))
+			xlrec.flags |= XLH_INSERT_ON_TOAST_RELATION;
+		else
+			xlrec.flags &= ~XLH_INSERT_ON_TOAST_RELATION;
 
 		XLogBeginInsert();
 
 		if (info & XLOG_HEAP_INIT_PAGE)
-			XLogRegisterData((char *) &HeapPageGetSpecial(page)->pd_xid_base, sizeof(TransactionId));
+		{
+			if (IsToastRelation(relation))
+				XLogRegisterData((char *) &ToastPageGetSpecial(page)->pd_xid_base, sizeof(TransactionId));
+			else
+				XLogRegisterData((char *) &HeapPageGetSpecial(page)->pd_xid_base, sizeof(TransactionId));
+		}
 
 		XLogRegisterData((char *) &xlrec, SizeOfHeapInsert);
 
@@ -2250,7 +2257,8 @@ xid_min_max(ShortTransactionId *min, ShortTransactionId *max,
  */
 static bool
 heap_page_xid_min_max(Page page, bool multi,
-					  ShortTransactionId *min, ShortTransactionId *max)
+					  ShortTransactionId *min, ShortTransactionId *max,
+					  bool is_toast)
 {
 	bool				found;
 	OffsetNumber		offnum,
@@ -2260,6 +2268,9 @@ heap_page_xid_min_max(Page page, bool multi,
 
 	maxoff = PageGetMaxOffsetNumber(page);
 	found = false;
+
+	if (multi)
+		Assert(!is_toast);
 
 	for (offnum = FirstOffsetNumber;
 		 offnum <= maxoff;
@@ -2274,6 +2285,9 @@ heap_page_xid_min_max(Page page, bool multi,
 
 		if (!multi)
 		{
+			if (is_toast)
+				Assert(!(htup->t_infomask & HEAP_XMAX_IS_MULTI));
+
 			if (TransactionIdIsNormal(htup->t_choice.t_heap.t_xmin) &&
 				!HeapTupleHeaderXminFrozen(htup))
 			{
@@ -2289,6 +2303,7 @@ heap_page_xid_min_max(Page page, bool multi,
 				TransactionId			update_xid;
 				ShortTransactionId		xid;
 
+				Assert(!is_toast);
 				update_xid = MultiXactIdGetUpdateXid(HeapTupleHeaderGetRawXmax(page, htup),
 													 htup->t_infomask);
 				xid = NormalTransactionIdToShort(HeapPageGetSpecial(page)->pd_xid_base,
@@ -2317,16 +2332,20 @@ heap_page_xid_min_max(Page page, bool multi,
  */
 static void
 heap_page_shift_base(Relation relation, Buffer buffer, Page page,
-					 bool multi, int64 delta)
+					 bool multi, int64 delta, bool is_toast)
 {
 	HeapPageSpecial		pageSpecial;
+	ToastPageSpecial	toastSpecial;
 	OffsetNumber		offnum,
 						maxoff;
 	ItemId				itemid;
 	HeapTupleHeader		htup;
 
 	START_CRIT_SECTION();
-	pageSpecial = HeapPageGetSpecial(page);
+	if (is_toast)
+		toastSpecial = ToastPageGetSpecial(page);
+	else
+		pageSpecial = HeapPageGetSpecial(page);
 
 	/* Iterate over page items */
 	maxoff = PageGetMaxOffsetNumber(page);
@@ -2368,9 +2387,17 @@ heap_page_shift_base(Relation relation, Buffer buffer, Page page,
 
 	/* Apply xid shift to base as well */
 	if (!multi)
-		pageSpecial->pd_xid_base += delta;
+	{
+		if (is_toast)
+			toastSpecial->pd_xid_base += delta;
+		else
+			pageSpecial->pd_xid_base += delta;
+	}
 	else
+	{
+		Assert(!is_toast);
 		pageSpecial->pd_multi_base += delta;
+	}
 
 	if (BufferIsValid(buffer))
 		MarkBufferDirty(buffer);
@@ -2383,6 +2410,10 @@ heap_page_shift_base(Relation relation, Buffer buffer, Page page,
 
 		xlrec.delta = delta;
 		xlrec.multi = multi;
+		if (IsToastRelation(relation))
+			xlrec.flags |= XLH_BASE_SHIFT_ON_TOAST_RELATION;
+		else
+			xlrec.flags &= ~XLH_BASE_SHIFT_ON_TOAST_RELATION;
 
 		XLogBeginInsert();
 		XLogRegisterData((char *) &xlrec, SizeOfHeapBaseShift);
@@ -2456,7 +2487,7 @@ freeze_single_heap_page(Relation relation, Buffer buffer)
 		tuple.t_data = (HeapTupleHeader) PageGetItem(page, itemid);
 		tuple.t_len = ItemIdGetLength(itemid);
 		tuple.t_tableOid = RelationGetRelid(relation);
-		HeapTupleCopyBaseFromPage(&tuple, page);
+		HeapTupleCopyBaseFromPage(&tuple, page, IsToastRelation(relation));
 
 		/*
 		 * Each non-removable tuple must be checked to see if it needs
@@ -2491,7 +2522,8 @@ freeze_single_heap_page(Relation relation, Buffer buffer)
 		{
 			itemid = PageGetItemId(page, frozen[i].offset);
 			htup = (HeapTupleHeader) PageGetItem(page, itemid);
-			heap_execute_freeze_tuple_page(page, htup, &frozen[i]);
+			heap_execute_freeze_tuple_page(page, htup, &frozen[i],
+										   IsToastRelation(relation));
 		}
 
 		/* Now WAL-log freezing if necessary */
@@ -2515,19 +2547,24 @@ freeze_single_heap_page(Relation relation, Buffer buffer)
 static void
 heap_page_apply_delta(Relation relation, Buffer buffer, Page page,
 					  TransactionId xid, bool multi,
-					  TransactionId base, int64 delta)
+					  TransactionId base, int64 delta, bool is_toast)
 {
 	Assert(xid >= base + delta + FirstNormalTransactionId);
 	Assert(xid <= base + delta + MaxShortTransactionId);
 
-	heap_page_shift_base(relation, buffer, page, multi, delta);
+	heap_page_shift_base(relation, buffer, page, multi, delta,
+						 is_toast);
 
 #ifdef USE_ASSERT_CHECKING
-	base = multi ?
-			HeapPageGetSpecial(page)->pd_multi_base :
-			HeapPageGetSpecial(page)->pd_xid_base;
-	Assert(xid >= base + FirstNormalTransactionId);
-	Assert(xid <= base + MaxShortTransactionId);
+	{
+		if (is_toast)
+			base = ToastPageGetSpecial(page)->pd_xid_base;
+		else
+			base = multi ? HeapPageGetSpecial(page)->pd_multi_base :
+						   HeapPageGetSpecial(page)->pd_xid_base;
+		Assert(xid >= base + FirstNormalTransactionId);
+		Assert(xid <= base + MaxShortTransactionId);
+	}
 #endif /* USE_ASSERT_CHECKING */
 }
 
@@ -2582,9 +2619,10 @@ heap_page_check_delta(Relation relation, Buffer buffer,
 
 static int
 heap_page_try_prepare_for_xid(Relation relation, Buffer buffer, Page page,
-							  TransactionId xid, bool multi)
+							  TransactionId xid, bool multi, bool is_toast)
 {
-	HeapPageSpecial		pageSpecial = HeapPageGetSpecial(page);
+	HeapPageSpecial		pageSpecial;
+	ToastPageSpecial	toastSpecial;
 	TransactionId		base;
 	ShortTransactionId	min = InvalidTransactionId,
 						max = InvalidTransactionId;
@@ -2592,7 +2630,19 @@ heap_page_try_prepare_for_xid(Relation relation, Buffer buffer, Page page,
 						freeDelta,
 						requiredDelta;
 
-	base = multi ? pageSpecial->pd_multi_base : pageSpecial->pd_xid_base;
+	if (is_toast)
+		toastSpecial = ToastPageGetSpecial(page);
+	else
+		pageSpecial = HeapPageGetSpecial(page);
+
+	if (is_toast)
+	{
+		Assert(!multi);
+		base = toastSpecial->pd_xid_base;
+	}
+	else
+		base = multi ? pageSpecial->pd_multi_base : pageSpecial->pd_xid_base;
+
 	/* If xid fits the page no action needed. */
 	if (xid >= base + FirstNormalTransactionId &&
 		xid <= base + MaxShortTransactionId)
@@ -2601,12 +2651,13 @@ heap_page_try_prepare_for_xid(Relation relation, Buffer buffer, Page page,
 	}
 
 	/* No items on the page? */
-	if (!heap_page_xid_min_max(page, multi, &min, &max))
+	if (!heap_page_xid_min_max(page, multi, &min, &max, is_toast))
 	{
 		delta = (int64) (xid - FirstNormalTransactionId) - (int64) base;
 		heap_page_check_delta(relation, buffer, xid, base, min, max, delta,
 							  NULL, NULL);
-		heap_page_apply_delta(relation, buffer, page, xid, multi, base, delta);
+		heap_page_apply_delta(relation, buffer, page, xid, multi, base, delta,
+							  is_toast);
 		return 0;
 	}
 
@@ -2636,7 +2687,8 @@ heap_page_try_prepare_for_xid(Relation relation, Buffer buffer, Page page,
 
 	heap_page_check_delta(relation, buffer, xid, base, min, max,
 						  delta, &freeDelta, &requiredDelta);
-	heap_page_apply_delta(relation, buffer, page, xid, multi, base, delta);
+	heap_page_apply_delta(relation, buffer, page, xid, multi, base,
+						  delta, is_toast);
 
 	return 1;
 }
@@ -2648,8 +2700,8 @@ bool
 heap_page_prepare_for_xid(Relation relation, Buffer buffer,
 						  TransactionId xid, bool multi)
 {
-	Page				page = BufferGetPage(buffer);
-	int					res;
+	Page		page = BufferGetPage(buffer);
+	int			res;
 
 	/* "Double xmax" page format doesn't require any preparation */
 	if (HeapPageIsDoubleXmax(page))
@@ -2658,14 +2710,16 @@ heap_page_prepare_for_xid(Relation relation, Buffer buffer,
 	if (!TransactionIdIsNormal(xid))
 		return false;
 
-	res = heap_page_try_prepare_for_xid(relation, buffer, page, xid, multi);
+	res = heap_page_try_prepare_for_xid(relation, buffer, page, xid, multi,
+										IsToastRelation(relation));
 	if (res != -1)
 		return res == 1;
 
 	/* Have to try freeing the page... */
 	freeze_single_heap_page(relation, buffer);
 
-	res = heap_page_try_prepare_for_xid(relation, buffer, page, xid, multi);
+	res = heap_page_try_prepare_for_xid(relation, buffer, page, xid, multi,
+										IsToastRelation(relation));
 	if (res != -1)
 		return res == 1;
 
@@ -2678,7 +2732,7 @@ heap_page_prepare_for_xid(Relation relation, Buffer buffer,
  * Ensure that given xid fits base of given page.
  */
 void
-rewrite_page_prepare_for_xid(Page page, HeapTuple tup)
+rewrite_page_prepare_for_xid(Page page, HeapTuple tup, bool is_toast)
 {
 	TransactionId	xid;
 	int				res;
@@ -2688,7 +2742,7 @@ rewrite_page_prepare_for_xid(Page page, HeapTuple tup)
 	if (TransactionIdIsNormal(xid))
 	{
 		res = heap_page_try_prepare_for_xid(NULL, InvalidBuffer, page, xid,
-											false);
+											false, is_toast);
 		if (res == -1)
 			elog(ERROR, "could not fit xid into page");
 	}
@@ -2698,7 +2752,8 @@ rewrite_page_prepare_for_xid(Page page, HeapTuple tup)
 	if (TransactionIdIsNormal(xid))
 	{
 		res = heap_page_try_prepare_for_xid(NULL, InvalidBuffer, page, xid,
-											tup->t_data->t_infomask & HEAP_XMAX_IS_MULTI);
+											tup->t_data->t_infomask & HEAP_XMAX_IS_MULTI,
+											is_toast);
 		if (res == -1)
 			elog(ERROR, "could not fit xid into page");
 	}
@@ -3017,7 +3072,12 @@ heap_multi_insert(Relation relation, TupleTableSlot **slots, int ntuples,
 			XLogBeginInsert();
 
 			if (info & XLOG_HEAP_INIT_PAGE)
-				XLogRegisterData((char *) &HeapPageGetSpecial(page)->pd_xid_base, sizeof(TransactionId));
+			{
+				if (IsToastRelation(relation))
+					XLogRegisterData((char *) &ToastPageGetSpecial(page)->pd_xid_base, sizeof(TransactionId));
+				else
+					XLogRegisterData((char *) &HeapPageGetSpecial(page)->pd_xid_base, sizeof(TransactionId));
+			}
 
 			XLogRegisterData((char *) xlrec, tupledata - scratch.data);
 			XLogRegisterBuffer(0, buffer, REGBUF_STANDARD | bufflags);
@@ -3239,7 +3299,7 @@ heap_delete(Relation relation, ItemPointer tid,
 	tp.t_data = (HeapTupleHeader) PageGetItem(page, lp);
 	tp.t_len = ItemIdGetLength(lp);
 	tp.t_self = *tid;
-	HeapTupleCopyBaseFromPage(&tp, page);
+	HeapTupleCopyBaseFromPage(&tp, page, IsToastRelation(relation));
 
 l1:
 	result = HeapTupleSatisfiesUpdate(&tp, cid, buffer);
@@ -3297,7 +3357,7 @@ l1:
 				LockBuffer(buffer, BUFFER_LOCK_EXCLUSIVE);
 
 				/* Copy possibly updated xid base after relocking */
-				HeapTupleCopyBaseFromPage(&tp, page);
+				HeapTupleCopyBaseFromPage(&tp, page, IsToastRelation(relation));
 
 				/*
 				 * If xwait had just locked the tuple then some other xact
@@ -3333,7 +3393,7 @@ l1:
 			LockBuffer(buffer, BUFFER_LOCK_EXCLUSIVE);
 
 			/* Copy possibly updated xid base after relocking */
-			HeapTupleCopyBaseFromPage(&tp, page);
+			HeapTupleCopyBaseFromPage(&tp, page, IsToastRelation(relation));
 
 			/*
 			 * xwait is done, but if xwait had just locked the tuple then some
@@ -3428,9 +3488,15 @@ l1:
 							  xid, LockTupleExclusive, true,
 							  &new_xmax, &new_infomask, &new_infomask2);
 
+	if (RelationGetForm(relation)->relkind == RELKIND_TOASTVALUE)
+	{
+		//elog(WARNING, ">>> RELKIND_TOASTVALUE");
+		Assert((new_infomask & HEAP_XMAX_IS_MULTI) == false);
+	}
+
 	heap_page_prepare_for_xid(relation, buffer, new_xmax,
 							  (new_infomask & HEAP_XMAX_IS_MULTI) ? true : false);
-	HeapTupleCopyBaseFromPage(&tp, page);
+	HeapTupleCopyBaseFromPage(&tp, page, IsToastRelation(relation));
 
 	START_CRIT_SECTION();
 
@@ -3441,7 +3507,10 @@ l1:
 	 * the subsequent page pruning will be a no-op and the hint will be
 	 * cleared.
 	 */
-	PageSetPrunable(page, xid);
+	if (IsToastRelation(relation))
+		ToastPageSetPrunable(page, xid);
+	else
+		PageSetPrunable(page, xid);
 
 	if (PageIsAllVisible(page))
 	{
@@ -3458,11 +3527,14 @@ l1:
 	tp.t_data->t_infomask2 |= new_infomask2;
 	HeapTupleHeaderClearHotUpdated(tp.t_data);
 	HeapTupleSetXmax(&tp, new_xmax);
-	HeapTupleHeaderSetXmax(page, &tp);
+	if (IsToastRelation(relation))
+		ToastTupleHeaderSetXmax(page, &tp);
+	else
+		HeapTupleHeaderSetXmax(page, &tp);
 	HeapTupleHeaderSetCmax(tp.t_data, cid, iscombo);
 	/* Make sure there is no forward chain link in t_ctid */
 	tp.t_data->t_ctid = tp.t_self;
-	HeapTupleCopyBaseFromPage(&tp, page);
+	HeapTupleCopyBaseFromPage(&tp, page, IsToastRelation(relation));
 
 	/* Signal that this is actually a move into another partition */
 	if (changingPart)
@@ -3498,6 +3570,10 @@ l1:
 											  tp.t_data->t_infomask2);
 		xlrec.offnum = ItemPointerGetOffsetNumber(&tp.t_self);
 		xlrec.xmax = new_xmax;
+		if (IsToastRelation(relation))
+			xlrec.flags |= XLH_DELETE_PAGE_ON_TOAST_RELATION;
+		else
+			xlrec.flags &= ~XLH_DELETE_PAGE_ON_TOAST_RELATION;
 
 		if (old_key_tuple != NULL)
 		{
@@ -3747,7 +3823,7 @@ heap_update(Relation relation, ItemPointer otid, HeapTuple newtup,
 	oldtup.t_data = (HeapTupleHeader) PageGetItem(page, lp);
 	oldtup.t_len = ItemIdGetLength(lp);
 	oldtup.t_self = *otid;
-	HeapTupleCopyBaseFromPage(&oldtup, page);
+	HeapTupleCopyBaseFromPage(&oldtup, page, IsToastRelation(relation));
 
 	/* the new tuple is ready, except for this: */
 	newtup->t_tableOid = RelationGetRelid(relation);
@@ -3892,7 +3968,7 @@ l2:
 				checked_lockers = true;
 				locker_remains = remain != 0;
 				LockBuffer(buffer, BUFFER_LOCK_EXCLUSIVE);
-				HeapTupleCopyBaseFromPage(&oldtup, page);
+				HeapTupleCopyBaseFromPage(&oldtup, page, IsToastRelation(relation));
 
 				/*
 				 * If xwait had just locked the tuple then some other xact
@@ -3975,7 +4051,7 @@ l2:
 			checked_lockers = true;
 			LockBuffer(buffer, BUFFER_LOCK_EXCLUSIVE);
 
-			HeapTupleCopyBaseFromPage(&oldtup, page);
+			HeapTupleCopyBaseFromPage(&oldtup, page, IsToastRelation(relation));
 
 			/*
 			 * xwait is done, but if xwait had just locked the tuple then some
@@ -4053,7 +4129,7 @@ l2:
 		LockBuffer(buffer, BUFFER_LOCK_UNLOCK);
 		visibilitymap_pin(relation, block, &vmbuffer);
 		LockBuffer(buffer, BUFFER_LOCK_EXCLUSIVE);
-		HeapTupleCopyBaseFromPage(&oldtup, page);
+		HeapTupleCopyBaseFromPage(&oldtup, page, IsToastRelation(relation));
 		goto l2;
 	}
 
@@ -4187,9 +4263,14 @@ l2:
 
 		Assert(HEAP_XMAX_IS_LOCKED_ONLY(infomask_lock_old_tuple));
 
+		if (RelationGetForm(relation)->relkind == RELKIND_TOASTVALUE)
+		{
+			Assert((infomask_lock_old_tuple & HEAP_XMAX_IS_MULTI) == false);
+		}
+
 		heap_page_prepare_for_xid(relation, buffer, xmax_lock_old_tuple,
 								  (infomask_lock_old_tuple & HEAP_XMAX_IS_MULTI) ? true : false);
-		HeapTupleCopyBaseFromPage(&oldtup, page);
+		HeapTupleCopyBaseFromPage(&oldtup, page, IsToastRelation(relation));
 
 		START_CRIT_SECTION();
 
@@ -4204,7 +4285,7 @@ l2:
 		HeapTupleSetXmax(&oldtup, xmax_lock_old_tuple);
 		HeapTupleHeaderSetXmax(page, &oldtup);
 		HeapTupleHeaderSetCmax(oldtup.t_data, cid, iscombo);
-		HeapTupleCopyBaseFromPage(&oldtup, page);
+		HeapTupleCopyBaseFromPage(&oldtup, page, IsToastRelation(relation));
 
 		/* temporarily make it look not-updated, but locked */
 		oldtup.t_data->t_ctid = oldtup.t_self;
@@ -4325,7 +4406,7 @@ l2:
 		}
 
 		/* Copy possibly updated xid base to old tuple after relocking */
-		HeapTupleCopyBaseFromPage(&oldtup, page);
+		HeapTupleCopyBaseFromPage(&oldtup, page, IsToastRelation(relation));
 	}
 	else
 	{
@@ -4395,6 +4476,11 @@ l2:
 	if (newbuf != buffer)
 		heap_page_prepare_for_xid(relation, newbuf, xid, false);
 
+	if (RelationGetForm(relation)->relkind == RELKIND_TOASTVALUE)
+	{
+		Assert((infomask_old_tuple & HEAP_XMAX_IS_MULTI) == false);
+		Assert((heaptup->t_data->t_infomask & HEAP_XMAX_IS_MULTI) == false);
+	}
 	/* Prepare pages for tuple's Xmax */
 	heap_page_prepare_for_xid(relation, buffer, xmax_old_tuple,
 							  (infomask_old_tuple & HEAP_XMAX_IS_MULTI) ? true : false);
@@ -4402,15 +4488,21 @@ l2:
 							  (heaptup->t_data->t_infomask & HEAP_XMAX_IS_MULTI) ? true : false);
 
 	/* Copy possibly updated Xid bases to the both tuples. */
-	HeapTupleCopyBaseFromPage(&oldtup, page);
+	HeapTupleCopyBaseFromPage(&oldtup, page, IsToastRelation(relation));
 
 	/*
 	 * Set new tuple's Xmin/Xmax, old tuple's Xmin/Xmax were already shifted.
 	 */
 	HeapTupleSetXmin(heaptup, xid);
-	HeapTupleHeaderSetXmin(newpage, heaptup);
+	if (IsToastRelation(relation))
+		ToastTupleHeaderSetXmin(newpage, heaptup);
+	else
+		HeapTupleHeaderSetXmin(newpage, heaptup);
 	HeapTupleSetXmax(heaptup, xmax_new_tuple);
-	HeapTupleHeaderSetXmax(newpage, heaptup);
+	if (IsToastRelation(relation))
+		ToastTupleHeaderSetXmax(newpage, heaptup);
+	else
+		HeapTupleHeaderSetXmax(newpage, heaptup);
 
 	/* NO EREPORT(ERROR) from here till changes are logged */
 	START_CRIT_SECTION();
@@ -4427,6 +4519,8 @@ l2:
 	 * not to optimize for aborts.  Note that heap_xlog_update must be kept in
 	 * sync if this decision changes.
 	 */
+
+	Assert(!IsToastRelation(relation));
 	PageSetPrunable(page, xid);
 
 	if (use_hot_update)
@@ -4459,7 +4553,7 @@ l2:
 	HeapTupleSetXmax(&oldtup, xmax_old_tuple);
 	HeapTupleHeaderSetXmax(page, &oldtup);
 	HeapTupleHeaderSetCmax(oldtup.t_data, cid, iscombo);
-	HeapTupleCopyBaseFromPage(&oldtup, page);
+	HeapTupleCopyBaseFromPage(&oldtup, page, IsToastRelation(relation));
 
 	/* record address of new tuple in t_ctid of old one */
 	oldtup.t_data->t_ctid = heaptup->t_self;
@@ -4865,7 +4959,7 @@ heap_lock_tuple(Relation relation, HeapTuple tuple,
 	tuple->t_data = (HeapTupleHeader) PageGetItem(page, lp);
 	tuple->t_len = ItemIdGetLength(lp);
 	tuple->t_tableOid = RelationGetRelid(relation);
-	HeapTupleCopyBaseFromPage(tuple, page);
+	HeapTupleCopyBaseFromPage(tuple, page, IsToastRelation(relation));
 
 l3:
 	result = HeapTupleSatisfiesUpdate(tuple, cid, *buffer);
@@ -5050,13 +5144,13 @@ l3:
 						result = res;
 						/* recovery code expects to have buffer lock held */
 						LockBuffer(*buffer, BUFFER_LOCK_EXCLUSIVE);
-						HeapTupleCopyBaseFromPage(tuple, page);
+						HeapTupleCopyBaseFromPage(tuple, page, IsToastRelation(relation));
 						goto failed;
 					}
 				}
 
 				LockBuffer(*buffer, BUFFER_LOCK_EXCLUSIVE);
-				HeapTupleCopyBaseFromPage(tuple, page);
+				HeapTupleCopyBaseFromPage(tuple, page, IsToastRelation(relation));
 
 				/*
 				 * Make sure it's still an appropriate lock, else start over.
@@ -5092,7 +5186,7 @@ l3:
 				!HEAP_XMAX_IS_EXCL_LOCKED(infomask))
 			{
 				LockBuffer(*buffer, BUFFER_LOCK_EXCLUSIVE);
-				HeapTupleCopyBaseFromPage(tuple, page);
+				HeapTupleCopyBaseFromPage(tuple, page, IsToastRelation(relation));
 
 				/*
 				 * Make sure it's still an appropriate lock, else start over.
@@ -5121,7 +5215,7 @@ l3:
 					 * meantime, start over.
 					 */
 					LockBuffer(*buffer, BUFFER_LOCK_EXCLUSIVE);
-					HeapTupleCopyBaseFromPage(tuple, page);
+					HeapTupleCopyBaseFromPage(tuple, page, IsToastRelation(relation));
 
 					if (xmax_infomask_changed(tuple->t_data->t_infomask, infomask) ||
 						!TransactionIdEquals(HeapTupleGetRawXmax(tuple),
@@ -5135,7 +5229,7 @@ l3:
 			else if (HEAP_XMAX_IS_KEYSHR_LOCKED(infomask))
 			{
 				LockBuffer(*buffer, BUFFER_LOCK_EXCLUSIVE);
-				HeapTupleCopyBaseFromPage(tuple, page);
+				HeapTupleCopyBaseFromPage(tuple, page, IsToastRelation(relation));
 
 				/* if the xmax changed in the meantime, start over */
 				if (xmax_infomask_changed(tuple->t_data->t_infomask, infomask) ||
@@ -5164,7 +5258,7 @@ l3:
 		{
 			/* ... but if the xmax changed in the meantime, start over */
 			LockBuffer(*buffer, BUFFER_LOCK_EXCLUSIVE);
-			HeapTupleCopyBaseFromPage(tuple, page);
+			HeapTupleCopyBaseFromPage(tuple, page, IsToastRelation(relation));
 
 			if (xmax_infomask_changed(tuple->t_data->t_infomask, infomask) ||
 				!TransactionIdEquals(HeapTupleGetRawXmax(tuple),
@@ -5188,7 +5282,7 @@ l3:
 		if (require_sleep && (result == TM_Updated || result == TM_Deleted))
 		{
 			LockBuffer(*buffer, BUFFER_LOCK_EXCLUSIVE);
-			HeapTupleCopyBaseFromPage(tuple, page);
+			HeapTupleCopyBaseFromPage(tuple, page, IsToastRelation(relation));
 			goto failed;
 		}
 		else if (require_sleep)
@@ -5214,7 +5308,7 @@ l3:
 				result = TM_WouldBlock;
 				/* recovery code expects to have buffer lock held */
 				LockBuffer(*buffer, BUFFER_LOCK_EXCLUSIVE);
-				HeapTupleCopyBaseFromPage(tuple, page);
+				HeapTupleCopyBaseFromPage(tuple, page, IsToastRelation(relation));
 				goto failed;
 			}
 
@@ -5241,7 +5335,7 @@ l3:
 							result = TM_WouldBlock;
 							/* recovery code expects to have buffer lock held */
 							LockBuffer(*buffer, BUFFER_LOCK_EXCLUSIVE);
-							HeapTupleCopyBaseFromPage(tuple, page);
+							HeapTupleCopyBaseFromPage(tuple, page, IsToastRelation(relation));
 							goto failed;
 						}
 						break;
@@ -5282,7 +5376,7 @@ l3:
 							result = TM_WouldBlock;
 							/* recovery code expects to have buffer lock held */
 							LockBuffer(*buffer, BUFFER_LOCK_EXCLUSIVE);
-							HeapTupleCopyBaseFromPage(tuple, page);
+							HeapTupleCopyBaseFromPage(tuple, page, IsToastRelation(relation));
 							goto failed;
 						}
 						break;
@@ -5309,13 +5403,13 @@ l3:
 					result = res;
 					/* recovery code expects to have buffer lock held */
 					LockBuffer(*buffer, BUFFER_LOCK_EXCLUSIVE);
-					HeapTupleCopyBaseFromPage(tuple, page);
+					HeapTupleCopyBaseFromPage(tuple, page, IsToastRelation(relation));
 					goto failed;
 				}
 			}
 
 			LockBuffer(*buffer, BUFFER_LOCK_EXCLUSIVE);
-			HeapTupleCopyBaseFromPage(tuple, page);
+			HeapTupleCopyBaseFromPage(tuple, page, IsToastRelation(relation));
 
 			/*
 			 * xwait is done, but if xwait had just locked the tuple then some
@@ -5399,7 +5493,7 @@ failed:
 		LockBuffer(*buffer, BUFFER_LOCK_UNLOCK);
 		visibilitymap_pin(relation, block, &vmbuffer);
 		LockBuffer(*buffer, BUFFER_LOCK_EXCLUSIVE);
-		HeapTupleCopyBaseFromPage(tuple, page);
+		HeapTupleCopyBaseFromPage(tuple, page, IsToastRelation(relation));
 		goto l3;
 	}
 
@@ -5425,9 +5519,14 @@ failed:
 							  GetCurrentTransactionId(), mode, false,
 							  &xid, &new_infomask, &new_infomask2);
 
+	if (RelationGetForm(relation)->relkind == RELKIND_TOASTVALUE)
+	{
+		Assert((new_infomask & HEAP_XMAX_IS_MULTI) == false);
+	}
+
 	heap_page_prepare_for_xid(relation, *buffer, xid,
 							  (new_infomask & HEAP_XMAX_IS_MULTI) ? true : false);
-	HeapTupleCopyBaseFromPage(tuple, page);
+	HeapTupleCopyBaseFromPage(tuple, page, IsToastRelation(relation));
 
 	START_CRIT_SECTION();
 
@@ -6046,7 +6145,7 @@ l4:
 		 * Copy xid base after buffer relocking, it could have changed since
 		 * heap_fetch().
 		 */
-		HeapTupleCopyBaseFromPage(&mytup, BufferGetPage(buf));
+		HeapTupleCopyBaseFromPage(&mytup, BufferGetPage(buf), IsToastRelation(rel));
 
 		/*
 		 * Check the tuple XMIN against prior XMAX, if any.  If we reached the
@@ -6227,9 +6326,12 @@ l4:
 								VISIBILITYMAP_ALL_FROZEN))
 			cleared_all_frozen = true;
 
+		if (RelationGetForm(rel)->relkind == RELKIND_TOASTVALUE)
+			Assert((new_infomask & HEAP_XMAX_IS_MULTI) == false);
+
 		heap_page_prepare_for_xid(rel, buf, new_xmax,
 								  (new_infomask & HEAP_XMAX_IS_MULTI) ? true : false);
-		HeapTupleCopyBaseFromPage(&mytup, BufferGetPage(buf));
+		HeapTupleCopyBaseFromPage(&mytup, BufferGetPage(buf), IsToastRelation(rel));
 
 		START_CRIT_SECTION();
 
@@ -6487,7 +6589,7 @@ heap_abort_speculative(Relation relation, ItemPointer tid)
 	tp.t_data = (HeapTupleHeader) PageGetItem(page, lp);
 	tp.t_len = ItemIdGetLength(lp);
 	tp.t_self = *tid;
-	HeapTupleCopyBaseFromPage(&tp, page);
+	HeapTupleCopyBaseFromPage(&tp, page, IsToastRelation(relation));
 
 	/*
 	 * Sanity check that the tuple really is a speculatively inserted tuple,
@@ -6524,7 +6626,10 @@ heap_abort_speculative(Relation relation, ItemPointer tid)
 		prune_xid = TransactionXmin;
 	Assert(TransactionIdIsValid(prune_xid));
 	heap_page_prepare_for_xid(relation, buffer, prune_xid, false);
-	PageSetPrunable(page, prune_xid);
+	if (IsToastRelation(relation))
+		ToastPageSetPrunable(page, prune_xid);
+	else
+		PageSetPrunable(page, prune_xid);
 
 	/* store transaction information of xact deleting the tuple */
 	tp.t_data->t_infomask &= ~(HEAP_XMAX_BITS | HEAP_MOVED);
@@ -6557,6 +6662,10 @@ heap_abort_speculative(Relation relation, ItemPointer tid)
 		XLogRecPtr	recptr;
 
 		xlrec.flags = XLH_DELETE_IS_SUPER;
+		if (IsToastRelation(relation))
+			xlrec.flags |= XLH_DELETE_PAGE_ON_TOAST_RELATION;
+		else
+			xlrec.flags &= ~XLH_DELETE_PAGE_ON_TOAST_RELATION;
 		xlrec.infobits_set = compute_infobits(tp.t_data->t_infomask,
 											  tp.t_data->t_infomask2);
 		xlrec.offnum = ItemPointerGetOffsetNumber(&tp.t_self);
@@ -7404,13 +7513,18 @@ heap_execute_freeze_tuple(HeapTuple htup, xl_heap_freeze_tuple *frz)
 }
 
 void
-heap_execute_freeze_tuple_page(Page page, HeapTupleHeader htup, xl_heap_freeze_tuple *frz)
+heap_execute_freeze_tuple_page(Page page, HeapTupleHeader htup,
+							   xl_heap_freeze_tuple *frz, bool is_toast)
 {
 	HeapTupleData tuple;
 
 	tuple.t_data = htup;
 	heap_execute_freeze_tuple(&tuple, frz);
-	HeapTupleHeaderSetXmax(page, &tuple);
+
+	if (is_toast)
+		ToastTupleHeaderSetXmax(page, &tuple);
+	else
+		HeapTupleHeaderSetXmax(page, &tuple);
 }
 
 /*
@@ -8380,7 +8494,7 @@ heap_index_delete_tuples(Relation rel, TM_IndexDeleteOp *delstate)
 
 			htup.t_data = (HeapTupleHeader) PageGetItem(page, lp);
 			htup.t_len = ItemIdGetLength(lp);
-			HeapTupleCopyBaseFromPage(&htup, page);
+			HeapTupleCopyBaseFromPage(&htup, page, IsToastRelation(rel));
 
 			/*
 			 * Check the tuple XMIN against prior XMAX, if any
@@ -8809,6 +8923,11 @@ log_heap_freeze(Relation reln, Buffer buffer, TransactionId cutoff_xid,
 
 	xlrec.cutoff_xid = cutoff_xid;
 	xlrec.ntuples = ntuples;
+
+	if (IsToastRelation(reln))
+		xlrec.flags |= XLH_FREEZE_PAGE_ON_TOAST_RELATION;
+	else
+		xlrec.flags &= ~XLH_FREEZE_PAGE_ON_TOAST_RELATION;
 
 	XLogBeginInsert();
 	XLogRegisterData((char *) &xlrec, SizeOfHeapFreezePage);
@@ -9320,7 +9439,8 @@ heap_xlog_prune(XLogReaderState *record)
 								redirected, nredirected,
 								nowdead, ndead,
 								nowunused, nunused,
-								true);
+								true,
+								xlrec->flags & XLH_PRUNE_ON_TOAST_RELATION);
 
 		/*
 		 * Note: we don't worry about updating the page's prunability hints.
@@ -9612,7 +9732,8 @@ heap_xlog_freeze_page(XLogReaderState *record)
 			lp = PageGetItemId(page, xlrec_tp->offset); /* offsets are one-based */
 			tuple = (HeapTupleHeader) PageGetItem(page, lp);
 
-			heap_execute_freeze_tuple_page(page, tuple, xlrec_tp);
+			heap_execute_freeze_tuple_page(page, tuple, xlrec_tp,
+										   xlrec->flags & XLH_FREEZE_PAGE_ON_TOAST_RELATION);
 		}
 
 		PageSetLSN(page, lsn);
@@ -9705,17 +9826,26 @@ heap_xlog_delete(XLogReaderState *record)
 		if (!(xlrec->flags & XLH_DELETE_IS_SUPER))
 		{
 			HeapTupleSetXmax(&tuple, xlrec->xmax);
-			HeapTupleHeaderSetXmax(page, &tuple);
+			if (xlrec->flags & XLH_DELETE_PAGE_ON_TOAST_RELATION)
+				ToastTupleHeaderSetXmax(page, &tuple);
+			else
+				HeapTupleHeaderSetXmax(page, &tuple);
 		}
 		else
 		{
 			HeapTupleSetXmin(&tuple, InvalidTransactionId);
-			HeapTupleHeaderSetXmin(page, &tuple);
+			if (xlrec->flags & XLH_DELETE_PAGE_ON_TOAST_RELATION)
+				ToastTupleHeaderSetXmin(page, &tuple);
+			else
+				HeapTupleHeaderSetXmin(page, &tuple);
 		}
 		HeapTupleHeaderSetCmax(htup, FirstCommandId, false);
 
 		/* Mark the page as a candidate for pruning */
-		PageSetPrunable(page, XLogRecGetXid(record));
+		if (xlrec->flags & XLH_DELETE_PAGE_ON_TOAST_RELATION)
+			ToastPageSetPrunable(page, XLogRecGetXid(record));
+		else
+			PageSetPrunable(page, XLogRecGetXid(record));
 
 		if (xlrec->flags & XLH_DELETE_ALL_VISIBLE_CLEARED)
 			PageClearAllVisible(page);
@@ -9789,10 +9919,21 @@ heap_xlog_insert(XLogReaderState *record)
 	 */
 	if (isinit)
 	{
+
 		buffer = XLogInitBufferForRedo(record, 0);
 		page = BufferGetPage(buffer);
-		PageInit(page, BufferGetPageSize(buffer), sizeof(HeapPageSpecialData));
-		HeapPageGetSpecial(page)->pd_xid_base = pd_xid_base;
+
+		if (xlrec->flags & XLH_INSERT_ON_TOAST_RELATION)
+		{
+			PageInit(page, BufferGetPageSize(buffer), sizeof(ToastPageSpecialData));
+			ToastPageGetSpecial(page)->pd_xid_base = pd_xid_base;
+		}
+		else
+		{
+			PageInit(page, BufferGetPageSize(buffer), sizeof(HeapPageSpecialData));
+			HeapPageGetSpecial(page)->pd_xid_base = pd_xid_base;
+		}
+
 		action = BLK_NEEDS_REDO;
 	}
 	else
@@ -9827,7 +9968,10 @@ heap_xlog_insert(XLogReaderState *record)
 		htup->t_hoff = xlhdr.t_hoff;
 		tuple.t_data = htup;
 		HeapTupleSetXmin(&tuple, XLogRecGetXid(record));
-		HeapTupleHeaderSetXmin(page, &tuple);
+		if (xlrec->flags & XLH_INSERT_ON_TOAST_RELATION)
+			ToastTupleHeaderSetXmin(page, &tuple);
+		else
+			HeapTupleHeaderSetXmin(page, &tuple);
 		HeapTupleHeaderSetCmin(htup, FirstCommandId);
 		htup->t_ctid = target_tid;
 
@@ -9848,6 +9992,8 @@ heap_xlog_insert(XLogReaderState *record)
 
 		MarkBufferDirty(buffer);
 	}
+
+
 	if (BufferIsValid(buffer))
 		UnlockReleaseBuffer(buffer);
 
@@ -9924,10 +10070,22 @@ heap_xlog_multi_insert(XLogReaderState *record)
 
 	if (isinit)
 	{
+		Relation	reln = CreateFakeRelcacheEntry(rlocator);
+
 		buffer = XLogInitBufferForRedo(record, 0);
 		page = BufferGetPage(buffer);
-		PageInit(page, BufferGetPageSize(buffer), sizeof(HeapPageSpecialData));
-		HeapPageGetSpecial(page)->pd_xid_base = pd_xid_base;
+
+		if (RelationGetForm(reln)->relkind == RELKIND_TOASTVALUE)
+		{
+			PageInit(page, BufferGetPageSize(buffer), sizeof(ToastPageSpecialData));
+			ToastPageGetSpecial(page)->pd_xid_base = pd_xid_base;
+		}
+		else
+		{
+			PageInit(page, BufferGetPageSize(buffer), sizeof(HeapPageSpecialData));
+			HeapPageGetSpecial(page)->pd_xid_base = pd_xid_base;
+		}
+
 		action = BLK_NEEDS_REDO;
 	}
 	else
@@ -10111,7 +10269,7 @@ heap_xlog_update(XLogReaderState *record, bool hot_update)
 									  &obuffer);
 	if (oldaction == BLK_NEEDS_REDO)
 	{
-		HeapTupleData tuple;
+		HeapTupleData	tuple;
 
 		page = BufferGetPage(obuffer);
 		offnum = xlrec->old_offnum;
@@ -10125,7 +10283,8 @@ heap_xlog_update(XLogReaderState *record, bool hot_update)
 
 		oldtup.t_data = htup;
 		oldtup.t_len = ItemIdGetLength(lp);
-		HeapTupleCopyBaseFromPage(&oldtup, page);
+		/* toast are never update */
+		HeapTupleCopyBaseFromPage(&oldtup, page, false);
 
 		htup->t_infomask &= ~(HEAP_XMAX_BITS | HEAP_MOVED);
 		htup->t_infomask2 &= ~HEAP_KEYS_UPDATED;
@@ -10143,6 +10302,7 @@ heap_xlog_update(XLogReaderState *record, bool hot_update)
 		htup->t_ctid = newtid;
 
 		/* Mark the page as a candidate for pruning */
+		/* toast are never update */
 		PageSetPrunable(page, XLogRecGetXid(record));
 
 		if (xlrec->flags & XLH_UPDATE_OLD_ALL_VISIBLE_CLEARED)
@@ -10162,9 +10322,16 @@ heap_xlog_update(XLogReaderState *record, bool hot_update)
 	}
 	else if (isinit)
 	{
+		Relation	reln = CreateFakeRelcacheEntry(rlocator);
+
 		nbuffer = XLogInitBufferForRedo(record, 0);
 		page = (Page) BufferGetPage(nbuffer);
-		PageInit(page, BufferGetPageSize(nbuffer), sizeof(HeapPageSpecialData));
+
+		if (RelationGetForm(reln)->relkind == RELKIND_TOASTVALUE)
+			PageInit(page, BufferGetPageSize(nbuffer), sizeof(ToastPageSpecialData));
+		else
+			PageInit(page, BufferGetPageSize(nbuffer), sizeof(HeapPageSpecialData));
+
 		HeapPageGetSpecial(page)->pd_xid_base = pd_xid_base;
 		newaction = BLK_NEEDS_REDO;
 	}
@@ -10550,7 +10717,9 @@ heap_xlog_base_shift(XLogReaderState *record)
 	if (XLogReadBufferForRedo(record, 0, &buffer) == BLK_NEEDS_REDO)
 	{
 		page = BufferGetPage(buffer);
-		heap_page_shift_base(NULL, InvalidBuffer, page, xlrec->multi, xlrec->delta);
+		heap_page_shift_base(NULL, InvalidBuffer, page, xlrec->multi,
+							 xlrec->delta,
+							 xlrec->flags & XLH_BASE_SHIFT_ON_TOAST_RELATION);
 		PageSetLSN(page, lsn);
 		MarkBufferDirty(buffer);
 	}

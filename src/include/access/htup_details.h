@@ -19,6 +19,8 @@
 #include "access/tupdesc.h"
 #include "access/tupmacs.h"
 #include "storage/bufpage.h"
+#include "utils/relcache.h"
+#include "utils/rel.h"
 
 /*
  * MaxTupleAttributeNumber limits the number of (user) columns in a tuple.
@@ -370,7 +372,13 @@ do { \
 #define HeapTupleHeaderSetXmin(page, tup) \
 ( \
 	AssertMacro(!HeapPageIsDoubleXmax(page)), \
-	(tup)->t_data->t_choice.t_heap.t_xmin = NormalTransactionIdToShort(HeapPageGetSpecial(page)->pd_xid_base, (tup)->t_xmin) \
+	(tup)->t_data->t_choice.t_heap.t_xmin = NormalTransactionIdToShort(HeapPageGetSpecialNoAssert(page)->pd_xid_base, (tup)->t_xmin) \
+)
+
+#define ToastTupleHeaderSetXmin(page, tup) \
+( \
+	AssertMacro(!HeapPageIsDoubleXmax(page)), \
+	(tup)->t_data->t_choice.t_heap.t_xmin = NormalTransactionIdToShort(ToastPageGetSpecialNoAssert(page)->pd_xid_base, (tup)->t_xmin) \
 )
 
 #define HeapTupleHeaderXminCommitted(tup) \
@@ -423,6 +431,15 @@ do { \
 		(tup)->t_choice.t_heap.t_xmax) \
 )
 
+#define ToastTupleHeaderGetRawXmax(page, tup) \
+( \
+	HeapPageIsDoubleXmax(page) ? \
+	HeapTupleHeaderGetDoubleXmax(tup) : \
+	ShortTransactionIdToNormal( \
+		ToastPageGetSpecial(page)->pd_xid_base, \
+		(tup)->t_choice.t_heap.t_xmax) \
+)
+
 #define HeapTupleSetXmax(tup, xid) \
 do { \
 	(tup)->t_xmax = (xid); \
@@ -436,6 +453,17 @@ do { \
 		(tup)->t_data->t_choice.t_heap.t_xmax = \
 			NormalTransactionIdToShort( \
 				((tup)->t_data->t_infomask & HEAP_XMAX_IS_MULTI) ? HeapPageGetSpecial(page)->pd_multi_base : HeapPageGetSpecial(page)->pd_xid_base, \
+				((tup)->t_xmax)); \
+} while (0)
+
+#define ToastTupleHeaderSetXmax(page, tup) \
+do { \
+	if (HeapPageIsDoubleXmax(page)) \
+		HeapTupleHeaderSetDoubleXmax((tup)->t_data, (tup)->t_xmax); \
+	else \
+		(tup)->t_data->t_choice.t_heap.t_xmax = \
+			NormalTransactionIdToShort( \
+				ToastPageGetSpecial(page)->pd_xid_base, \
 				((tup)->t_xmax)); \
 } while (0)
 
@@ -755,46 +783,74 @@ struct MinimalTupleData
 #define HeapTupleClearHeapOnly(tuple) \
 		HeapTupleHeaderClearHeapOnly((tuple)->t_data)
 
+static inline void
+HeapTupleCopyXminFromPage(HeapTuple tup, void *page, bool is_toast)
+{
+	TransactionId			base;
+	ShortTransactionId		xmin;	/* short xmin from tuple header */
+
+	if (HeapTupleHeaderXminFrozen(tup->t_data))
+	{
+		tup->t_xmin = FrozenTransactionId;
+		return;
+	}
+
+	xmin = tup->t_data->t_choice.t_heap.t_xmin;
+
+	if (!TransactionIdIsNormal(xmin))
+		base = 0;
+	else if (is_toast)
+		base = ToastPageGetSpecial(page)->pd_xid_base;
+	else
+		base = HeapPageGetSpecial(page)->pd_xid_base;
+
+	tup->t_xmin = ShortTransactionIdToNormal(base, xmin);
+}
+
+static inline void
+HeapTupleCopyXmaxFromPage(HeapTuple tup, void *page, bool is_toast)
+{
+	TransactionId			base;
+	ShortTransactionId		xmax; /* short xmax from tuple header */
+
+	xmax = tup->t_data->t_choice.t_heap.t_xmax;
+
+	if (!TransactionIdIsNormal(xmax))
+		base = 0;
+	else if (is_toast)
+		/*
+		 * Toast page is not expected to have multixacts in chunks and
+		 * has shorter special.
+		 */
+		base = ToastPageGetSpecial(page)->pd_xid_base;
+	else if (tup->t_data->t_infomask & HEAP_XMAX_IS_MULTI)
+		base = HeapPageGetSpecial(page)->pd_multi_base;
+	else
+		base = HeapPageGetSpecial(page)->pd_xid_base;
+
+	tup->t_xmax = ShortTransactionIdToNormal(base, xmax);
+}
+
 /*
  * Copy base values for xid and multixacts from page to heap tuple.  Should be
  * called each time tuple is read from page.  Otherwise, it would be impossible
  * to correctly read tuple xmin and xmax.
  */
 static inline void
-HeapTupleCopyBaseFromPage(HeapTuple tup, void *page)
+HeapTupleCopyBaseFromPage(HeapTuple tup, void *page, bool is_toast)
 {
-	TransactionId		base;
-	HeapTupleHeader		tup_hdr = tup->t_data;
-
 	if (HeapPageIsDoubleXmax(page))
 	{
+		/*
+		 * On double xmax pages, xmax is extracted from tuple header.
+		 */
 		tup->t_xmin = FrozenTransactionId;
-		tup->t_xmax = HeapTupleHeaderGetDoubleXmax(tup_hdr);
+		tup->t_xmax = HeapTupleHeaderGetDoubleXmax(tup->t_data);
+		return;
 	}
-	else
-	{
-		if (HeapTupleHeaderXminFrozen(tup_hdr))
-			tup->t_xmin = FrozenTransactionId;
-		else if (TransactionIdIsNormal(tup_hdr->t_choice.t_heap.t_xmin))
-		{
-			base = HeapPageGetSpecial(page)->pd_xid_base;
-			tup->t_xmin = ShortTransactionIdToNormal(base,
-													 tup_hdr->t_choice.t_heap.t_xmin);
-		}
-		else
-			tup->t_xmin = (TransactionId) tup_hdr->t_choice.t_heap.t_xmin;
 
-		if (TransactionIdIsNormal(tup_hdr->t_choice.t_heap.t_xmax))
-		{
-			base = (tup_hdr->t_infomask & HEAP_XMAX_IS_MULTI) ?
-						HeapPageGetSpecial(page)->pd_multi_base :
-						HeapPageGetSpecial(page)->pd_xid_base;
-			tup->t_xmax = ShortTransactionIdToNormal(base,
-													 tup_hdr->t_choice.t_heap.t_xmax);
-		}
-		else
-			tup->t_xmax = (TransactionId) tup_hdr->t_choice.t_heap.t_xmax;
-	}
+	HeapTupleCopyXminFromPage(tup, page, is_toast);
+	HeapTupleCopyXmaxFromPage(tup, page, is_toast);
 }
 
 /* prototypes for functions in common/heaptuple.c */

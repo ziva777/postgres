@@ -14,6 +14,7 @@
 #include "access/htup_details.h"
 #include "access/visibilitymap.h"
 #include "access/xloginsert.h"
+#include "catalog/catalog.h"
 #include "catalog/pg_type.h"
 #include "catalog/storage_xlog.h"
 #include "funcapi.h"
@@ -657,7 +658,7 @@ collect_corrupt_items(Oid relid, bool all_visible, bool all_frozen)
 			tuple.t_data = (HeapTupleHeader) PageGetItem(page, itemid);
 			tuple.t_len = ItemIdGetLength(itemid);
 			tuple.t_tableOid = relid;
-			HeapTupleCopyBaseFromPage(&tuple, page);
+			HeapTupleCopyBaseFromPage(&tuple, page, IsToastRelation(rel));
 
 			/*
 			 * If we're checking whether the page is all-visible, we expect

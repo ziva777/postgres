@@ -46,6 +46,7 @@
 #include "access/xlog.h"
 #include "access/xloginsert.h"
 #include "catalog/index.h"
+#include "catalog/catalog.h"
 #include "catalog/storage.h"
 #include "commands/dbcommands.h"
 #include "commands/progress.h"
@@ -1443,9 +1444,14 @@ lazy_scan_new_or_empty(LVRelState *vacrel, Buffer buf, BlockNumber blkno,
 
 		if (GetRecordedFreeSpace(vacrel->rel, blkno) == 0)
 		{
-			freespace = BufferGetPageSize(buf)
-				- SizeOfPageHeaderData
-				- sizeof(HeapPageSpecialData);
+			if (RelationGetForm(vacrel->rel)->relkind == RELKIND_TOASTVALUE)
+				freespace = BufferGetPageSize(buf)
+					- SizeOfPageHeaderData
+					- sizeof(ToastPageSpecialData);
+			else
+				freespace = BufferGetPageSize(buf)
+					- SizeOfPageHeaderData
+					- sizeof(HeapPageSpecialData);
 
 			RecordPageWithFreeSpace(vacrel->rel, blkno, freespace);
 		}
@@ -1658,7 +1664,7 @@ retry:
 		tuple.t_data = (HeapTupleHeader) PageGetItem(page, itemid);
 		tuple.t_len = ItemIdGetLength(itemid);
 		tuple.t_tableOid = RelationGetRelid(rel);
-		HeapTupleCopyBaseFromPage(&tuple, page);
+		HeapTupleCopyBaseFromPage(&tuple, page, IsToastRelation(rel));
 
 		/*
 		 * DEAD tuples are almost always pruned into LP_DEAD line pointers by
@@ -1834,7 +1840,8 @@ retry:
 		{
 			itemid = PageGetItemId(page, frozen[i].offset);
 			htup = (HeapTupleHeader) PageGetItem(page, itemid);
-			heap_execute_freeze_tuple_page(page, htup, &frozen[i]);
+			heap_execute_freeze_tuple_page(page, htup, &frozen[i],
+										   IsToastRelation(vacrel->rel));
 		}
 
 		/* Now WAL-log freezing if necessary */
@@ -2002,7 +2009,7 @@ lazy_scan_noprune(LVRelState *vacrel,
 		tuple.t_data = (HeapTupleHeader) PageGetItem(page, itemid);
 		tuple.t_len = ItemIdGetLength(itemid);
 		tuple.t_tableOid = RelationGetRelid(vacrel->rel);
-		HeapTupleCopyBaseFromPage(&tuple, page);
+		HeapTupleCopyBaseFromPage(&tuple, page, IsToastRelation(vacrel->rel));
 
 		if (heap_tuple_would_freeze(&tuple,
 									vacrel->FreezeLimit,
@@ -3199,8 +3206,7 @@ heap_page_is_all_visible(LVRelState *vacrel, Buffer buf,
 		tuple.t_data = (HeapTupleHeader) PageGetItem(page, itemid);
 		tuple.t_len = ItemIdGetLength(itemid);
 		tuple.t_tableOid = RelationGetRelid(vacrel->rel);
-		HeapTupleCopyBaseFromPage(&tuple, page);
-
+		HeapTupleCopyBaseFromPage(&tuple, page, IsToastRelation(vacrel->rel));
 		switch (HeapTupleSatisfiesVacuum(&tuple, vacrel->OldestXmin, buf))
 		{
 			case HEAPTUPLE_LIVE:

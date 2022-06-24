@@ -41,11 +41,13 @@ RelationPutHeapTuple(Relation relation,
 	Page		pageHeader;
 	OffsetNumber offnum;
 
+	//elog(WARNING, ">>> %s:%d", __FILE__, __LINE__);
 	/*
 	 * A tuple that's being inserted speculatively should already have its
 	 * token set.
 	 */
 	Assert(!token || HeapTupleHeaderIsSpeculative(tuple->t_data));
+	//elog(WARNING, ">>> %s:%d", __FILE__, __LINE__);
 
 	/*
 	 * Do not allow tuples with invalid combinations of hint bits to be placed
@@ -53,26 +55,43 @@ RelationPutHeapTuple(Relation relation,
 	 * contrib/amcheck logic, so if you disable this assertion, make
 	 * corresponding changes there.
 	 */
+	//elog(WARNING, ">>> %s:%d", __FILE__, __LINE__);
 	Assert(!((tuple->t_data->t_infomask & HEAP_XMAX_COMMITTED) &&
 			 (tuple->t_data->t_infomask & HEAP_XMAX_IS_MULTI)));
 
 	/* Add the tuple to the page */
 	pageHeader = BufferGetPage(buffer);
 
+	//elog(WARNING, ">>> %s:%d", __FILE__, __LINE__);
 	HeapTupleSetXmin(tuple, tuple->t_xmin);
-	HeapTupleHeaderSetXmin(pageHeader, tuple);
+	//elog(WARNING, ">>> %s:%d", __FILE__, __LINE__);
+	if (RelationGetForm(relation)->relkind == RELKIND_TOASTVALUE)
+	{
+		ToastTupleHeaderSetXmin(pageHeader, tuple);
+		ToastTupleHeaderSetXmax(pageHeader, tuple);
+	}
+	else
+	{
+		HeapTupleHeaderSetXmin(pageHeader, tuple);
+		HeapTupleHeaderSetXmax(pageHeader, tuple);
+	}
+	//elog(WARNING, ">>> %s:%d", __FILE__, __LINE__);
 	HeapTupleSetXmax(tuple, tuple->t_xmax);
-	HeapTupleHeaderSetXmax(pageHeader, tuple);
+	//elog(WARNING, ">>> %s:%d", __FILE__, __LINE__);
+	//elog(WARNING, ">>> %s:%d", __FILE__, __LINE__);
 
 	offnum = PageAddItem(pageHeader, (Item) tuple->t_data,
 						 tuple->t_len, InvalidOffsetNumber, false, true);
 
+	//elog(WARNING, ">>> %s:%d", __FILE__, __LINE__);
 	if (offnum == InvalidOffsetNumber)
 		elog(PANIC, "failed to add tuple to page");
 
+	//elog(WARNING, ">>> %s:%d", __FILE__, __LINE__);
 	/* Update tuple->t_self to the actual position where it was stored */
 	ItemPointerSet(&(tuple->t_self), BufferGetBlockNumber(buffer), offnum);
 
+	//elog(WARNING, ">>> %s:%d", __FILE__, __LINE__);
 	/*
 	 * Insert the correct position into CTID of the stored tuple, too (unless
 	 * this is a speculative insertion, in which case the token is held in
@@ -533,8 +552,17 @@ loop:
 		 */
 		if (PageIsNew(page))
 		{
-			PageInit(page, BufferGetPageSize(buffer), sizeof(HeapPageSpecialData));
-			HeapPageGetSpecial(page)->pd_xid_base = RecentXmin - FirstNormalTransactionId;
+			if (RelationGetForm(relation)->relkind == RELKIND_TOASTVALUE)
+			{
+				PageInit(page, BufferGetPageSize(buffer), sizeof(ToastPageSpecialData));
+				ToastPageGetSpecial(page)->pd_xid_base = RecentXmin - FirstNormalTransactionId;
+			}
+			else
+			{
+				PageInit(page, BufferGetPageSize(buffer), sizeof(HeapPageSpecialData));
+				HeapPageGetSpecial(page)->pd_xid_base = RecentXmin - FirstNormalTransactionId;
+			}
+
 			MarkBufferDirty(buffer);
 		}
 
@@ -645,8 +673,17 @@ loop:
 			 BufferGetBlockNumber(buffer),
 			 RelationGetRelationName(relation));
 
-	PageInit(page, BufferGetPageSize(buffer), sizeof(HeapPageSpecialData));
-	HeapPageGetSpecial(page)->pd_xid_base = RecentXmin - FirstNormalTransactionId;
+	if (RelationGetForm(relation)->relkind == RELKIND_TOASTVALUE)
+	{
+		PageInit(page, BufferGetPageSize(buffer), sizeof(ToastPageSpecialData));
+		ToastPageGetSpecial(page)->pd_xid_base = RecentXmin - FirstNormalTransactionId;
+	}
+	else
+	{
+		PageInit(page, BufferGetPageSize(buffer), sizeof(HeapPageSpecialData));
+		HeapPageGetSpecial(page)->pd_xid_base = RecentXmin - FirstNormalTransactionId;
+	}
+
 	MarkBufferDirty(buffer);
 
 	/*

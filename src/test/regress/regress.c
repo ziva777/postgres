@@ -23,6 +23,7 @@
 #include "access/htup_details.h"
 #include "access/transam.h"
 #include "access/xact.h"
+#include "catalog/catalog.h"
 #include "catalog/namespace.h"
 #include "catalog/pg_operator.h"
 #include "catalog/pg_type.h"
@@ -1429,7 +1430,7 @@ FillRelCheckValues(Relation rel)
 			}
 			else
 			{
-				HeapTupleCopyBaseFromPage(&tuple, page);
+				HeapTupleCopyBaseFromPage(&tuple, page, IsToastRelation(rel));
 
 				xmin = HeapTupleGetRawXmin(&tuple);
 				xmax = HeapTupleGetRawXmax(&tuple);
