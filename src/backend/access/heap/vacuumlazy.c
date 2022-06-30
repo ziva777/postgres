@@ -1444,14 +1444,14 @@ lazy_scan_new_or_empty(LVRelState *vacrel, Buffer buf, BlockNumber blkno,
 
 		if (GetRecordedFreeSpace(vacrel->rel, blkno) == 0)
 		{
-			if (RelationGetForm(vacrel->rel)->relkind == RELKIND_TOASTVALUE)
-				freespace = BufferGetPageSize(buf)
-					- SizeOfPageHeaderData
-					- sizeof(ToastPageSpecialData);
-			else
-				freespace = BufferGetPageSize(buf)
-					- SizeOfPageHeaderData
-					- sizeof(HeapPageSpecialData);
+			Size		special_size;
+
+			special_size = IsToastRelation(vacrel->rel) ?
+								sizeof(ToastPageSpecialData) :
+								sizeof(HeapPageSpecialData);
+			freespace = BufferGetPageSize(buf)
+						- SizeOfPageHeaderData
+						- special_size;
 
 			RecordPageWithFreeSpace(vacrel->rel, blkno, freespace);
 		}

@@ -1423,7 +1423,7 @@ FillRelCheckValues(Relation rel)
 			tuple.t_len = ItemIdGetLength(itemid);
 			tuple.t_tableOid = RelationGetRelid(rel);
 
-			if (HeapPageGetSpecial(page) == doubleXmaxSpecial)
+			if (HeapPageGetSpecial(page) == heapDoubleXmaxSpecial)
 			{
 				xmin = tuphdr->t_choice.t_heap.t_xmin;
 				xmax = tuphdr->t_choice.t_heap.t_xmax;

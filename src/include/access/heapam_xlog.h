@@ -243,6 +243,8 @@ typedef struct xl_heap_update
  *
  * Acquires a full cleanup lock.
  */
+#define XLH_PRUNE_ON_TOAST_RELATION		0x01
+
 typedef struct xl_heap_prune
 {
 	TransactionId latestRemovedXid;
@@ -251,8 +253,6 @@ typedef struct xl_heap_prune
 	uint8		flags;
 	/* OFFSET NUMBERS are in the block reference 0 */
 } xl_heap_prune;
-
-#define XLH_PRUNE_ON_TOAST_RELATION		0x01
 
 #define SizeOfHeapPrune (offsetof(xl_heap_prune, flags) + sizeof(uint8))
 

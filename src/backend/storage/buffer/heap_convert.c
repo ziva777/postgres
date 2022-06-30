@@ -325,10 +325,11 @@ xids_fit_page(TransactionId xid_min, TransactionId xid_max,
  * page special.
  */
 static inline void
-heap_page_set_base(Relation relation, Page page,
+heap_page_set_base(Page page,
 				   TransactionId xid_min, TransactionId xid_max,
 				   MultiXactId multi_min, MultiXactId multi_max,
-				   TransactionId *xid_base, MultiXactId *multi_base)
+				   TransactionId *xid_base, MultiXactId *multi_base,
+				   bool is_toast)
 {
 	PageHeader			hdr = (PageHeader) page;
 
@@ -342,9 +343,10 @@ heap_page_set_base(Relation relation, Page page,
 	else
 		*multi_base = InvalidMultiXactId;
 
-	if (IsToastRelation(relation))
+	if (is_toast)
 	{
 		ToastPageSpecial		special;
+
 		hdr->pd_special = BLCKSZ - MAXALIGN(sizeof(ToastPageSpecialData));
 		special = ToastPageGetSpecial(page);
 		special->pd_xid_base = *xid_base;
@@ -352,6 +354,7 @@ heap_page_set_base(Relation relation, Page page,
 	else
 	{
 		HeapPageSpecial		special;
+
 		hdr->pd_special = BLCKSZ - MAXALIGN(sizeof(HeapPageSpecialData));
 		special = HeapPageGetSpecial(page);
 		special->pd_xid_base = *xid_base;
@@ -375,7 +378,8 @@ repack_heap_tuples(Relation rel, Page page, Buffer buf, BlockNumber blkno,
 						occupied_space = 0;
 	Offset				upper;
 	bool				double_xmax,
-						special_fits;
+						special_fits,
+						toast;
 	PageHeader			hdr = (PageHeader) page,
 						new_hdr;
 	char				new_page[BLCKSZ] = {0};
@@ -385,6 +389,8 @@ repack_heap_tuples(Relation rel, Page page, Buffer buf, BlockNumber blkno,
 	TransactionId		xid_base = rel->rd_rel->relfrozenxid,
 						xid_min = MaxTransactionId,
 						xid_max = InvalidTransactionId;
+
+	toast = IsToastRelation(rel);
 
 	if (TransactionIdIsNormal(hdr->pd_prune_xid))
 		xid_min = xid_max = hdr->pd_prune_xid;
@@ -457,8 +463,13 @@ repack_heap_tuples(Relation rel, Page page, Buffer buf, BlockNumber blkno,
 	/* Page in 32-bit xid format should not have PageSpecial. */
 	Assert(PageGetSpecialSize(new_page) == 0);
 
-	special_fits = BLCKSZ - new_hdr->pd_lower - occupied_space >=
-					sizeof(HeapPageSpecialData);
+	if (toast)
+		special_fits = BLCKSZ - new_hdr->pd_lower - occupied_space >=
+						sizeof(ToastPageSpecialData);
+	else
+		special_fits = BLCKSZ - new_hdr->pd_lower - occupied_space >=
+						sizeof(HeapPageSpecialData);
+
 	double_xmax = !special_fits ||
 				  !xids_fit_page(xid_min, xid_max, multi_min, multi_max);
 
@@ -467,12 +478,13 @@ repack_heap_tuples(Relation rel, Page page, Buffer buf, BlockNumber blkno,
 		Assert(xid_max == InvalidTransactionId || xid_max >= xid_min);
 		Assert(multi_max == InvalidMultiXactId || multi_max >= multi_min);
 
-		heap_page_set_base(rel, new_page,
+		heap_page_set_base(new_page,
 						   xid_min, xid_max,
 						   multi_min, multi_max,
-						   &xid_base, &multi_base);
+						   &xid_base, &multi_base,
+						   toast);
 
-		HeapPageSetPruneXid(new_page, new_hdr->pd_prune_xid);
+		HeapPageSetPruneXid(new_page, new_hdr->pd_prune_xid, toast);
 	}
 	else
 	{

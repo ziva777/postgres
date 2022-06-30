@@ -91,6 +91,17 @@ static void heap_prune_record_dead(PruneState *prstate, OffsetNumber offnum);
 static void heap_prune_record_unused(PruneState *prstate, OffsetNumber offnum);
 static void page_verify_redirects(Page page);
 
+static inline bool
+XidFitsPage(Page page, TransactionId xid, bool is_toast)
+{
+	TransactionId	base;
+
+	base = is_toast ? ToastPageGetSpecial(page)->pd_xid_base :
+					  HeapPageGetSpecial(page)->pd_xid_base;
+
+	return xid >= base + FirstNormalTransactionId &&
+		   xid <= base + MaxShortTransactionId;
+}
 
 /*
  * Optionally prune and repair fragmentation in the specified page.
@@ -136,10 +147,7 @@ heap_page_prune_opt(Relation relation, Buffer buffer)
 	 * determining the appropriate horizon is a waste if there's no prune_xid
 	 * (i.e. no updates/deletes left potentially dead tuples around).
 	 */
-	if (IsToastRelation(relation))
-		prune_xid = ToastPageGetPruneXidNoAssert(page);
-	else
-		prune_xid = HeapPageGetPruneXidNoAssert(page);
+	prune_xid = HeapPageGetPruneXidNoAssert(page, IsToastRelation(relation));
 
 	if (!TransactionIdIsValid(prune_xid))
 		return;
@@ -407,13 +415,9 @@ heap_page_prune(Relation relation, Buffer buffer,
 		 * Update the page's pd_prune_xid field to either zero, or the lowest
 		 * XID of any soon-prunable tuple.
 		 */
-		if (XidFitsPage(IsToastRelation(relation), page, prstate.new_prune_xid))
-		{
-			if (IsToastRelation(relation))
-				ToastPageSetPruneXid(page, prstate.new_prune_xid);
-			else
-				HeapPageSetPruneXid(page, prstate.new_prune_xid);
-		}
+		if (XidFitsPage(page, prstate.new_prune_xid, IsToastRelation(relation)))
+			HeapPageSetPruneXid(page, prstate.new_prune_xid,
+								IsToastRelation(relation));
 
 		/*
 		 * Also clear the "page is full" flag, since there's no point in
@@ -435,11 +439,9 @@ heap_page_prune(Relation relation, Buffer buffer,
 			xlrec.latestRemovedXid = prstate.latestRemovedXid;
 			xlrec.nredirected = prstate.nredirected;
 			xlrec.ndead = prstate.ndead;
-
+			xlrec.flags = 0;
 			if (IsToastRelation(relation))
 				xlrec.flags |= XLH_PRUNE_ON_TOAST_RELATION;
-			else
-				xlrec.flags &= ~XLH_PRUNE_ON_TOAST_RELATION;
 
 			XLogBeginInsert();
 			XLogRegisterData((char *) &xlrec, SizeOfHeapPrune);
@@ -480,25 +482,14 @@ heap_page_prune(Relation relation, Buffer buffer,
 		 * point in repeating the prune/defrag process until something else
 		 * happens to the page.
 		 */
-		if (IsToastRelation(relation))
+		bool	is_toast = IsToastRelation(relation);
+
+		if (HeapPageGetPruneXid(page, is_toast) != prstate.new_prune_xid ||
+			PageIsFull(page))
 		{
-			if (ToastPageGetPruneXid(page) != prstate.new_prune_xid ||
-				PageIsFull(page))
-			{
-				ToastPageSetPruneXid(page, prstate.new_prune_xid);
-				PageClearFull(page);
-				MarkBufferDirtyHint(buffer, true);
-			}
-		}
-		else
-		{
-			if (HeapPageGetPruneXid(page) != prstate.new_prune_xid ||
-				PageIsFull(page))
-			{
-				HeapPageSetPruneXid(page, prstate.new_prune_xid);
-				PageClearFull(page);
-				MarkBufferDirtyHint(buffer, true);
-			}
+			HeapPageSetPruneXid(page, prstate.new_prune_xid, is_toast);
+			PageClearFull(page);
+			MarkBufferDirtyHint(buffer, true);
 		}
 	}
 

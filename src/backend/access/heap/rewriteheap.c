@@ -721,10 +721,12 @@ raw_heap_insert(RewriteState state, HeapTuple tup)
 			PageInit(page, BLCKSZ, 0);
 		else
 		{
-			if (IsToastRelation(state->rs_new_rel))
-				PageInit(page, BLCKSZ, sizeof(ToastPageSpecialData));
-			else
-				PageInit(page, BLCKSZ, sizeof(HeapPageSpecialData));
+			Size	special_size;
+
+			special_size = IsToastRelation(state->rs_new_rel) ?
+								sizeof(ToastPageSpecialData) :
+								sizeof(HeapPageSpecialData);
+			PageInit(page, BLCKSZ, special_size);
 		}
 		state->rs_buffer_valid = true;
 	}

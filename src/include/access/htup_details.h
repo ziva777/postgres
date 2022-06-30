@@ -19,8 +19,6 @@
 #include "access/tupdesc.h"
 #include "access/tupmacs.h"
 #include "storage/bufpage.h"
-#include "utils/relcache.h"
-#include "utils/rel.h"
 
 /*
  * MaxTupleAttributeNumber limits the number of (user) columns in a tuple.
@@ -372,13 +370,13 @@ do { \
 #define HeapTupleHeaderSetXmin(page, tup) \
 ( \
 	AssertMacro(!HeapPageIsDoubleXmax(page)), \
-	(tup)->t_data->t_choice.t_heap.t_xmin = NormalTransactionIdToShort(HeapPageGetSpecialNoAssert(page)->pd_xid_base, (tup)->t_xmin) \
+	(tup)->t_data->t_choice.t_heap.t_xmin = NormalTransactionIdToShort(HeapPageGetSpecial(page)->pd_xid_base, (tup)->t_xmin) \
 )
 
 #define ToastTupleHeaderSetXmin(page, tup) \
 ( \
 	AssertMacro(!HeapPageIsDoubleXmax(page)), \
-	(tup)->t_data->t_choice.t_heap.t_xmin = NormalTransactionIdToShort(ToastPageGetSpecialNoAssert(page)->pd_xid_base, (tup)->t_xmin) \
+	(tup)->t_data->t_choice.t_heap.t_xmin = NormalTransactionIdToShort(ToastPageGetSpecial(page)->pd_xid_base, (tup)->t_xmin) \
 )
 
 #define HeapTupleHeaderXminCommitted(tup) \

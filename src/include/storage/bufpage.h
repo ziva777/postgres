@@ -198,187 +198,8 @@ typedef struct ToastPageSpecialData
 
 typedef ToastPageSpecialData *ToastPageSpecial;
 
-extern PGDLLIMPORT HeapPageSpecial doubleXmaxSpecial;
+extern PGDLLIMPORT HeapPageSpecial heapDoubleXmaxSpecial;
 extern PGDLLIMPORT ToastPageSpecial toastDoubleXmaxSpecial;
-
-/*
- * Check if page is in "double xmax" format
- */
-static inline bool
-HeapPageIsDoubleXmax(Page page)
-{
-	return ((PageHeader) (page))->pd_special == BLCKSZ;
-}
-
-/*
- * Get pointer to HeapPageSpecialData.
- *
- * Return doubleXmaxSpecial when pd_special == BLCKSZ.  See comment in bufpage.c
- * for details.
- */
-static inline HeapPageSpecial
-HeapPageGetSpecial(Page page)
-{
-	PageHeader hdr = (PageHeader) page;
-
-	if (HeapPageIsDoubleXmax(page))
-		return doubleXmaxSpecial;
-
-	Assert(hdr->pd_special == BLCKSZ - MAXALIGN(sizeof(HeapPageSpecialData)));
-	return (HeapPageSpecial) ((Pointer) (page) + hdr->pd_special);
-}
-
-/*
- * Get pointer to ToastPageSpecialData.
- *
- * Return doubleXmaxSpecial when pd_special == BLCKSZ.  See comment in bufpage.c
- * for details.
- */
-static inline ToastPageSpecial
-ToastPageGetSpecial(Page page)
-{
-	PageHeader hdr = (PageHeader) page;
-
-	if (HeapPageIsDoubleXmax(page))
-		return toastDoubleXmaxSpecial;
-
-	Assert(hdr->pd_special == BLCKSZ - MAXALIGN(sizeof(ToastPageSpecialData)));
-	return (ToastPageSpecial) ((Pointer) (page) + hdr->pd_special);
-}
-
-/*
- * Version of HeapPageGetSpecial() without assertions about pd_special.  Used
- * for non-consistent reads from non-locked pages.
- */
-static inline HeapPageSpecial
-HeapPageGetSpecialNoAssert(Page page)
-{
-	PageHeader hdr = (PageHeader) page;
-
-	if (HeapPageIsDoubleXmax(page))
-		return doubleXmaxSpecial;
-
-	return (HeapPageSpecial) ((Pointer) (page) + hdr->pd_special);
-}
-
-/*
- * Version of ToastPageGetSpecial() without assertions about pd_special.  Used
- * for non-consistent reads from non-locked pages.
- */
-static inline ToastPageSpecial
-ToastPageGetSpecialNoAssert(Page page)
-{
-	PageHeader hdr = (PageHeader) page;
-
-	if (HeapPageIsDoubleXmax(page))
-		return toastDoubleXmaxSpecial;
-
-	return (ToastPageSpecial) ((Pointer) (page) + hdr->pd_special);
-}
-
-/*
- * Set pd_prune_xid.
- */
-static inline void
-HeapPageSetPruneXid(Page page, TransactionId xid)
-{
-	if (HeapPageIsDoubleXmax(page))
-		return;
-
-	if (!TransactionIdIsNormal(xid))
-	{
-		((PageHeader) (page))->pd_prune_xid = xid;
-		return;
-	}
-
-	((PageHeader) (page))->pd_prune_xid =
-		NormalTransactionIdToShort(HeapPageGetSpecial(page)->pd_xid_base, (xid));
-
-	Assert(((PageHeader) (page))->pd_prune_xid <= MaxShortTransactionId);
-}
-
-static inline void
-ToastPageSetPruneXid(Page page, TransactionId xid)
-{
-	if (HeapPageIsDoubleXmax(page))
-		return;
-
-	if (!TransactionIdIsNormal(xid))
-	{
-		((PageHeader) (page))->pd_prune_xid = xid;
-		return;
-	}
-
-	((PageHeader) (page))->pd_prune_xid =
-		NormalTransactionIdToShort(ToastPageGetSpecial(page)->pd_xid_base, (xid));
-
-	Assert(((PageHeader) (page))->pd_prune_xid <= MaxShortTransactionId);
-}
-
-/*
- * Get pd_prune_xid from locked page.
- */
-static inline TransactionId
-HeapPageGetPruneXid(Page page)
-{
-	if (HeapPageIsDoubleXmax(page))
-		return ((PageHeader) (page))->pd_prune_xid;
-
-	return ShortTransactionIdToNormal(HeapPageGetSpecial(page)->pd_xid_base,
-									  ((PageHeader) (page))->pd_prune_xid);
-}
-
-static inline TransactionId
-ToastPageGetPruneXid(Page page)
-{
-	if (HeapPageIsDoubleXmax(page))
-		return ((PageHeader) (page))->pd_prune_xid;
-
-	return ShortTransactionIdToNormal(ToastPageGetSpecial(page)->pd_xid_base,
-									  ((PageHeader) (page))->pd_prune_xid);
-}
-
-/*
- * Get pd_prune_xid from non-locked page.  May return invalid value, but doen't
- * causes assert failures.
- */
-static inline TransactionId
-HeapPageGetPruneXidNoAssert(Page page)
-{
-	if (HeapPageIsDoubleXmax(page))
-		return ((PageHeader) (page))->pd_prune_xid;
-
-	return ShortTransactionIdToNormal(HeapPageGetSpecialNoAssert(page)->pd_xid_base,
-									  ((PageHeader) (page))->pd_prune_xid);
-}
-
-static inline TransactionId
-ToastPageGetPruneXidNoAssert(Page page)
-{
-	if (HeapPageIsDoubleXmax(page))
-		return ((PageHeader) (page))->pd_prune_xid;
-
-	return ShortTransactionIdToNormal(ToastPageGetSpecialNoAssert(page)->pd_xid_base,
-									  ((PageHeader) (page))->pd_prune_xid);
-}
-
-static inline bool 
-XidFitsPage(bool is_toast, Page page, TransactionId xid)
-{
-	if (is_toast)
-	{
-		return (xid) >= ToastPageGetSpecial(page)->pd_xid_base + FirstNormalTransactionId &&
-			   (xid) <= ToastPageGetSpecial(page)->pd_xid_base + MaxShortTransactionId;
-	}
-
-	return (xid) >= HeapPageGetSpecial(page)->pd_xid_base + FirstNormalTransactionId &&
-		   (xid) <= HeapPageGetSpecial(page)->pd_xid_base + MaxShortTransactionId;
-}
-/*#define XidFitsPage(is_toast, page, xid) \
-( \
-	(xid) >= HeapPageGetSpecial(page)->pd_xid_base + FirstNormalTransactionId && \
-	(xid) <= HeapPageGetSpecial(page)->pd_xid_base + MaxShortTransactionId \
-)*/
 
 /*
  * pd_flags contains the following flag bits.  Undefined bits are initialized
@@ -671,25 +492,177 @@ PageClearAllVisible(Page page)
 }
 
 /*
- * These two require "access/transam.h", so left as macros.
+ * Check if page is in "double xmax" format.
  */
-#define PageSetPrunable(page, xid) \
-do { \
-	Assert(TransactionIdIsNormal(xid)); \
-	if (!HeapPageIsDoubleXmax(page) && \
-			(!TransactionIdIsValid(HeapPageGetPruneXid(page)) || \
-			 TransactionIdPrecedes(xid, HeapPageGetPruneXid(page)))) \
-		HeapPageSetPruneXid(page, xid); \
-} while (0)
+static inline bool
+HeapPageIsDoubleXmax(Page page)
+{
+	return ((PageHeader) (page))->pd_special == BLCKSZ;
+}
 
-#define ToastPageSetPrunable(page, xid) \
-do { \
-	Assert(TransactionIdIsNormal(xid)); \
-	if (!HeapPageIsDoubleXmax(page) && \
-			(!TransactionIdIsValid(ToastPageGetPruneXid(page)) || \
-			 TransactionIdPrecedes(xid, ToastPageGetPruneXid(page)))) \
-		ToastPageSetPruneXid(page, xid); \
-} while (0)
+/*
+ * Get pointer to HeapPageSpecialData.
+ *
+ * Can be used for non-consistent reads from non-locked pages.
+ *
+ * Return doubleXmaxSpecial when pd_special == BLCKSZ (i.e. "double xmax"
+ * format).
+ */
+static inline HeapPageSpecial
+HeapPageGetSpecialNoAssert(Page page)
+{
+	if (HeapPageIsDoubleXmax(page))
+		return heapDoubleXmaxSpecial;
+
+	return (HeapPageSpecial) ((char *) page +
+							  ((PageHeader) page)->pd_special);
+}
+
+/*
+ * Get pointer to ToastPageSpecialData.
+ *
+ * Can be used for non-consistent reads from non-locked pages.
+ *
+ * Return doubleXmaxSpecial when pd_special == BLCKSZ (i.e. "double xmax"
+ * format).
+ */
+static inline ToastPageSpecial
+ToastPageGetSpecialNoAssert(Page page)
+{
+	if (HeapPageIsDoubleXmax(page))
+		return toastDoubleXmaxSpecial;
+
+	return (ToastPageSpecial) ((char *) page +
+							   ((PageHeader) page)->pd_special);
+}
+
+/*
+ * Wrapper for HeapPageGetSpecialNoAssert for general use.
+ */
+static inline HeapPageSpecial
+HeapPageGetSpecial(Page page)
+{
+	if (HeapPageIsDoubleXmax(page))
+		return heapDoubleXmaxSpecial;
+
+	Assert(((PageHeader) page)->pd_special ==
+		   BLCKSZ - MAXALIGN(sizeof(HeapPageSpecialData)));
+
+	return (HeapPageSpecial) ((char *) page +
+							  ((PageHeader) page)->pd_special);
+}
+
+/*
+ * Wrapper for ToastPageGetSpecialNoAssert for general use.
+ */
+static inline ToastPageSpecial
+ToastPageGetSpecial(Page page)
+{
+	if (HeapPageIsDoubleXmax(page))
+		return toastDoubleXmaxSpecial;
+
+	Assert(((PageHeader) page)->pd_special ==
+		   BLCKSZ - MAXALIGN(sizeof(ToastPageSpecialData)));
+
+	return (ToastPageSpecial) ((char *) page +
+							   ((PageHeader) page)->pd_special);
+}
+
+/*
+ * Set pd_prune_xid.
+ */
+static inline void
+HeapPageSetPruneXid(Page page, TransactionId xid, bool is_toast)
+{
+	TransactionId	base;
+
+	if (HeapPageIsDoubleXmax(page))
+		return;
+
+	if (!TransactionIdIsNormal(xid))
+	{
+		((PageHeader) (page))->pd_prune_xid = xid;
+		return;
+	}
+
+	base = is_toast ? ToastPageGetSpecial(page)->pd_xid_base :
+					  HeapPageGetSpecial(page)->pd_xid_base;
+
+	((PageHeader) (page))->pd_prune_xid = NormalTransactionIdToShort(base, xid);
+	Assert(((PageHeader) (page))->pd_prune_xid <= MaxShortTransactionId);
+}
+
+static inline void
+ToastPageSetPruneXid(Page page, TransactionId xid)
+{
+	if (HeapPageIsDoubleXmax(page))
+		return;
+
+	if (!TransactionIdIsNormal(xid))
+	{
+		((PageHeader) (page))->pd_prune_xid = xid;
+		return;
+	}
+
+	((PageHeader) (page))->pd_prune_xid =
+		NormalTransactionIdToShort(ToastPageGetSpecial(page)->pd_xid_base, (xid));
+
+	Assert(((PageHeader) (page))->pd_prune_xid <= MaxShortTransactionId);
+}
+
+/*
+ * Get pd_prune_xid from locked page.
+ */
+static inline TransactionId
+HeapPageGetPruneXid(Page page, bool is_toast)
+{
+	TransactionId	base;
+
+	if (HeapPageIsDoubleXmax(page))
+		return ((PageHeader) (page))->pd_prune_xid;
+
+	base = is_toast ? ToastPageGetSpecial(page)->pd_xid_base :
+					  HeapPageGetSpecial(page)->pd_xid_base;
+
+	return ShortTransactionIdToNormal(base,
+									  ((PageHeader) (page))->pd_prune_xid);
+}
+
+static inline void
+PageSetPrunable(Page page, TransactionId xid, bool is_toast)
+{
+	TransactionId	prune_xid;
+
+	Assert(TransactionIdIsNormal(xid));
+
+	if (HeapPageIsDoubleXmax(page))
+		return;
+
+	prune_xid = HeapPageGetPruneXid(page, is_toast);
+	if ((!TransactionIdIsValid(prune_xid) ||
+		TransactionIdPrecedes(xid, prune_xid)))
+	{
+		HeapPageSetPruneXid(page, xid, is_toast);
+	}
+}
+
+/*
+ * Get pd_prune_xid from non-locked page.  May return invalid value, but doen't
+ * causes assert failures.
+ */
+static inline TransactionId
+HeapPageGetPruneXidNoAssert(Page page, bool is_toast)
+{
+	TransactionId	base;
+
+	if (HeapPageIsDoubleXmax(page))
+		return ((PageHeader) (page))->pd_prune_xid;
+
+	base = is_toast ? ToastPageGetSpecialNoAssert(page)->pd_xid_base :
+					  HeapPageGetSpecialNoAssert(page)->pd_xid_base;
+	return ShortTransactionIdToNormal(base,
+									  ((PageHeader) (page))->pd_prune_xid);
+}
 
 /* ----------------------------------------------------------------
  *		extern declarations

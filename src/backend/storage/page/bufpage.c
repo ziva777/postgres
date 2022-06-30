@@ -34,12 +34,12 @@ bool		ignore_checksum_failure = false;
  * while 64-bit xmax is stored in both t_heap.t_xmin and t_heap.t_xmax.
  * This is so-called "double xmax" format.
  */
-static HeapPageSpecialData doubleXmaxSpecialData =
+static HeapPageSpecialData heapDoubleXmaxSpecialData =
 {
 	.pd_xid_base = MaxTransactionId,
 	.pd_multi_base = MaxTransactionId
 };
-HeapPageSpecial doubleXmaxSpecial = &doubleXmaxSpecialData;
+HeapPageSpecial heapDoubleXmaxSpecial = &heapDoubleXmaxSpecialData;
 
 static ToastPageSpecialData toastDoubleXmaxSpecialData =
 {
@@ -620,8 +620,8 @@ heap_page_add_special_area(ItemIdCompact itemidbase, int nitems, Page page,
  * Callers must ensure that nitems is > 0
  */
 static void
-compactify_tuples(bool is_toast, ItemIdCompact itemidbase, int nitems, Page page,
-				  bool presorted, bool addspecial)
+compactify_tuples(ItemIdCompact itemidbase, int nitems, Page page,
+				  bool presorted, bool addspecial, bool is_toast)
 {
 	PageHeader	phdr = (PageHeader) page;
 	Offset		upper;
@@ -987,21 +987,21 @@ PageRepairFragmentation(Page page, bool is_toast)
 		 * Try to add special area to the heap page if it has enough of free
 		 * space.
 		 */
-		if (is_toast)
+		if (pd_special == PageGetPageSize(page))
 		{
-			if (pd_special == PageGetPageSize(page) &&
-				(Size) (pd_special - pd_lower) - totallen >= sizeof(ToastPageSpecialData))
-				addspecial = true;
-		}
-		else
-		{
-			if (pd_special == PageGetPageSize(page) &&
-				(Size) (pd_special - pd_lower) - totallen >= sizeof(HeapPageSpecialData))
+			Size	special_size,
+					actual_size;
+
+			special_size = is_toast ? sizeof(ToastPageSpecialData) :
+									  sizeof(HeapPageSpecialData);
+			actual_size = (Size) (pd_special - pd_lower) - totallen;
+
+			if (actual_size >= special_size)
 				addspecial = true;
 		}
 
-		compactify_tuples(is_toast,
-						  itemidbase, nstorage, page, presorted, addspecial);
+		compactify_tuples(itemidbase, nstorage, page, presorted, addspecial,
+						  is_toast);
 	}
 
 	if (finalusedlp != nline)
@@ -1491,11 +1491,10 @@ PageIndexMultiDelete(Page page, OffsetNumber *itemnos, int nitems)
 	/* and compactify the tuple data */
 	if (nused > 0)
 	{
-		bool	is_toast = false;
+		bool	is_toast;
 
-		if (BLCKSZ - pd_special == sizeof(ToastPageSpecialData))
-			is_toast = true;
-		compactify_tuples(is_toast, itemidbase, nused, page, presorted, false);
+		is_toast = BLCKSZ - pd_special == sizeof(ToastPageSpecialData);
+		compactify_tuples(itemidbase, nused, page, presorted, false, is_toast);
 	}
 	else
 		phdr->pd_upper = pd_special;

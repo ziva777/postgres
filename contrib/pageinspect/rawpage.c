@@ -326,15 +326,27 @@ page_header(PG_FUNCTION_ARGS)
 
 		values[8] = TransactionIdGetDatum(pageSpecial->pd_xid_base);
 		values[9] = TransactionIdGetDatum(pageSpecial->pd_multi_base);
-		values[10] = TransactionIdGetDatum(HeapPageGetPruneXidNoAssert((Page) page));
+		values[10] = TransactionIdGetDatum(HeapPageGetPruneXidNoAssert((Page) page,
+																	   false));
 		nulls[8] = false;
 		nulls[9] = false;
+		nulls[10] = false;
+	}
+	else if (PageGetSpecialSize(page) == MAXALIGN(sizeof(ToastPageSpecialData)))
+	{
+		ToastPageSpecial pageSpecial = ToastPageGetSpecial((Page) page);
+
+		values[8] = TransactionIdGetDatum(pageSpecial->pd_xid_base);
+		values[10] = TransactionIdGetDatum(HeapPageGetPruneXidNoAssert((Page) page,
+																	   true));
+		nulls[8] = false;
 		nulls[10] = false;
 	}
 	else
 	{
 		nulls[8] = false;
-		values[8] = TransactionIdGetDatum(HeapPageGetPruneXidNoAssert((Page) page));
+		values[8] = TransactionIdGetDatum(HeapPageGetPruneXidNoAssert((Page) page,
+																	  false));
 		nulls[9] = true;
 		nulls[10] = true;
 	}
