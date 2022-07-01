@@ -83,7 +83,7 @@ $$ language sql;
 create table toasttest_main(t text);
 alter table toasttest_main alter column t set storage main;
 
-insert into toasttest_main (select random_string(len) from generate_series(8000,9000) len);
+insert into toasttest_main (select random_string(len) from generate_series(7000,8000) len);
 
 DROP TABLE indtoasttest;
 DROP TABLE toasttest_main;

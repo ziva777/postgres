@@ -1534,7 +1534,7 @@ xid64_test_3(PG_FUNCTION_ARGS)
 				 (unsigned long long) after.tcv[i].xmax);
 	}
 
-	elog(INFO, "test 3: %u pages are tested", npages);
+	Assert(npages != 0);
 
 	pfree(before.tcv);
 	pfree(after.tcv);
@@ -1607,7 +1607,7 @@ xid64_test_double_xmax(PG_FUNCTION_ARGS)
 	if (!found)
 		elog(ERROR, "test double xmax: failed, no double xmax");
 
-	elog(INFO, "test double xmax: %u pages are tested", npages);
+	Assert(npages != 0);
 	elog(INFO, "test double xmax: end");
 
 	relation_close(rel, AccessExclusiveLock);
