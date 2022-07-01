@@ -20,7 +20,7 @@ CREATE FUNCTION xid64_test_double_xmax(rel regclass) RETURNS VOID
 ---
 --- Check page consistency after conversion (on empty page)
 ---
-CREATE TABLE test_xid64_table(a int);
+CREATE UNLOGGED TABLE test_xid64_table(a int);
 ALTER TABLE test_xid64_table SET (autovacuum_enabled = false);
 INSERT INTO test_xid64_table(a) SELECT a FROM generate_series(1, 1000) AS a;
 SELECT xid64_test_1('test_xid64_table');
@@ -29,7 +29,7 @@ DROP TABLE test_xid64_table;
 ---
 --- Check page consistency after conversion (on actual page)
 ---
-CREATE TABLE test_xid64_table(a int);
+CREATE UNLOGGED TABLE test_xid64_table(a int);
 ALTER TABLE test_xid64_table SET (autovacuum_enabled = false);
 INSERT INTO test_xid64_table(a) SELECT a FROM generate_series(1, 1000) AS a;
 SELECT xid64_test_2('test_xid64_table');
@@ -38,7 +38,7 @@ DROP TABLE test_xid64_table;
 ---
 --- Check tuples consistency after conversion
 ---
-CREATE TABLE test_xid64_table(s serial, i int, t text);
+CREATE UNLOGGED TABLE test_xid64_table(s serial, i int, t text);
 ALTER TABLE test_xid64_table SET (autovacuum_enabled = false);
 
 DO $$
@@ -63,7 +63,7 @@ DROP TABLE test_xid64_table;
 ---
 --- Check tuples consistency after conversion to double xmax (on full page)
 ---
-CREATE TABLE test_xid64_table(i int);
+CREATE UNLOGGED TABLE test_xid64_table(i int);
 
 DO $$
 BEGIN
@@ -76,9 +76,9 @@ END $$;
 SELECT xid64_test_3('test_xid64_table');
 DROP TABLE test_xid64_table;
 
-CREATE TABLE test_xid64_table(i text);
+CREATE UNLOGGED TABLE test_xid64_table(i text);
 INSERT INTO test_xid64_table(i) VALUES ('NNBABCDSDFGHJKLP');
-CREATE TABLE test_xid64_table(i int);
+CREATE UNLOGGED TABLE test_xid64_table(i int);
 
 DO $$
 BEGIN
