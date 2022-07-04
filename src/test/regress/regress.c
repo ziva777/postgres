@@ -1285,7 +1285,8 @@ CheckNewPage(char *msg, Page page)
 }
 
 /*
- * Construct empty page in 32-bit xid format.
+ * Get page from relation.
+ * Make this page look like in 32-bit xid format.
  * Convert it to 64-bit xid format.
  * Run basic checks.
  */
@@ -1296,55 +1297,11 @@ xid64_test_1(PG_FUNCTION_ARGS)
 	Oid					relid;
 	Relation			rel;
 	Buffer				buf;
-	char				data[BLCKSZ];
-	Page				page;
-
-	elog(INFO, "test 1: begin");
-
-	relid = PG_GETARG_OID(0);
-	rel = relation_open(relid, AccessExclusiveLock);
-
-	buf = ReadBuffer(rel, 0);
-	LockBuffer(buf, BUFFER_LOCK_EXCLUSIVE);
-
-	page = data;
-	PageInit(page, BLCKSZ, 0);
-	PageSetPageSizeAndVersion(page, BLCKSZ, PG_PAGE_LAYOUT_VERSION - 1);
-
-	if (PageGetSpecialSize(page) > 0)
-		elog(ERROR, "old page special not expected");
-
-	convert_page(rel, page, buf, 0);
-	CheckNewPage("test 1", page);
-
-	UnlockReleaseBuffer(buf);
-	relation_close(rel, AccessExclusiveLock);
-	elog(INFO, "test 1: done");
-
-	PG_RETURN_VOID();
-}
-
-/*
- * Get page from relation.
- * Make this page look like in 32-bit xid format.
- * Convert it to 64-bit xid format.
- * Run basic checks.
- */
-PG_FUNCTION_INFO_V1(xid64_test_2);
-Datum
-xid64_test_2(PG_FUNCTION_ARGS)
-{
-	Oid					relid;
-	Relation			rel;
-	Buffer				buf;
 	Page				page;
 	PageHeader			hdr;
 
-	elog(INFO, "test 2: begin");
-
 	relid = PG_GETARG_OID(0);
 	rel = relation_open(relid, AccessExclusiveLock);
-
 	buf = ReadBuffer(rel, 0);
 	LockBuffer(buf, BUFFER_LOCK_EXCLUSIVE);
 
@@ -1354,52 +1311,46 @@ xid64_test_2(PG_FUNCTION_ARGS)
 	if (PageGetSpecialSize(page) != MAXALIGN(sizeof(HeapPageSpecialData)))
 		elog(ERROR, "page expected in new format");
 
+	if (PageGetPageLayoutVersion(page) != PG_PAGE_LAYOUT_VERSION)
+		elog(ERROR, "unknown page version (%u)",
+			 PageGetPageLayoutVersion(page));
+
 	hdr->pd_special = BLCKSZ;
 	PageSetPageSizeAndVersion(page, BLCKSZ, PG_PAGE_LAYOUT_VERSION - 1);
 
 	convert_page(rel, page, buf, 0);
-	CheckNewPage("test 2", page);
+	CheckNewPage("test 1", page);
 
 	UnlockReleaseBuffer(buf);
 	relation_close(rel, AccessExclusiveLock);
-	elog(INFO, "test 2: done");
 
 	PG_RETURN_VOID();
 }
 
 typedef struct TupleCheckValues
 {
-	TransactionId	xmin;
-	TransactionId	xmax;
+	TransactionId		xmin;
+	TransactionId		xmax;
 } TupleCheckValues;
 
 typedef struct RelCheckValues
 {
-	TupleCheckValues	   *tcv;
-	Size					ntuples;
+	TupleCheckValues   *tcv;
+	Size				ntuples;
 } RelCheckValues;
 
 static RelCheckValues
-FillRelCheckValues(Relation rel)
+FillRelCheckValues(Relation rel, Page page)
 {
 	RelCheckValues		set;
-	BlockNumber			pageno,
-						npages;
 	Size				n;
-
-	npages = RelationGetNumberOfBlocks(rel);
-	if (npages == 0)
-		elog(ERROR, "relation \"%s\" is empty", NameStr(rel->rd_rel->relname));
 
 #define DEFAULT_SET_SIZE 64
 	n = DEFAULT_SET_SIZE;
 	set.ntuples = 0;
 	set.tcv = palloc(sizeof(set.tcv[0]) * n);
 
-	for (pageno = 0; pageno != npages; ++pageno)
 	{
-		Buffer				buf;
-		Page				page;
 		OffsetNumber		maxoff,
 							offnum;
 		HeapTupleHeader		tuphdr;
@@ -1408,9 +1359,6 @@ FillRelCheckValues(Relation rel)
 		TransactionId		xmin,
 							xmax;
 
-		buf = ReadBuffer(rel, pageno);
-		LockBuffer(buf, BUFFER_LOCK_EXCLUSIVE);
-		page = BufferGetPage(buf);
 		maxoff = PageGetMaxOffsetNumber(page);
 
 		for (offnum = FirstOffsetNumber;
@@ -1446,8 +1394,6 @@ FillRelCheckValues(Relation rel)
 			set.tcv[set.ntuples].xmax = xmax;
 			set.ntuples++;
 		}
-
-		UnlockReleaseBuffer(buf);
 	}
 
 	return set;
@@ -1467,9 +1413,9 @@ FillRelCheckValues(Relation rel)
  * NOTE: inital xid value does not affect test as pd_xid_base/pd_multi_base
  * discarded.
  */
-PG_FUNCTION_INFO_V1(xid64_test_3);
+PG_FUNCTION_INFO_V1(xid64_test_2);
 Datum
-xid64_test_3(PG_FUNCTION_ARGS)
+xid64_test_2(PG_FUNCTION_ARGS)
 {
 	Oid					relid;
 	Relation			rel;
@@ -1478,8 +1424,6 @@ xid64_test_3(PG_FUNCTION_ARGS)
 	BlockNumber			pageno,
 						npages;
 	Size				i;
-
-	elog(INFO, "test 3: begin");
 
 	relid = PG_GETARG_OID(0);
 	rel = relation_open(relid, AccessExclusiveLock);
@@ -1491,56 +1435,45 @@ xid64_test_3(PG_FUNCTION_ARGS)
 		Page			page;
 		PageHeader		hdr;
 
+		/* get page */
 		buf = ReadBuffer(rel, pageno);
 		LockBuffer(buf, BUFFER_LOCK_EXCLUSIVE);
 		page = BufferGetPage(buf);
 		hdr = (PageHeader) page;
 
+		/* make page look like 32-bit xid page */
 		hdr->pd_special = BLCKSZ;
 		PageSetPageSizeAndVersion(page, BLCKSZ, PG_PAGE_LAYOUT_VERSION - 1);
-		UnlockReleaseBuffer(buf);
-	}
 
-	before = FillRelCheckValues(rel);
-
-	for (pageno = 0; pageno != npages; ++pageno)
-	{
-		Buffer			buf;
-		Page			page;
-
-		buf = ReadBuffer(rel, pageno);
-		LockBuffer(buf, BUFFER_LOCK_EXCLUSIVE);
-		page = BufferGetPage(buf);
-
+		before = FillRelCheckValues(rel, page);
 		convert_page(rel, page, buf, pageno);
+		after = FillRelCheckValues(rel, page);
+
+		/* check */
+		if (before.ntuples != after.ntuples)
+			elog(ERROR, "numer of tuples must be equal");
+
+		for (i = 0; i != before.ntuples; ++i)
+		{
+			if (before.tcv[i].xmin != after.tcv[i].xmin && after.tcv[i].xmin)
+				elog(ERROR, "old and new xmin does not match (%llu != %llu)",
+					 (unsigned long long) before.tcv[i].xmin,
+					 (unsigned long long) after.tcv[i].xmin);
+
+			if (before.tcv[i].xmax != after.tcv[i].xmax)
+				elog(ERROR, "old and new xmax does not match (%llu != %llu)",
+					 (unsigned long long) before.tcv[i].xmax,
+					 (unsigned long long) after.tcv[i].xmax);
+		}
+
+		Assert(npages != 0);
+		pfree(before.tcv);
+		pfree(after.tcv);
+
 		UnlockReleaseBuffer(buf);
 	}
-
-	after = FillRelCheckValues(rel);
-
-	if (before.ntuples != after.ntuples)
-		elog(ERROR, "numer of tuples must be equal");
-
-	for (i = 0; i != before.ntuples; ++i)
-	{
-		if (before.tcv[i].xmin != after.tcv[i].xmin && after.tcv[i].xmin)
-			elog(ERROR, "old and new xmin does not match (%llu != %llu)",
-				 (unsigned long long) before.tcv[i].xmin,
-				 (unsigned long long) after.tcv[i].xmin);
-
-		if (before.tcv[i].xmax != after.tcv[i].xmax)
-			elog(ERROR, "old and new xmax does not match (%llu != %llu)",
-				 (unsigned long long) before.tcv[i].xmax,
-				 (unsigned long long) after.tcv[i].xmax);
-	}
-
-	Assert(npages != 0);
-
-	pfree(before.tcv);
-	pfree(after.tcv);
 
 	relation_close(rel, AccessExclusiveLock);
-	elog(INFO, "test 3: done");
 
 	PG_RETURN_VOID();
 }

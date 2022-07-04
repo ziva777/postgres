@@ -78,8 +78,15 @@ convert_page(Relation rel, Page page, Buffer buf, BlockNumber blkno)
 		hdr = (PageHeader) page;
 	}
 
-	/* Not already converted */
-	Assert(PageGetPageLayoutVersion(page) != PG_PAGE_LAYOUT_VERSION);
+#ifdef USE_ASSERT_CHECKING
+	if (!logit)
+	{
+		/* Not already converted */
+		Assert(PageGetPageLayoutVersion(page) != PG_PAGE_LAYOUT_VERSION);
+		/* Page in 32-bit xid format should not have PageSpecial. */
+		Assert(PageGetSpecialSize(hdr) == 0);
+	}
+#endif
 
 	switch (rel->rd_rel->relkind)
 	{
@@ -459,9 +466,6 @@ repack_heap_tuples(Relation rel, Page page, Buffer buf, BlockNumber blkno,
 	new_hdr = (PageHeader) new_page;
 	*new_hdr = *hdr;
 	new_hdr->pd_lower = SizeOfPageHeaderData + maxoff * sizeof(ItemIdData);
-
-	/* Page in 32-bit xid format should not have PageSpecial. */
-	Assert(PageGetSpecialSize(new_page) == 0);
 
 	if (toast)
 		special_fits = BLCKSZ - new_hdr->pd_lower - occupied_space >=

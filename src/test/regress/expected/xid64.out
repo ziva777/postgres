@@ -9,37 +9,17 @@ CREATE FUNCTION xid64_test_1(rel regclass) RETURNS VOID
     AS :'regresslib', 'xid64_test_1' LANGUAGE C STRICT;
 CREATE FUNCTION xid64_test_2(rel regclass) RETURNS VOID
     AS :'regresslib', 'xid64_test_2' LANGUAGE C STRICT;
-CREATE FUNCTION xid64_test_3(rel regclass) RETURNS VOID
-    AS :'regresslib', 'xid64_test_3' LANGUAGE C STRICT;
 CREATE FUNCTION xid64_test_double_xmax(rel regclass) RETURNS VOID
     AS :'regresslib', 'xid64_test_double_xmax' LANGUAGE C STRICT;
 ---
---- Check page consistency after conversion (on empty page)
+--- Check page consistency after conversion
 ---
 CREATE UNLOGGED TABLE test_xid64_table(a int);
 ALTER TABLE test_xid64_table SET (autovacuum_enabled = false);
 INSERT INTO test_xid64_table(a) SELECT a FROM generate_series(1, 1000) AS a;
 SELECT xid64_test_1('test_xid64_table');
-INFO:  test 1: begin
 INFO:  test 1: page is converted to xid64 format
-INFO:  test 1: done
  xid64_test_1 
---------------
- 
-(1 row)
-
-DROP TABLE test_xid64_table;
----
---- Check page consistency after conversion (on actual page)
----
-CREATE UNLOGGED TABLE test_xid64_table(a int);
-ALTER TABLE test_xid64_table SET (autovacuum_enabled = false);
-INSERT INTO test_xid64_table(a) SELECT a FROM generate_series(1, 1000) AS a;
-SELECT xid64_test_2('test_xid64_table');
-INFO:  test 2: begin
-INFO:  test 2: page is converted to xid64 format
-INFO:  test 2: done
- xid64_test_2 
 --------------
  
 (1 row)
@@ -64,10 +44,8 @@ BEGIN
     COMMIT;
   END LOOP;
 END $$;
-SELECT xid64_test_3('test_xid64_table');
-INFO:  test 3: begin
-INFO:  test 3: done
- xid64_test_3 
+SELECT xid64_test_2('test_xid64_table');
+ xid64_test_2 
 --------------
  
 (1 row)
@@ -84,10 +62,8 @@ BEGIN
     COMMIT;
   END LOOP;
 END $$;
-SELECT xid64_test_3('test_xid64_table');
-INFO:  test 3: begin
-INFO:  test 3: done
- xid64_test_3 
+SELECT xid64_test_2('test_xid64_table');
+ xid64_test_2 
 --------------
  
 (1 row)
@@ -95,8 +71,6 @@ INFO:  test 3: done
 DROP TABLE test_xid64_table;
 CREATE UNLOGGED TABLE test_xid64_table(i text);
 INSERT INTO test_xid64_table(i) VALUES ('NNBABCDSDFGHJKLP');
-CREATE UNLOGGED TABLE test_xid64_table(i int);
-ERROR:  relation "test_xid64_table" already exists
 DO $$
 BEGIN
   FOR j IN 1..40 LOOP
@@ -115,5 +89,4 @@ INFO:  test double xmax: end
 DROP TABLE test_xid64_table;
 DROP FUNCTION xid64_test_1(rel regclass);
 DROP FUNCTION xid64_test_2(rel regclass);
-DROP FUNCTION xid64_test_3(rel regclass);
 DROP FUNCTION xid64_test_double_xmax(rel regclass);
