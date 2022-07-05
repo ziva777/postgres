@@ -53,7 +53,6 @@
  */
 #define IsPointerList(l)		((l) == NIL || IsA((l), List))
 #define IsIntegerList(l)		((l) == NIL || IsA((l), IntList))
-#define IsInteger64List(l)		((l) == NIL || IsA((l), Int64List))
 #define IsOidList(l)			((l) == NIL || IsA((l), OidList))
 #define IsXidList(l)			((l) == NIL || IsA((l), XidList))
 

@@ -77,14 +77,13 @@ convert_page(Relation rel, Page page, Buffer buf, BlockNumber blkno)
 										 GENERIC_XLOG_FULL_IMAGE);
 		hdr = (PageHeader) page;
 	}
-
 #ifdef USE_ASSERT_CHECKING
-	if (!logit)
+	else
 	{
 		/* Not already converted */
 		Assert(PageGetPageLayoutVersion(page) != PG_PAGE_LAYOUT_VERSION);
 		/* Page in 32-bit xid format should not have PageSpecial. */
-		Assert(PageGetSpecialSize(hdr) == 0);
+		Assert(PageGetSpecialSize(page) == 0);
 	}
 #endif
 
