@@ -2170,12 +2170,12 @@ heap_insert(Relation relation, HeapTuple tup, CommandId cid,
 
 		if (info & XLOG_HEAP_INIT_PAGE)
 		{
-			TransactionId	base;
+			char	   *base;
 
 			base = IsToastRelation(relation) ?
-						ToastPageGetSpecial(page)->pd_xid_base:
-						HeapPageGetSpecial(page)->pd_xid_base;
-			XLogRegisterData((char *) &base, sizeof(TransactionId));
+						(char *) &ToastPageGetSpecial(page)->pd_xid_base :
+						(char *) &HeapPageGetSpecial(page)->pd_xid_base;
+			XLogRegisterData(base, sizeof(TransactionId));
 		}
 
 		XLogRegisterData((char *) &xlrec, SizeOfHeapInsert);
@@ -3071,12 +3071,12 @@ heap_multi_insert(Relation relation, TupleTableSlot **slots, int ntuples,
 
 			if (info & XLOG_HEAP_INIT_PAGE)
 			{
-				TransactionId		base;
+				char	   *base;
 
 				base = IsToastRelation(relation) ?
-							ToastPageGetSpecial(page)->pd_xid_base :
-							HeapPageGetSpecial(page)->pd_xid_base;
-				XLogRegisterData((char *) &base, sizeof(TransactionId));
+							(char *) &ToastPageGetSpecial(page)->pd_xid_base :
+							(char *) &HeapPageGetSpecial(page)->pd_xid_base;
+				XLogRegisterData(base, sizeof(TransactionId));
 			}
 
 			XLogRegisterData((char *) xlrec, tupledata - scratch.data);
