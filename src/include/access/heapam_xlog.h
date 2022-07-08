@@ -444,7 +444,5 @@ extern XLogRecPtr log_heap_visible(RelFileLocator rlocator, Buffer heap_buffer,
 extern void heap_execute_freeze_tuple_page(Page page, HeapTupleHeader htup,
 										   xl_heap_freeze_tuple *xlrec_tp,
 										   bool is_toast);
-extern XLogRecPtr log_heap_visible(RelFileLocator rlocator, Buffer heap_buffer,
-								   Buffer vm_buffer, TransactionId cutoff_xid, uint8 flags);
 
 #endif							/* HEAPAM_XLOG_H */

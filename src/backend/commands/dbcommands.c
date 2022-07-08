@@ -314,8 +314,8 @@ ScanSourceDatabasePgClass(Oid tbid, Oid dbid, char *srcpath)
 		/* Append relevant pg_class tuples for current page to rlocatorlist. */
 		/* No toast is expected in sys tables */
 		rlocatorlist = ScanSourceDatabasePgClassPage(page, buf, tbid, dbid,
-												  srcpath, rlocatorlist,
-												  snapshot, false);
+													 srcpath, rlocatorlist,
+													 snapshot, false);
 
 		UnlockReleaseBuffer(buf);
 	}
