@@ -44,7 +44,6 @@ typedef union ListCell
 {
 	void	   *ptr_value;
 	int			int_value;
-	int64		int64_value;
 	Oid			oid_value;
 	TransactionId xid_value;
 } ListCell;
