@@ -34,6 +34,7 @@ static void check_for_new_tablespace_dir(ClusterInfo *new_cluster);
 static void check_for_user_defined_encoding_conversions(ClusterInfo *cluster);
 static char *get_canonical_locale_name(int category, const char *locale);
 static void check_for_32bit_xid_usage(ClusterInfo *cluster);
+static bool is_xid_wraparound(ClusterInfo *cluster);
 
 
 /*
@@ -83,7 +84,7 @@ output_check_banner(bool live_check)
 
 
 void
-check_and_dump_old_cluster(bool live_check)
+check_and_dump_old_cluster(bool live_check, bool *is_wraparound)
 {
 	/* -- OLD -- */
 
@@ -186,6 +187,8 @@ check_and_dump_old_cluster(bool live_check)
 	 */
 	if (!user_opts.check)
 		generate_old_dump();
+
+	*is_wraparound = is_xid_wraparound(&old_cluster);
 
 	if (!live_check)
 		stop_postmaster(false);
@@ -1629,4 +1632,34 @@ check_for_32bit_xid_usage(ClusterInfo *cluster)
 	}
 	else
 		check_ok();
+}
+
+/*
+ * is_xid_wraparound()
+ *
+ * Return true if 32-xid cluster had wraparound.
+ */
+static bool
+is_xid_wraparound(ClusterInfo *cluster)
+{
+	PGconn	   *conn;
+	PGresult   *res;
+	bool		is_wraparound;
+
+	conn = connectToServer(cluster, "template1");
+
+	/*
+	 * txid_current is extended with an "epoch" counter, so to check
+	 * wraparound in old 32-xid cluster we cut epoch by casting to int4.
+	 */
+	res = executeQueryOrDie(conn,
+							"SELECT 1 "
+							"FROM   pg_catalog.pg_database, txid_current() tx "
+							"WHERE  (tx %% 4294967295)::bigint <= datfrozenxid::text::bigint "
+							"LIMIT  1");
+	is_wraparound = PQntuples(res) ? true : false;
+	PQclear(res);
+	PQfinish(conn);
+
+	return is_wraparound;
 }

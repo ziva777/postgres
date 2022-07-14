@@ -56,12 +56,11 @@
 
 static void prepare_new_cluster(void);
 static void prepare_new_globals(void);
-static void create_new_objects(void);
+static void create_new_objects(bool is_wraparound);
 static void copy_xact_xlog_xid(void);
 static void set_frozenxids(bool minmxid_only);
 static void make_outputdirs(char *pgdata);
 static void setup(char *argv0, bool *live_check);
-static bool is_xid_wraparound(ClusterInfo *cluster);
 
 ClusterInfo old_cluster,
 			new_cluster;
@@ -84,6 +83,7 @@ main(int argc, char **argv)
 {
 	char	   *deletion_script_file_name = NULL;
 	bool		live_check = false;
+	bool		is_wraparound = false;
 
 	/*
 	 * pg_upgrade doesn't currently use common/logging.c, but initialize it
@@ -129,7 +129,7 @@ main(int argc, char **argv)
 
 	check_cluster_compatibility(live_check);
 
-	check_and_dump_old_cluster(live_check);
+	check_and_dump_old_cluster(live_check, &is_wraparound);
 
 
 	/* -- NEW -- */
@@ -160,7 +160,7 @@ main(int argc, char **argv)
 
 	prepare_new_globals();
 
-	create_new_objects();
+	create_new_objects(is_wraparound);
 
 	stop_postmaster(false);
 
@@ -422,7 +422,7 @@ prepare_new_globals(void)
 
 
 static void
-create_new_objects(void)
+create_new_objects(bool is_wraparound)
 {
 	int			dbnum;
 
@@ -526,7 +526,7 @@ create_new_objects(void)
 		 * there was no wraparound in old cluster. Otherwise, reset them to
 		 * FirstNormalTransactionId value.
 		 */
-		if (is_xid_wraparound(&old_cluster))
+		if (is_wraparound)
 			set_frozenxids(false);
 		else
 			set_frozenxids(true);
@@ -534,36 +534,6 @@ create_new_objects(void)
 
 	/* update new_cluster info now that we have objects in the databases */
 	get_db_and_rel_infos(&new_cluster);
-}
-
-/*
- * is_xid_wraparound()
- *
- * Return true if 32-xid cluster had wraparound.
- */
-static bool
-is_xid_wraparound(ClusterInfo *cluster)
-{
-	PGconn	   *conn;
-	PGresult   *res;
-	bool		is_wraparound;
-
-	conn = connectToServer(cluster, "template1");
-
-	/*
-	 * txid_current is extended with an "epoch" counter, so to check
-	 * wraparound in old 32-xid cluster we cut epoch by casting to int4.
-	 */
-	res = executeQueryOrDie(conn,
-							"SELECT 1 "
-							"FROM   pg_catalog.pg_database, txid_current() tx "
-							"WHERE  (tx %% 4294967295)::bigint <= datfrozenxid::text::bigint "
-							"LIMIT  1");
-	is_wraparound = PQntuples(res) ? true : false;
-	PQclear(res);
-	PQfinish(conn);
-
-	return is_wraparound;
 }
 
 /*

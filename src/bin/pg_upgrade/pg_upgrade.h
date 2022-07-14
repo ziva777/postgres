@@ -340,7 +340,7 @@ extern OSInfo os_info;
 /* check.c */
 
 void		output_check_banner(bool live_check);
-void		check_and_dump_old_cluster(bool live_check);
+void		check_and_dump_old_cluster(bool live_check, bool *is_wraparound);
 void		check_new_cluster(void);
 void		report_clusters_compatible(void);
 void		issue_warnings_and_set_wal_level(void);
