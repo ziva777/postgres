@@ -378,7 +378,10 @@ void		copyFile(const char *src, const char *dst,
 void		linkFile(const char *src, const char *dst,
 					 const char *schemaName, const char *relName);
 void		rewriteVisibilityMap(const char *fromfile, const char *tofile,
-								 const char *schemaName, const char *relName);
+								 const char *schemaName, const char *relName,
+								 bool update_version);
+void		updateSegmentPagesVersion(const char *fromfile, const char *tofile,
+									  const char *schemaName, const char *relName);
 void		check_file_clone(void);
 void		check_hard_link(void);
 

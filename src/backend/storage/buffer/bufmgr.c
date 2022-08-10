@@ -1055,10 +1055,22 @@ ReadBuffer_common(Relation rel, SMgrRelation smgr, char relpersistence, ForkNumb
 			{
 				Buffer		buf = BufferDescriptorGetBuffer(bufHdr);
 
+				/*
+				 * All the forks but MAIN_FORKNUM should be converted to the
+				 * actual page layout version in pg_upgrade.
+				 */
+				if (forkNum != MAIN_FORKNUM)
+					ereport(ERROR,
+						(errcode(ERRCODE_DATA_CORRUPTED),
+						 errmsg("invalid fork type (%d) in block %u of relation %s",
+								forkNum, blockNum,
+								relpath(smgr->smgr_rlocator, forkNum))));
+
 				LWLockAcquire(BufferDescriptorGetContentLock(bufHdr), LW_EXCLUSIVE);
 				/* Check for no concurrent changes */
 				if (PageGetPageLayoutVersion(bufBlock) != PG_PAGE_LAYOUT_VERSION)
 					convert_page(rel, bufBlock, buf, blockNum);
+
 				LWLockRelease(BufferDescriptorGetContentLock(bufHdr));
 			}
 		}
