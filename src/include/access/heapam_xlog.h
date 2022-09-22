@@ -244,6 +244,7 @@ typedef struct xl_heap_update
  * Acquires a full cleanup lock.
  */
 #define XLH_PRUNE_ON_TOAST_RELATION		0x01
+#define XLH_PRUNE_REPAIR_FRAGMENTATION	0x02
 
 typedef struct xl_heap_prune
 {

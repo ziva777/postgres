@@ -9439,7 +9439,7 @@ heap_xlog_prune(XLogReaderState *record)
 								redirected, nredirected,
 								nowdead, ndead,
 								nowunused, nunused,
-								true,
+								xlrec->flags & XLH_PRUNE_REPAIR_FRAGMENTATION,
 								xlrec->flags & XLH_PRUNE_ON_TOAST_RELATION);
 
 		/*
