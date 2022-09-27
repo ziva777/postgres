@@ -2335,6 +2335,37 @@ heap_page_xid_min_max(Page page, bool multi,
 }
 
 /*
+ * True if tuple xmax should be reset to InvalidTransactionId.
+ */
+static inline bool
+should_invalidate_xmax(HeapTupleHeader htup, int64 delta)
+{
+	ShortTransactionId	xmax = htup->t_choice.t_heap.t_xmax;
+
+	if (!(htup->t_infomask & HEAP_XMAX_INVALID))
+		return false;
+
+	if (!TransactionIdIsNormal(xmax))
+		return false;
+
+	/*
+	 * If invalid xmax was corrupted, then reset it.
+	 */
+	if (xmax > MaxShortTransactionId)
+		return true;
+
+	if (delta < PG_INT32_MIN || delta > PG_INT32_MAX)
+		return true;
+
+	xmax -= delta;
+
+	if (!TransactionIdIsNormal(xmax))
+		return true;
+
+	return xmax > MaxShortTransactionId;
+}
+
+/*
  * Shift xid base in the page.  WAL-logged if buffer is specified.
  */
 static void
@@ -2351,6 +2382,7 @@ heap_page_shift_base(Relation relation, Buffer buffer, Page page,
 	xid_base = multi_base = NULL;
 
 	START_CRIT_SECTION();
+
 	if (is_toast)
 	{
 		Assert(!multi);
@@ -2377,6 +2409,18 @@ heap_page_shift_base(Relation relation, Buffer buffer, Page page,
 			continue;
 
 		htup = (HeapTupleHeader) PageGetItem(page, itemid);
+
+		if (should_invalidate_xmax(htup, delta))
+		{
+			/*
+			 * We ignore xmax in heap_page_xid_min_max, so reset it here.
+			 */
+			htup->t_choice.t_heap.t_xmax = InvalidTransactionId;
+			htup->t_infomask &= ~HEAP_XMAX_BITS;
+			htup->t_infomask |= HEAP_XMAX_INVALID;
+			htup->t_infomask2 &= ~HEAP_HOT_UPDATED;
+			htup->t_infomask2 &= ~HEAP_KEYS_UPDATED;
+		}
 
 		/* Apply xid shift to heap tuple */
 		if (!multi)
