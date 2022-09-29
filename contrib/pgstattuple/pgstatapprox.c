@@ -154,7 +154,7 @@ statapprox_heap(Relation rel, output_type *stat)
 			tuple.t_data = (HeapTupleHeader) PageGetItem(page, itemid);
 			tuple.t_len = ItemIdGetLength(itemid);
 			tuple.t_tableOid = RelationGetRelid(rel);
-			HeapTupleCopyBaseFromPage(&tuple, page, IsToastRelation(rel));
+			HeapTupleCopyBaseFromPage(buf, &tuple, page, IsToastRelation(rel));
 
 			/*
 			 * We follow VACUUM's lead in counting INSERT_IN_PROGRESS tuples
