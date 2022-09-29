@@ -1340,7 +1340,7 @@ typedef struct RelCheckValues
 } RelCheckValues;
 
 static RelCheckValues
-FillRelCheckValues(Relation rel, Page page)
+FillRelCheckValues(Relation rel, Buffer buffer, Page page)
 {
 	RelCheckValues		set;
 	Size				n;
@@ -1378,7 +1378,8 @@ FillRelCheckValues(Relation rel, Page page)
 			}
 			else
 			{
-				HeapTupleCopyBaseFromPage(&tuple, page, IsToastRelation(rel));
+				HeapTupleCopyBaseFromPage(buffer, &tuple, page,
+										  IsToastRelation(rel));
 
 				xmin = HeapTupleGetRawXmin(&tuple);
 				xmax = HeapTupleGetRawXmax(&tuple);
@@ -1445,9 +1446,9 @@ xid64_test_2(PG_FUNCTION_ARGS)
 		hdr->pd_special = BLCKSZ;
 		PageSetPageSizeAndVersion(page, BLCKSZ, PG_PAGE_LAYOUT_VERSION - 1);
 
-		before = FillRelCheckValues(rel, page);
+		before = FillRelCheckValues(rel, buf, page);
 		convert_page(rel, page, buf, pageno);
-		after = FillRelCheckValues(rel, page);
+		after = FillRelCheckValues(rel, buf, page);
 
 		/* check */
 		if (before.ntuples != after.ntuples)
