@@ -19,6 +19,7 @@
 #include "access/tupdesc.h"
 #include "access/tupmacs.h"
 #include "storage/bufpage.h"
+#include "storage/bufmgr.h"
 
 /*
  * MaxTupleAttributeNumber limits the number of (user) columns in a tuple.
@@ -835,8 +836,11 @@ HeapTupleCopyXmaxFromPage(HeapTuple tup, void *page, bool is_toast)
  * to correctly read tuple xmin and xmax.
  */
 static inline void
-HeapTupleCopyBaseFromPage(HeapTuple tup, void *page, bool is_toast)
+HeapTupleCopyBaseFromPage(Buffer buffer, HeapTuple tup, void *page,
+						  bool is_toast)
 {
+	Assert(IsBufferLocked(buffer));
+
 	if (HeapPageIsDoubleXmax(page))
 	{
 		/*
