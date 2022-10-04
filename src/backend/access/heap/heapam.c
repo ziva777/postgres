@@ -7452,6 +7452,15 @@ heap_prepare_freeze_tuple(HeapTuple htup,
 			Assert(!TransactionIdIsValid(newxmax));
 		}
 	}
+	else if ((tuple->t_infomask & HEAP_XMAX_INVALID) &&
+			 TransactionIdIsNormal(xid))
+	{
+		/*
+		 * To reset xmax without reading clog.
+		 * This prevent excess growth of xmax.
+		 */
+		freeze_xmax = true;
+	}
 	else if (TransactionIdIsNormal(xid))
 	{
 		if (TransactionIdPrecedes(xid, relfrozenxid))
