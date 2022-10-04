@@ -2307,9 +2307,6 @@ heap_page_xid_min_max(Page page, bool multi,
 				xid_min_max(min, max, htup->t_choice.t_heap.t_xmin, &found);
 			}
 
-			if (htup->t_infomask & HEAP_XMAX_INVALID)
-				continue;
-
 			if ((htup->t_infomask & HEAP_XMAX_IS_MULTI) &&
 				(!(htup->t_infomask & HEAP_XMAX_LOCK_ONLY)))
 			{
@@ -2329,7 +2326,7 @@ heap_page_xid_min_max(Page page, bool multi,
 		if (!TransactionIdIsNormal(htup->t_choice.t_heap.t_xmax))
 			continue;
 
-		if (multi != (bool) (htup->t_infomask & HEAP_XMAX_IS_MULTI))
+		if (multi != ((htup->t_infomask & HEAP_XMAX_IS_MULTI) != 0))
 			continue;
 
 		xid_min_max(min, max, htup->t_choice.t_heap.t_xmax, &found);
@@ -2338,37 +2335,6 @@ heap_page_xid_min_max(Page page, bool multi,
 	Assert(!found || (*min > InvalidTransactionId && *max <= MaxShortTransactionId));
 
 	return found;
-}
-
-/*
- * True if tuple xmax should be reset to InvalidTransactionId.
- */
-static inline bool
-should_invalidate_xmax(HeapTupleHeader htup, int64 delta)
-{
-	ShortTransactionId	xmax = htup->t_choice.t_heap.t_xmax;
-
-	if (!(htup->t_infomask & HEAP_XMAX_INVALID))
-		return false;
-
-	if (!TransactionIdIsNormal(xmax))
-		return false;
-
-	/*
-	 * If invalid xmax was corrupted, then reset it.
-	 */
-	if (xmax > MaxShortTransactionId)
-		return true;
-
-	if (delta < PG_INT32_MIN || delta > PG_INT32_MAX)
-		return true;
-
-	xmax -= delta;
-
-	if (!TransactionIdIsNormal(xmax))
-		return true;
-
-	return xmax > MaxShortTransactionId;
 }
 
 /*
@@ -2417,18 +2383,6 @@ heap_page_shift_base(Relation relation, Buffer buffer, Page page,
 			continue;
 
 		htup = (HeapTupleHeader) PageGetItem(page, itemid);
-
-		if (should_invalidate_xmax(htup, delta))
-		{
-			/*
-			 * We ignore xmax in heap_page_xid_min_max, so reset it here.
-			 */
-			htup->t_choice.t_heap.t_xmax = InvalidTransactionId;
-			htup->t_infomask &= ~HEAP_XMAX_BITS;
-			htup->t_infomask |= HEAP_XMAX_INVALID;
-			htup->t_infomask2 &= ~HEAP_HOT_UPDATED;
-			htup->t_infomask2 &= ~HEAP_KEYS_UPDATED;
-		}
 
 		/* Apply xid shift to heap tuple */
 		if (!multi)
