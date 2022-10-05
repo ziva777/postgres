@@ -186,12 +186,6 @@ my $relfrozenxid = $oldnode->safe_psql('regression',
 my $relminmxid = $oldnode->safe_psql('regression',
 	"SELECT relminmxid FROM pg_class WHERE relname = 't1';");
 
-# Initialize a new node for the upgrade.
-my $newnode = PostgreSQL::Test::Cluster->new('new_node');
-$newnode->init(%node_params);
-my $newbindir = $newnode->config_data('--bindir');
-my $oldbindir = $oldnode->config_data('--bindir');
-
 # Take a dump before performing the upgrade as a base comparison. Note
 # that we need to use pg_dumpall from the new node here.
 my @dump_command = (
