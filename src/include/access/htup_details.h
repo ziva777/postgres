@@ -783,7 +783,7 @@ struct MinimalTupleData
 		HeapTupleHeaderClearHeapOnly((tuple)->t_data)
 
 static inline void
-HeapTupleCopyXminFromPage(HeapTuple tup, void *page, bool is_toast)
+HeapTupleCopyXminFromPage(HeapTuple tup, Page page, bool is_toast)
 {
 	TransactionId			base;
 	ShortTransactionId		xmin;	/* short xmin from tuple header */
@@ -807,10 +807,10 @@ HeapTupleCopyXminFromPage(HeapTuple tup, void *page, bool is_toast)
 }
 
 static inline void
-HeapTupleCopyXmaxFromPage(HeapTuple tup, void *page, bool is_toast)
+HeapTupleCopyXmaxFromPage(HeapTuple tup, Page page, bool is_toast)
 {
 	TransactionId			base;
-	ShortTransactionId		xmax; /* short xmax from tuple header */
+	ShortTransactionId		xmax;	/* short xmax from tuple header */
 
 	xmax = tup->t_data->t_choice.t_heap.t_xmax;
 
@@ -836,7 +836,7 @@ HeapTupleCopyXmaxFromPage(HeapTuple tup, void *page, bool is_toast)
  * to correctly read tuple xmin and xmax.
  */
 static inline void
-HeapTupleCopyBaseFromPage(Buffer buffer, HeapTuple tup, void *page,
+HeapTupleCopyBaseFromPage(Buffer buffer, HeapTuple tup, Page page,
 						  bool is_toast)
 {
 	Assert(IsBufferLocked(buffer));
