@@ -2526,7 +2526,6 @@ freeze_single_heap_page(Relation relation, Buffer buffer)
 	if (nfrozen > 0)
 	{
 		int					i;
-		ItemId				itemid;
 		HeapTupleHeader		htup;
 
 		START_CRIT_SECTION();
