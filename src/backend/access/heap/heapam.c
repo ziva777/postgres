@@ -2131,7 +2131,8 @@ heap_insert(Relation relation, HeapTuple tup, CommandId cid,
 		Page		page = BufferGetPage(buffer);
 		uint8		info = XLOG_HEAP_INSERT;
 		int			bufflags = 0;
-
+		TransactionId	xid_base,
+						multi_base;
 		/*
 		 * If this is a catalog, we need to transmit combo CIDs to properly
 		 * decode, so log that as well.
@@ -2178,12 +2179,21 @@ heap_insert(Relation relation, HeapTuple tup, CommandId cid,
 
 		if (info & XLOG_HEAP_INIT_PAGE)
 		{
-			char	   *base;
+			if (IsToastRelation(relation))
+			{
+				xid_base = ToastPageGetSpecial(page)->pd_xid_base;
+				multi_base = InvalidTransactionId;
+			}
+			else
+			{
+				HeapPageSpecial special = HeapPageGetSpecial(page);
 
-			base = IsToastRelation(relation) ?
-						(char *) &ToastPageGetSpecial(page)->pd_xid_base :
-						(char *) &HeapPageGetSpecial(page)->pd_xid_base;
-			XLogRegisterData(base, sizeof(TransactionId));
+				xid_base = special->pd_xid_base;
+				multi_base = special->pd_multi_base;
+			}
+
+			XLogRegisterData((char *) &xid_base, sizeof(xid_base));
+			XLogRegisterData((char *) &multi_base, sizeof(multi_base));
 		}
 
 		XLogRegisterData((char *) &xlrec, SizeOfHeapInsert);
@@ -2353,20 +2363,18 @@ heap_page_shift_base(Relation relation, Buffer buffer, Page page,
 
 	Assert(IsBufferLockedExclusive(buffer));
 
-	xid_base = multi_base = NULL;
-
 	START_CRIT_SECTION();
 
 	if (is_toast)
 	{
 		Assert(!multi);
 		xid_base = &ToastPageGetSpecial(page)->pd_xid_base;
+		multi_base = NULL;
 	}
 	else
 	{
-		HeapPageSpecial		special;
+		HeapPageSpecial special = HeapPageGetSpecial(page);
 
-		special = HeapPageGetSpecial(page);
 		xid_base = &special->pd_xid_base;
 		multi_base = &special->pd_multi_base;
 	}
@@ -2419,7 +2427,7 @@ heap_page_shift_base(Relation relation, Buffer buffer, Page page,
 		MarkBufferDirty(buffer);
 
 	/* Write WAL record if needed */
-	if (relation && RelationNeedsWAL(relation))
+	if (relation && RelationNeedsWAL(relation) && maxoff != 0)
 	{
 		XLogRecPtr			recptr;
 		xl_heap_base_shift	xlrec;
@@ -2683,12 +2691,8 @@ heap_page_try_prepare_for_xid(Relation relation, Buffer buffer, Page page,
 		base = ToastPageGetSpecial(page)->pd_xid_base;
 	}
 	else
-	{
-		HeapPageSpecial		special;
-
-		special = HeapPageGetSpecial(page);
-		base = multi ? special->pd_multi_base : special->pd_xid_base;
-	}
+		base = multi ? HeapPageGetSpecial(page)->pd_multi_base :
+					   HeapPageGetSpecial(page)->pd_xid_base;
 
 	/* If xid fits the page no action needed. */
 	if (is_xid_fits_heap_page(xid, base))
@@ -2988,6 +2992,8 @@ heap_multi_insert(Relation relation, TupleTableSlot **slots, int ntuples,
 			char	   *scratchptr = scratch.data;
 			bool		init;
 			int			bufflags = 0;
+			TransactionId	xid_base,
+							multi_base;
 
 			/*
 			 * If the page was previously empty, we can reinit the page
@@ -3081,12 +3087,21 @@ heap_multi_insert(Relation relation, TupleTableSlot **slots, int ntuples,
 
 			if (info & XLOG_HEAP_INIT_PAGE)
 			{
-				char	   *base;
+				if (IsToastRelation(relation))
+				{
+					xid_base = ToastPageGetSpecial(page)->pd_xid_base;
+					multi_base = InvalidTransactionId;
+				}
+				else
+				{
+					HeapPageSpecial special = HeapPageGetSpecial(page);
 
-				base = IsToastRelation(relation) ?
-							(char *) &ToastPageGetSpecial(page)->pd_xid_base :
-							(char *) &HeapPageGetSpecial(page)->pd_xid_base;
-				XLogRegisterData(base, sizeof(TransactionId));
+					xid_base = special->pd_xid_base;
+					multi_base = special->pd_multi_base;
+				}
+
+				XLogRegisterData((char *) &xid_base, sizeof(xid_base));
+				XLogRegisterData((char *) &multi_base, sizeof(multi_base));
 			}
 
 			XLogRegisterData((char *) xlrec, tupledata - scratch.data);
@@ -9040,6 +9055,8 @@ log_heap_update(Relation reln, Buffer oldbuf,
 				bool all_visible_cleared, bool new_all_visible_cleared)
 {
 	xl_heap_update xlrec;
+	TransactionId  xid_base,
+				   multi_base;
 	xl_heap_header xlhdr;
 	xl_heap_header xlhdr_idx;
 	uint8		info;
@@ -9167,8 +9184,15 @@ log_heap_update(Relation reln, Buffer oldbuf,
 		XLogRegisterBuffer(1, oldbuf, REGBUF_STANDARD);
 
 	if (info & XLOG_HEAP_INIT_PAGE)
-		XLogRegisterData((char *) &HeapPageGetSpecial(page)->pd_xid_base,
-						 sizeof(TransactionId));
+	{
+		HeapPageSpecial special = HeapPageGetSpecial(page);
+
+		Assert(!IsToastRelation(reln));
+		xid_base = special->pd_xid_base;
+		multi_base = special->pd_multi_base;
+		XLogRegisterData((char *) &xid_base, sizeof(xid_base));
+		XLogRegisterData((char *) &multi_base, sizeof(multi_base));
+	}
 
 	XLogRegisterData((char *) &xlrec, SizeOfHeapUpdate);
 
@@ -9928,12 +9952,15 @@ heap_xlog_insert(XLogReaderState *record)
 	ItemPointerData target_tid;
 	XLogRedoAction action;
 	bool		isinit = (XLogRecGetInfo(record) & XLOG_HEAP_INIT_PAGE) != 0;
-	TransactionId pd_xid_base = InvalidTransactionId;
 	Pointer		rec_data = (Pointer) XLogRecGetData(record);
+	TransactionId xid_base = InvalidTransactionId;
+	TransactionId multi_base = InvalidTransactionId;
 
 	if (isinit)
 	{
-		pd_xid_base = *((TransactionId *) rec_data);
+		xid_base = *((TransactionId *) rec_data);
+		rec_data += sizeof(TransactionId);
+		multi_base = *((TransactionId *) rec_data);
 		rec_data += sizeof(TransactionId);
 	}
 
@@ -9971,13 +9998,17 @@ heap_xlog_insert(XLogReaderState *record)
 		{
 			PageInit(page, BufferGetPageSize(buffer),
 					 sizeof(ToastPageSpecialData));
-			ToastPageGetSpecial(page)->pd_xid_base = pd_xid_base;
+			ToastPageGetSpecial(page)->pd_xid_base = xid_base;
 		}
 		else
 		{
+			HeapPageSpecial		special;
+
 			PageInit(page, BufferGetPageSize(buffer),
 					 sizeof(HeapPageSpecialData));
-			HeapPageGetSpecial(page)->pd_xid_base = pd_xid_base;
+			special = HeapPageGetSpecial(page);
+			special->pd_xid_base = xid_base;
+			special->pd_multi_base = multi_base;
 		}
 
 		action = BLK_NEEDS_REDO;
@@ -10038,7 +10069,6 @@ heap_xlog_insert(XLogReaderState *record)
 
 		MarkBufferDirty(buffer);
 	}
-
 	if (BufferIsValid(buffer))
 		UnlockReleaseBuffer(buffer);
 
@@ -10078,7 +10108,8 @@ heap_xlog_multi_insert(XLogReaderState *record)
 	int			i;
 	bool		isinit = (XLogRecGetInfo(record) & XLOG_HEAP_INIT_PAGE) != 0;
 	XLogRedoAction action;
-	TransactionId pd_xid_base = InvalidTransactionId;
+	TransactionId	xid_base = InvalidTransactionId,
+					multi_base = InvalidTransactionId;
 	Pointer		rec_data = (Pointer) XLogRecGetData(record);
 
 	/*
@@ -10087,7 +10118,9 @@ heap_xlog_multi_insert(XLogReaderState *record)
 	 */
 	if (isinit)
 	{
-		pd_xid_base = *((TransactionId *) rec_data);
+		xid_base = *((TransactionId *) rec_data);
+		rec_data += sizeof(TransactionId);
+		multi_base = *((TransactionId *) rec_data);
 		rec_data += sizeof(TransactionId);
 	}
 	xlrec = (xl_heap_multi_insert *) rec_data;
@@ -10121,12 +10154,16 @@ heap_xlog_multi_insert(XLogReaderState *record)
 		if (xlrec->flags & XLH_INSERT_ON_TOAST_RELATION)
 		{
 			PageInit(page, BufferGetPageSize(buffer), sizeof(ToastPageSpecialData));
-			ToastPageGetSpecial(page)->pd_xid_base = pd_xid_base;
+			ToastPageGetSpecial(page)->pd_xid_base = xid_base;
 		}
 		else
 		{
+			HeapPageSpecial special;
+
 			PageInit(page, BufferGetPageSize(buffer), sizeof(HeapPageSpecialData));
-			HeapPageGetSpecial(page)->pd_xid_base = pd_xid_base;
+			special = HeapPageGetSpecial(page);
+			special->pd_xid_base = xid_base;
+			special->pd_multi_base = multi_base;
 		}
 
 		action = BLK_NEEDS_REDO;
@@ -10256,12 +10293,15 @@ heap_xlog_update(XLogReaderState *record, bool hot_update)
 	XLogRedoAction oldaction;
 	XLogRedoAction newaction;
 	bool		isinit = (XLogRecGetInfo(record) & XLOG_HEAP_INIT_PAGE) != 0;
-	TransactionId pd_xid_base = InvalidTransactionId;
 	Pointer		rec_data = (Pointer) XLogRecGetData(record);
+	TransactionId xid_base = InvalidTransactionId,
+				  multi_base = InvalidTransactionId;
 
 	if (isinit)
 	{
-		pd_xid_base = *((TransactionId *) rec_data);
+		xid_base = *((TransactionId *) rec_data);
+		rec_data += sizeof(TransactionId);
+		multi_base = *((TransactionId *) rec_data);
 		rec_data += sizeof(TransactionId);
 	}
 
@@ -10365,13 +10405,16 @@ heap_xlog_update(XLogReaderState *record, bool hot_update)
 	}
 	else if (isinit)
 	{
+		HeapPageSpecial special;
+
 		nbuffer = XLogInitBufferForRedo(record, 0);
 		page = (Page) BufferGetPage(nbuffer);
 
 		/* Toast tuples are never updated. */
 		PageInit(page, BufferGetPageSize(nbuffer), sizeof(HeapPageSpecialData));
-
-		HeapPageGetSpecial(page)->pd_xid_base = pd_xid_base;
+		special = HeapPageGetSpecial(page);
+		special->pd_xid_base = xid_base;
+		special->pd_multi_base = multi_base;
 		newaction = BLK_NEEDS_REDO;
 	}
 	else

@@ -850,8 +850,10 @@ DecodeInsert(LogicalDecodingContext *ctx, XLogRecordBuffer *buf)
 	bool		isinit = (XLogRecGetInfo(r) & XLOG_HEAP_INIT_PAGE) != 0;
 	Pointer		rec_data = (Pointer) XLogRecGetData(r);
 
+	/* Bypass pd_xid_base and pd_multi_base */
 	if (isinit)
-		rec_data += sizeof(TransactionId);
+		rec_data += sizeof(TransactionId) * 2;
+
 	xlrec = (xl_heap_insert *) rec_data;
 
 	/*
@@ -911,8 +913,9 @@ DecodeUpdate(LogicalDecodingContext *ctx, XLogRecordBuffer *buf)
 	bool		isinit = (XLogRecGetInfo(r) & XLOG_HEAP_INIT_PAGE) != 0;
 	Pointer		rec_data = (Pointer) XLogRecGetData(r);
 
+	/* Bypass pd_xid_base and pd_multi_base */
 	if (isinit)
-		rec_data += sizeof(TransactionId);
+		rec_data += sizeof(TransactionId) * 2;
 	xlrec = (xl_heap_update *) rec_data;
 
 	/* only interested in our database */
@@ -1076,8 +1079,9 @@ DecodeMultiInsert(LogicalDecodingContext *ctx, XLogRecordBuffer *buf)
 	bool		isinit = (XLogRecGetInfo(r) & XLOG_HEAP_INIT_PAGE) != 0;
 	Pointer		rec_data = (Pointer) XLogRecGetData(r);
 
+	/* Bypass pd_xid_base and pd_multi_base */
 	if (isinit)
-		rec_data += sizeof(TransactionId);
+		rec_data += sizeof(TransactionId) * 2;
 	xlrec = (xl_heap_multi_insert *) rec_data;
 
 	/*

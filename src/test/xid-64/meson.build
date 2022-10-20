@@ -10,6 +10,7 @@ tests += {
       't/004_test_relminmxid.pl',
       't/005_stream_subxact.pl',
       't/006_zeropage.pl',
+      't/007_first_multi.pl',
     ],
   },
 }
