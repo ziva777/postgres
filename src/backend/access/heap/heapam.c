@@ -2260,528 +2260,6 @@ heap_insert(Relation relation, HeapTuple tup, CommandId cid,
 	}
 }
 
-static void
-xid_min_max(ShortTransactionId *min, ShortTransactionId *max,
-			ShortTransactionId xid,
-			bool *found)
-{
-	Assert(TransactionIdIsNormal(xid));
-	Assert(xid <= MaxShortTransactionId);
-
-	if (!*found)
-	{
-		*min = *max = xid;
-		*found = true;
-	}
-	else
-	{
-		*min = Min(*min, xid);
-		*max = Max(*max, xid);
-	}
-}
-
-/*
- * Find minimum and maximum short transaction ids which occurs in the page.
- *
- * Works for multi and non multi transaction. Which is defined by "multi"
- * argument.
- */
-static bool
-heap_page_xid_min_max(Page page, bool multi,
-					  ShortTransactionId *min, ShortTransactionId *max,
-					  bool is_toast)
-{
-	bool				found;
-	OffsetNumber		offnum,
-						maxoff;
-	ItemId				itemid;
-	HeapTupleHeader		htup;
-
-	maxoff = PageGetMaxOffsetNumber(page);
-	found = false;
-
-	Assert(!multi || !is_toast);
-
-	for (offnum = FirstOffsetNumber;
-		 offnum <= maxoff;
-		 offnum = OffsetNumberNext(offnum))
-	{
-		itemid = PageGetItemId(page, offnum);
-
-		if (!ItemIdIsNormal(itemid))
-			continue;
-
-		htup = (HeapTupleHeader) PageGetItem(page, itemid);
-
-		if (!multi)
-		{
-			/*
-			 * For non multi transactions we should see inside the tuple for
-			 * update transaction.
-			 */
-			Assert(!is_toast || !(htup->t_infomask & HEAP_XMAX_IS_MULTI));
-
-			if (TransactionIdIsNormal(htup->t_choice.t_heap.t_xmin) &&
-				!HeapTupleHeaderXminFrozen(htup))
-			{
-				xid_min_max(min, max, htup->t_choice.t_heap.t_xmin, &found);
-			}
-
-			if ((htup->t_infomask & HEAP_XMAX_IS_MULTI) &&
-				(!(htup->t_infomask & HEAP_XMAX_LOCK_ONLY)))
-			{
-				TransactionId			update_xid;
-				ShortTransactionId		xid;
-
-				Assert(!is_toast);
-				update_xid = MultiXactIdGetUpdateXid(HeapTupleHeaderGetRawXmax(page, htup),
-													 htup->t_infomask);
-				xid = NormalTransactionIdToShort(HeapPageGetSpecial(page)->pd_xid_base,
-												 update_xid);
-
-				xid_min_max(min, max, xid, &found);
-			}
-		}
-
-		if (!TransactionIdIsNormal(htup->t_choice.t_heap.t_xmax))
-			continue;
-
-		if (multi != ((htup->t_infomask & HEAP_XMAX_IS_MULTI) != 0))
-			continue;
-
-		xid_min_max(min, max, htup->t_choice.t_heap.t_xmax, &found);
-	}
-
-	Assert(!found || (*min > InvalidTransactionId && *max <= MaxShortTransactionId));
-
-	return found;
-}
-
-/*
- * Shift xid base in the page.  WAL-logged if buffer is specified.
- */
-static void
-heap_page_shift_base(Relation relation, Buffer buffer, Page page,
-					 bool multi, int64 delta, bool is_toast)
-{
-	TransactionId	   *xid_base,
-					   *multi_base;
-	OffsetNumber		offnum,
-						maxoff;
-	ItemId				itemid;
-	HeapTupleHeader		htup;
-
-	Assert(IsBufferLockedExclusive(buffer));
-
-	START_CRIT_SECTION();
-
-	if (is_toast)
-	{
-		Assert(!multi);
-		xid_base = &ToastPageGetSpecial(page)->pd_xid_base;
-		multi_base = NULL;
-	}
-	else
-	{
-		HeapPageSpecial special = HeapPageGetSpecial(page);
-
-		xid_base = &special->pd_xid_base;
-		multi_base = &special->pd_multi_base;
-	}
-
-	/* Iterate over page items */
-	maxoff = PageGetMaxOffsetNumber(page);
-	for (offnum = FirstOffsetNumber;
-		 offnum <= maxoff;
-		 offnum = OffsetNumberNext(offnum))
-	{
-		itemid = PageGetItemId(page, offnum);
-
-		if (!ItemIdIsNormal(itemid))
-			continue;
-
-		htup = (HeapTupleHeader) PageGetItem(page, itemid);
-
-		/* Apply xid shift to heap tuple */
-		if (!multi)
-		{
-			/* shift xmin */
-			if (TransactionIdIsNormal(htup->t_choice.t_heap.t_xmin) &&
-				!HeapTupleHeaderXminFrozen(htup))
-			{
-				Assert(htup->t_choice.t_heap.t_xmin - delta >= FirstNormalTransactionId);
-				Assert(htup->t_choice.t_heap.t_xmin - delta <= MaxShortTransactionId);
-				htup->t_choice.t_heap.t_xmin -= delta;
-			}
-		}
-
-		/* shift xmax */
-		if (!TransactionIdIsNormal(htup->t_choice.t_heap.t_xmax))
-			continue;
-
-		if (multi != (bool) (htup->t_infomask & HEAP_XMAX_IS_MULTI))
-			continue;
-
-		Assert(htup->t_choice.t_heap.t_xmax - delta >= FirstNormalTransactionId);
-		Assert(htup->t_choice.t_heap.t_xmax - delta <= MaxShortTransactionId);
-		htup->t_choice.t_heap.t_xmax -= delta;
-	}
-
-	/* Apply xid shift to base as well */
-	if (!multi)
-		*xid_base += delta;
-	else
-		*multi_base += delta;
-
-	if (BufferIsValid(buffer))
-		MarkBufferDirty(buffer);
-
-	/* Write WAL record if needed */
-	if (relation && RelationNeedsWAL(relation) && maxoff != 0)
-	{
-		XLogRecPtr			recptr;
-		xl_heap_base_shift	xlrec;
-
-		xlrec.delta = delta;
-		xlrec.multi = multi;
-		xlrec.flags = 0;
-		if (IsToastRelation(relation))
-			xlrec.flags |= XLH_BASE_SHIFT_ON_TOAST_RELATION;
-
-		XLogBeginInsert();
-		XLogRegisterData((char *) &xlrec, SizeOfHeapBaseShift);
-		XLogRegisterBuffer(0, buffer, REGBUF_STANDARD);
-
-		recptr = XLogInsert(RM_HEAP3_ID, XLOG_HEAP3_BASE_SHIFT);
-
-		PageSetLSN(page, recptr);
-	}
-
-	END_CRIT_SECTION();
-}
-
-/*
- * Freeze xids in the single heap page.  Useful when we can't fit new xid even
- * with base shift.
- */
-static void
-freeze_single_heap_page(Relation relation, Buffer buffer)
-{
-	Page					page = BufferGetPage(buffer);
-	OffsetNumber			offnum,
-							maxoff;
-	HeapTupleData			tuple;
-	int						nfrozen = 0;
-	xl_heap_freeze_tuple   *frozen;
-	TransactionId			OldestXmin,
-							FreezeXid;
-	MultiXactId				OldestMxact,
-							MultiXactCutoff;
-	GlobalVisState		   *vistest;
-	ItemId					itemid;
-	bool					tuple_totally_frozen;
-	int						ndeleted,
-							nnewlpdead;
-
-	vacuum_set_xid_limits(relation, 0, 0, 0, 0, &OldestMxact,
-						  &OldestXmin, &FreezeXid, &MultiXactCutoff);
-
-	vistest = GlobalVisTestFor(relation);
-
-	ndeleted = heap_page_prune(relation, buffer, vistest, InvalidTransactionId, 0,
-								&nnewlpdead, &offnum, false);
-	if (ndeleted > nnewlpdead)
-		pgstat_update_heap_dead_tuples(relation,
-									   ndeleted - nnewlpdead);
-
-	/*
-	 * Now scan the page to collect vacuumable items and check for tuples
-	 * requiring freezing.
-	 */
-	maxoff = PageGetMaxOffsetNumber(page);
-	frozen = palloc(sizeof(xl_heap_freeze_tuple) * MaxHeapTuplesPerPage);
-
-	/*
-	 * Note: If you change anything in the loop below, also look at
-	 * heap_page_is_all_visible to see if that needs to be changed.
-	 */
-	for (offnum = FirstOffsetNumber;
-		 offnum <= maxoff;
-		 offnum = OffsetNumberNext(offnum))
-	{
-		TransactionId	NewRelfrozenXid;
-		MultiXactId		NewRelminMxid;
-
-		itemid = PageGetItemId(page, offnum);
-
-		if (!ItemIdIsNormal(itemid))
-			continue;
-
-		tuple.t_data = (HeapTupleHeader) PageGetItem(page, itemid);
-		tuple.t_len = ItemIdGetLength(itemid);
-		tuple.t_tableOid = RelationGetRelid(relation);
-		HeapTupleCopyBaseFromPage(buffer, &tuple, page,
-								  IsToastRelation(relation));
-
-		/*
-		 * Each non-removable tuple must be checked to see if it needs
-		 * freezing.  Note we already have exclusive buffer lock.
-		 */
-		if (heap_prepare_freeze_tuple(&tuple,
-									  relation->rd_rel->relfrozenxid,
-									  relation->rd_rel->relminmxid,
-									  FreezeXid, MultiXactCutoff,
-									  &frozen[nfrozen], &tuple_totally_frozen,
-									  &NewRelfrozenXid, &NewRelminMxid))
-			frozen[nfrozen++].offset = offnum;
-	}
-
-	/*
-	 * If we froze any tuples, mark the buffer dirty, and write a WAL record
-	 * recording the changes.  We must log the changes to be crash-safe
-	 * against future truncation of CLOG.
-	 */
-	if (nfrozen > 0)
-	{
-		int					i;
-		HeapTupleHeader		htup;
-
-		START_CRIT_SECTION();
-
-		MarkBufferDirty(buffer);
-
-		/* execute collected freezes */
-		for (i = 0; i < nfrozen; i++)
-		{
-			itemid = PageGetItemId(page, frozen[i].offset);
-			htup = (HeapTupleHeader) PageGetItem(page, itemid);
-			heap_execute_freeze_tuple_page(page, htup, &frozen[i],
-										   IsToastRelation(relation));
-		}
-
-		/* Now WAL-log freezing if necessary */
-		if (RelationNeedsWAL(relation))
-		{
-			XLogRecPtr	recptr;
-
-			recptr = log_heap_freeze(relation, buffer, FreezeXid,
-									 frozen, nfrozen);
-			PageSetLSN(page, recptr);
-		}
-
-		END_CRIT_SECTION();
-	}
-
-	pfree(frozen);
-
-	return;
-}
-
-/*
- * Check if xid still fits on a page with given base and delta.
- */
-static inline bool
-is_delta_fits_heap_page(TransactionId xid, TransactionId base, int64 delta)
-{
-	return xid >= base + delta + FirstNormalTransactionId &&
-		   xid <= base + delta + MaxShortTransactionId;
-}
-
-/*
- * Check if xid fits on a page with given base.
- */
-static inline bool
-is_xid_fits_heap_page(TransactionId xid, TransactionId base)
-{
-	return xid >= base + FirstNormalTransactionId &&
-		   xid <= base + MaxShortTransactionId;
-}
-
-/*
- * Check if delta fits on a page.
- *
- * If delta does not fits, never return.
- */
-static void
-heap_page_check_delta(Buffer buffer,
-					  TransactionId xid, TransactionId base,
-					  ShortTransactionId min, ShortTransactionId max,
-					  int64 delta, int64 *freeDelta, int64 *requiredDelta)
-{
-	BufferDesc	   *buf;
-	char		   *path;
-	BackendId		backend;
-
-	Assert((freeDelta == NULL) == (requiredDelta == NULL));
-
-	/*
-	 * If delta fits the page, we good to go ...
-	 */
-	if (is_delta_fits_heap_page(xid, base, delta))
-		return;
-
-	/*
-	 * ... otherwise handle the error.
-	 */
-	if (buffer == InvalidBuffer)
-		return;
-
-	if (BufferIsLocal(buffer))
-	{
-		buf = GetLocalBufferDescriptor(-buffer - 1);
-		backend = MyBackendId;
-	}
-	else
-	{
-		buf = GetBufferDescriptor(buffer - 1);
-		backend = InvalidBackendId;
-	}
-
-	path = relpathbackend(BufTagGetRelFileLocator(&buf->tag), backend,
-						  buf->tag.forkNum);
-
-	if (freeDelta == NULL)
-		elog(FATAL, "Fatal xid base calculation error: xid = %llu, base = %llu, min = %u, max = %u, delta = %lld (rel=%s, blockNum=%u)",
-					(unsigned long long) xid, (unsigned long long) base,
-					min, max,
-					(long long) delta,
-					path, buf->tag.blockNum);
-
-	elog(FATAL, "Fatal xid base calculation error: xid = %llu, base = %llu, min = %u, max = %u, freeDelta = %lld, requiredDelta = %lld, delta = %lld (rel=%s, blockNum=%u)",
-				(unsigned long long) xid, (unsigned long long) base,
-				min, max,
-				(long long) *freeDelta, (long long) *requiredDelta,
-				(long long) delta,
-				path, buf->tag.blockNum);
-}
-
-/*
- * Shift page base.
- */
-static void
-heap_page_apply_delta(Relation relation, Buffer buffer, Page page,
-					  TransactionId xid, bool multi,
-					  TransactionId base, int64 delta, bool is_toast)
-{
-	Assert(is_delta_fits_heap_page(xid, base, delta));
-
-	heap_page_shift_base(relation, buffer, page, multi, delta, is_toast);
-
-#ifdef USE_ASSERT_CHECKING
-	if (is_toast)
-	{
-		Assert(!multi);
-		base = ToastPageGetSpecial(page)->pd_xid_base;
-	}
-	else
-		base = multi ? HeapPageGetSpecial(page)->pd_multi_base :
-					   HeapPageGetSpecial(page)->pd_xid_base;
-
-	Assert(is_xid_fits_heap_page(xid, base));
-#endif /* USE_ASSERT_CHECKING */
-}
-
-/*
- * Try to fit xid on a page.
- */
-static int
-heap_page_try_prepare_for_xid(Relation relation, Buffer buffer, Page page,
-							  TransactionId xid, bool multi, bool is_toast)
-{
-	TransactionId		base;
-	ShortTransactionId	min = InvalidTransactionId,
-						max = InvalidTransactionId;
-	int64				delta,
-						freeDelta,
-						requiredDelta;
-
-	if (is_toast)
-	{
-		Assert(!multi);
-		base = ToastPageGetSpecial(page)->pd_xid_base;
-	}
-	else
-		base = multi ? HeapPageGetSpecial(page)->pd_multi_base :
-					   HeapPageGetSpecial(page)->pd_xid_base;
-
-	/* If xid fits the page no action needed. */
-	if (is_xid_fits_heap_page(xid, base))
-		return 0;
-
-	/* No items on the page? */
-	if (!heap_page_xid_min_max(page, multi, &min, &max, is_toast))
-	{
-		delta = (int64) (xid - FirstNormalTransactionId) - (int64) base;
-		heap_page_check_delta(buffer, xid, base, min, max, delta, NULL, NULL);
-		heap_page_apply_delta(relation, buffer, page, xid, multi, base, delta,
-							  is_toast);
-		return 0;
-	}
-
-	/* Can we just shift base on the page? */
-	if (xid < base + FirstNormalTransactionId)
-	{
-		freeDelta = MaxShortTransactionId - max;
-		requiredDelta = (base + FirstNormalTransactionId) - xid;
-		/* Shouldn't consider setting base less than 0 */
-		freeDelta = Min(freeDelta, base);
-
-		if (requiredDelta > freeDelta)
-			return -1;
-
-		delta  = -(freeDelta + requiredDelta) / 2;
-	}
-	else
-	{
-		freeDelta = min - FirstNormalTransactionId;
-		requiredDelta = xid - (base + MaxShortTransactionId);
-
-		if (requiredDelta > freeDelta)
-			return -1;
-
-		delta = (freeDelta + requiredDelta) / 2;
-	}
-
-	heap_page_check_delta(buffer, xid, base, min, max,
-						  delta, &freeDelta, &requiredDelta);
-	heap_page_apply_delta(relation, buffer, page, xid, multi, base,
-						  delta, is_toast);
-
-	return 0;
-}
-
-/*
- * Ensure that given xid fits base of given page.
- */
-void
-rewrite_page_prepare_for_xid(Page page, HeapTuple tup, bool is_toast)
-{
-	TransactionId	xid;
-	int				res;
-
-	/* xmin */
-	xid = HeapTupleGetXmin(tup);
-	if (TransactionIdIsNormal(xid))
-	{
-		res = heap_page_try_prepare_for_xid(NULL, InvalidBuffer, page, xid,
-											false, is_toast);
-		if (res == -1)
-			elog(ERROR, "could not fit xid into page");
-	}
-
-	/* xmax */
-	xid = HeapTupleGetRawXmax(tup);
-	if (TransactionIdIsNormal(xid))
-	{
-		res = heap_page_try_prepare_for_xid(NULL, InvalidBuffer, page, xid,
-											tup->t_data->t_infomask & HEAP_XMAX_IS_MULTI,
-											is_toast);
-		if (res == -1)
-			elog(ERROR, "could not fit xid into page");
-	}
-}
-
-
 /*
  * Subroutine for heap_insert(). Prepares a tuple for insertion. This sets the
  * tuple header fields and toasts the tuple if necessary.  Returns a toasted
@@ -10779,33 +10257,6 @@ heap_xlog_inplace(XLogReaderState *record)
 		UnlockReleaseBuffer(buffer);
 }
 
-static void
-heap_xlog_base_shift(XLogReaderState *record)
-{
-	XLogRecPtr			lsn = record->EndRecPtr;
-	xl_heap_base_shift *xlrec = (xl_heap_base_shift *) XLogRecGetData(record);
-	Buffer				buffer;
-	Page				page;
-	BlockNumber			blkno;
-	RelFileLocator		target_node;
-
-	XLogRecGetBlockTag(record, 0, &target_node, NULL, &blkno);
-
-	if (XLogReadBufferForRedo(record, 0, &buffer) == BLK_NEEDS_REDO)
-	{
-		page = BufferGetPage(buffer);
-		heap_page_shift_base(NULL, InvalidBuffer, page, xlrec->multi,
-							 xlrec->delta,
-							 xlrec->flags & XLH_BASE_SHIFT_ON_TOAST_RELATION);
-		PageSetLSN(page, lsn);
-		MarkBufferDirty(buffer);
-	}
-
-	if (BufferIsValid(buffer))
-		UnlockReleaseBuffer(buffer);
-}
-
-
 void
 heap_redo(XLogReaderState *record)
 {
@@ -10889,21 +10340,6 @@ heap2_redo(XLogReaderState *record)
 			break;
 		default:
 			elog(PANIC, "heap2_redo: unknown op code %u", info);
-	}
-}
-
-void
-heap3_redo(XLogReaderState *record)
-{
-	uint8		info = XLogRecGetInfo(record) & ~XLR_INFO_MASK;
-
-	switch (info & XLOG_HEAP_OPMASK)
-	{
-		case XLOG_HEAP3_BASE_SHIFT:
-			heap_xlog_base_shift(record);
-			break;
-		default:
-			elog(PANIC, "heap3_redo: unknown op code %u", info);
 	}
 }
 
@@ -11094,6 +10530,522 @@ HeapCheckForSerializableConflictOut(bool visible, Relation relation,
 	CheckForSerializableConflictOut(relation, xid, snapshot);
 }
 
+static void
+xid_min_max(ShortTransactionId *min, ShortTransactionId *max,
+			ShortTransactionId xid,
+			bool *found)
+{
+	Assert(TransactionIdIsNormal(xid));
+	Assert(xid <= MaxShortTransactionId);
+
+	if (!*found)
+	{
+		*min = *max = xid;
+		*found = true;
+	}
+	else
+	{
+		*min = Min(*min, xid);
+		*max = Max(*max, xid);
+	}
+}
+
+/*
+ * Find minimum and maximum short transaction ids which occurs in the page.
+ *
+ * Works for multi and non multi transaction. Which is defined by "multi"
+ * argument.
+ */
+static bool
+heap_page_xid_min_max(Page page, bool multi,
+					  ShortTransactionId *min, ShortTransactionId *max,
+					  bool is_toast)
+{
+	bool				found;
+	OffsetNumber		offnum,
+						maxoff;
+	ItemId				itemid;
+	HeapTupleHeader		htup;
+
+	maxoff = PageGetMaxOffsetNumber(page);
+	found = false;
+
+	Assert(!multi || !is_toast);
+
+	for (offnum = FirstOffsetNumber;
+		 offnum <= maxoff;
+		 offnum = OffsetNumberNext(offnum))
+	{
+		itemid = PageGetItemId(page, offnum);
+
+		if (!ItemIdIsNormal(itemid))
+			continue;
+
+		htup = (HeapTupleHeader) PageGetItem(page, itemid);
+
+		if (!multi)
+		{
+			/*
+			 * For non multi transactions we should see inside the tuple for
+			 * update transaction.
+			 */
+			Assert(!is_toast || !(htup->t_infomask & HEAP_XMAX_IS_MULTI));
+
+			if (TransactionIdIsNormal(htup->t_choice.t_heap.t_xmin) &&
+				!HeapTupleHeaderXminFrozen(htup))
+			{
+				xid_min_max(min, max, htup->t_choice.t_heap.t_xmin, &found);
+			}
+
+			if ((htup->t_infomask & HEAP_XMAX_IS_MULTI) &&
+				(!(htup->t_infomask & HEAP_XMAX_LOCK_ONLY)))
+			{
+				TransactionId			update_xid;
+				ShortTransactionId		xid;
+
+				Assert(!is_toast);
+				update_xid = MultiXactIdGetUpdateXid(HeapTupleHeaderGetRawXmax(page, htup),
+													 htup->t_infomask);
+				xid = NormalTransactionIdToShort(HeapPageGetSpecial(page)->pd_xid_base,
+												 update_xid);
+
+				xid_min_max(min, max, xid, &found);
+			}
+		}
+
+		if (!TransactionIdIsNormal(htup->t_choice.t_heap.t_xmax))
+			continue;
+
+		if (multi != ((htup->t_infomask & HEAP_XMAX_IS_MULTI) != 0))
+			continue;
+
+		xid_min_max(min, max, htup->t_choice.t_heap.t_xmax, &found);
+	}
+
+	Assert(!found || (*min > InvalidTransactionId && *max <= MaxShortTransactionId));
+
+	return found;
+}
+
+/*
+ * Shift xid base in the page.  WAL-logged if buffer is specified.
+ */
+static void
+heap_page_shift_base(Relation relation, Buffer buffer, Page page,
+					 bool multi, int64 delta, bool is_toast)
+{
+	TransactionId	   *xid_base,
+					   *multi_base;
+	OffsetNumber		offnum,
+						maxoff;
+	ItemId				itemid;
+	HeapTupleHeader		htup;
+
+	Assert(IsBufferLockedExclusive(buffer));
+
+	START_CRIT_SECTION();
+
+	if (is_toast)
+	{
+		Assert(!multi);
+		xid_base = &ToastPageGetSpecial(page)->pd_xid_base;
+		multi_base = NULL;
+	}
+	else
+	{
+		HeapPageSpecial special = HeapPageGetSpecial(page);
+
+		xid_base = &special->pd_xid_base;
+		multi_base = &special->pd_multi_base;
+	}
+
+	/* Iterate over page items */
+	maxoff = PageGetMaxOffsetNumber(page);
+	for (offnum = FirstOffsetNumber;
+		 offnum <= maxoff;
+		 offnum = OffsetNumberNext(offnum))
+	{
+		itemid = PageGetItemId(page, offnum);
+
+		if (!ItemIdIsNormal(itemid))
+			continue;
+
+		htup = (HeapTupleHeader) PageGetItem(page, itemid);
+
+		/* Apply xid shift to heap tuple */
+		if (!multi)
+		{
+			/* shift xmin */
+			if (TransactionIdIsNormal(htup->t_choice.t_heap.t_xmin) &&
+				!HeapTupleHeaderXminFrozen(htup))
+			{
+				Assert(htup->t_choice.t_heap.t_xmin - delta >= FirstNormalTransactionId);
+				Assert(htup->t_choice.t_heap.t_xmin - delta <= MaxShortTransactionId);
+				htup->t_choice.t_heap.t_xmin -= delta;
+			}
+		}
+
+		/* shift xmax */
+		if (!TransactionIdIsNormal(htup->t_choice.t_heap.t_xmax))
+			continue;
+
+		if (multi != (bool) (htup->t_infomask & HEAP_XMAX_IS_MULTI))
+			continue;
+
+		Assert(htup->t_choice.t_heap.t_xmax - delta >= FirstNormalTransactionId);
+		Assert(htup->t_choice.t_heap.t_xmax - delta <= MaxShortTransactionId);
+		htup->t_choice.t_heap.t_xmax -= delta;
+	}
+
+	/* Apply xid shift to base as well */
+	if (!multi)
+		*xid_base += delta;
+	else
+		*multi_base += delta;
+
+	if (BufferIsValid(buffer))
+		MarkBufferDirty(buffer);
+
+	/* Write WAL record if needed */
+	if (relation && RelationNeedsWAL(relation) && maxoff != 0)
+	{
+		XLogRecPtr			recptr;
+		xl_heap_base_shift	xlrec;
+
+		xlrec.delta = delta;
+		xlrec.multi = multi;
+		xlrec.flags = 0;
+		if (IsToastRelation(relation))
+			xlrec.flags |= XLH_BASE_SHIFT_ON_TOAST_RELATION;
+
+		XLogBeginInsert();
+		XLogRegisterData((char *) &xlrec, SizeOfHeapBaseShift);
+		XLogRegisterBuffer(0, buffer, REGBUF_STANDARD);
+
+		recptr = XLogInsert(RM_HEAP3_ID, XLOG_HEAP3_BASE_SHIFT);
+
+		PageSetLSN(page, recptr);
+	}
+
+	END_CRIT_SECTION();
+}
+
+/*
+ * Freeze xids in the single heap page.  Useful when we can't fit new xid even
+ * with base shift.
+ */
+static void
+freeze_single_heap_page(Relation relation, Buffer buffer)
+{
+	Page					page = BufferGetPage(buffer);
+	OffsetNumber			offnum,
+							maxoff;
+	HeapTupleData			tuple;
+	int						nfrozen = 0;
+	xl_heap_freeze_tuple   *frozen;
+	TransactionId			OldestXmin,
+							FreezeXid;
+	MultiXactId				OldestMxact,
+							MultiXactCutoff;
+	GlobalVisState		   *vistest;
+	ItemId					itemid;
+	bool					tuple_totally_frozen;
+	int						ndeleted,
+							nnewlpdead;
+
+	vacuum_set_xid_limits(relation, 0, 0, 0, 0, &OldestMxact,
+						  &OldestXmin, &FreezeXid, &MultiXactCutoff);
+
+	vistest = GlobalVisTestFor(relation);
+
+	ndeleted = heap_page_prune(relation, buffer, vistest, InvalidTransactionId, 0,
+								&nnewlpdead, &offnum, false);
+	if (ndeleted > nnewlpdead)
+		pgstat_update_heap_dead_tuples(relation,
+									   ndeleted - nnewlpdead);
+
+	/*
+	 * Now scan the page to collect vacuumable items and check for tuples
+	 * requiring freezing.
+	 */
+	maxoff = PageGetMaxOffsetNumber(page);
+	frozen = palloc(sizeof(xl_heap_freeze_tuple) * MaxHeapTuplesPerPage);
+
+	/*
+	 * Note: If you change anything in the loop below, also look at
+	 * heap_page_is_all_visible to see if that needs to be changed.
+	 */
+	for (offnum = FirstOffsetNumber;
+		 offnum <= maxoff;
+		 offnum = OffsetNumberNext(offnum))
+	{
+		TransactionId	NewRelfrozenXid;
+		MultiXactId		NewRelminMxid;
+
+		itemid = PageGetItemId(page, offnum);
+
+		if (!ItemIdIsNormal(itemid))
+			continue;
+
+		tuple.t_data = (HeapTupleHeader) PageGetItem(page, itemid);
+		tuple.t_len = ItemIdGetLength(itemid);
+		tuple.t_tableOid = RelationGetRelid(relation);
+		HeapTupleCopyBaseFromPage(buffer, &tuple, page,
+								  IsToastRelation(relation));
+
+		/*
+		 * Each non-removable tuple must be checked to see if it needs
+		 * freezing.  Note we already have exclusive buffer lock.
+		 */
+		if (heap_prepare_freeze_tuple(&tuple,
+									  relation->rd_rel->relfrozenxid,
+									  relation->rd_rel->relminmxid,
+									  FreezeXid, MultiXactCutoff,
+									  &frozen[nfrozen], &tuple_totally_frozen,
+									  &NewRelfrozenXid, &NewRelminMxid))
+			frozen[nfrozen++].offset = offnum;
+	}
+
+	/*
+	 * If we froze any tuples, mark the buffer dirty, and write a WAL record
+	 * recording the changes.  We must log the changes to be crash-safe
+	 * against future truncation of CLOG.
+	 */
+	if (nfrozen > 0)
+	{
+		int					i;
+		HeapTupleHeader		htup;
+
+		START_CRIT_SECTION();
+
+		MarkBufferDirty(buffer);
+
+		/* execute collected freezes */
+		for (i = 0; i < nfrozen; i++)
+		{
+			itemid = PageGetItemId(page, frozen[i].offset);
+			htup = (HeapTupleHeader) PageGetItem(page, itemid);
+			heap_execute_freeze_tuple_page(page, htup, &frozen[i],
+										   IsToastRelation(relation));
+		}
+
+		/* Now WAL-log freezing if necessary */
+		if (RelationNeedsWAL(relation))
+		{
+			XLogRecPtr	recptr;
+
+			recptr = log_heap_freeze(relation, buffer, FreezeXid,
+									 frozen, nfrozen);
+			PageSetLSN(page, recptr);
+		}
+
+		END_CRIT_SECTION();
+	}
+
+	pfree(frozen);
+
+	return;
+}
+
+/*
+ * Check if xid still fits on a page with given base and delta.
+ */
+static inline bool
+is_delta_fits_heap_page(TransactionId xid, TransactionId base, int64 delta)
+{
+	return xid >= base + delta + FirstNormalTransactionId &&
+		   xid <= base + delta + MaxShortTransactionId;
+}
+
+/*
+ * Check if xid fits on a page with given base.
+ */
+static inline bool
+is_xid_fits_heap_page(TransactionId xid, TransactionId base)
+{
+	return xid >= base + FirstNormalTransactionId &&
+		   xid <= base + MaxShortTransactionId;
+}
+
+/*
+ * Check if delta fits on a page.
+ *
+ * If delta does not fits, never return.
+ */
+static void
+heap_page_check_delta(Buffer buffer,
+					  TransactionId xid, TransactionId base,
+					  ShortTransactionId min, ShortTransactionId max,
+					  int64 delta, int64 *freeDelta, int64 *requiredDelta)
+{
+	BufferDesc	   *buf;
+	char		   *path;
+	BackendId		backend;
+
+	Assert((freeDelta == NULL) == (requiredDelta == NULL));
+
+	/*
+	 * If delta fits the page, we good to go ...
+	 */
+	if (is_delta_fits_heap_page(xid, base, delta))
+		return;
+
+	/*
+	 * ... otherwise handle the error.
+	 */
+	if (buffer == InvalidBuffer)
+		return;
+
+	if (BufferIsLocal(buffer))
+	{
+		buf = GetLocalBufferDescriptor(-buffer - 1);
+		backend = MyBackendId;
+	}
+	else
+	{
+		buf = GetBufferDescriptor(buffer - 1);
+		backend = InvalidBackendId;
+	}
+
+	path = relpathbackend(BufTagGetRelFileLocator(&buf->tag), backend,
+						  buf->tag.forkNum);
+
+	if (freeDelta == NULL)
+		elog(FATAL, "Fatal xid base calculation error: xid = %llu, base = %llu, min = %u, max = %u, delta = %lld (rel=%s, blockNum=%u)",
+					(unsigned long long) xid, (unsigned long long) base,
+					min, max,
+					(long long) delta,
+					path, buf->tag.blockNum);
+
+	elog(FATAL, "Fatal xid base calculation error: xid = %llu, base = %llu, min = %u, max = %u, freeDelta = %lld, requiredDelta = %lld, delta = %lld (rel=%s, blockNum=%u)",
+				(unsigned long long) xid, (unsigned long long) base,
+				min, max,
+				(long long) *freeDelta, (long long) *requiredDelta,
+				(long long) delta,
+				path, buf->tag.blockNum);
+}
+
+/*
+ * Shift page base.
+ */
+static void
+heap_page_apply_delta(Relation relation, Buffer buffer, Page page,
+					  TransactionId xid, bool multi,
+					  TransactionId base, int64 delta, bool is_toast)
+{
+	Assert(is_delta_fits_heap_page(xid, base, delta));
+
+	heap_page_shift_base(relation, buffer, page, multi, delta, is_toast);
+
+#ifdef USE_ASSERT_CHECKING
+	if (is_toast)
+	{
+		Assert(!multi);
+		base = ToastPageGetSpecial(page)->pd_xid_base;
+	}
+	else
+		base = multi ? HeapPageGetSpecial(page)->pd_multi_base :
+					   HeapPageGetSpecial(page)->pd_xid_base;
+
+	Assert(is_xid_fits_heap_page(xid, base));
+#endif /* USE_ASSERT_CHECKING */
+}
+
+/*
+ * Try to fit xid on a page.
+ */
+static int
+heap_page_try_prepare_for_xid(Relation relation, Buffer buffer, Page page,
+							  TransactionId xid, bool multi, bool is_toast)
+{
+	TransactionId		base;
+	ShortTransactionId	min = InvalidTransactionId,
+						max = InvalidTransactionId;
+	int64				delta,
+						freeDelta,
+						requiredDelta;
+
+	if (is_toast)
+	{
+		Assert(!multi);
+		base = ToastPageGetSpecial(page)->pd_xid_base;
+	}
+	else
+		base = multi ? HeapPageGetSpecial(page)->pd_multi_base :
+					   HeapPageGetSpecial(page)->pd_xid_base;
+
+	/* If xid fits the page no action needed. */
+	if (is_xid_fits_heap_page(xid, base))
+		return 0;
+
+	/* No items on the page? */
+	if (!heap_page_xid_min_max(page, multi, &min, &max, is_toast))
+	{
+		delta = (int64) (xid - FirstNormalTransactionId) - (int64) base;
+		heap_page_check_delta(buffer, xid, base, min, max, delta, NULL, NULL);
+		heap_page_apply_delta(relation, buffer, page, xid, multi, base, delta,
+							  is_toast);
+		return 0;
+	}
+
+	/* Can we just shift base on the page? */
+	if (xid < base + FirstNormalTransactionId)
+	{
+		freeDelta = MaxShortTransactionId - max;
+		requiredDelta = (base + FirstNormalTransactionId) - xid;
+		/* Shouldn't consider setting base less than 0 */
+		freeDelta = Min(freeDelta, base);
+
+		if (requiredDelta > freeDelta)
+			return -1;
+
+		delta  = -(freeDelta + requiredDelta) / 2;
+	}
+	else
+	{
+		freeDelta = min - FirstNormalTransactionId;
+		requiredDelta = xid - (base + MaxShortTransactionId);
+
+		if (requiredDelta > freeDelta)
+			return -1;
+
+		delta = (freeDelta + requiredDelta) / 2;
+	}
+
+	heap_page_check_delta(buffer, xid, base, min, max,
+						  delta, &freeDelta, &requiredDelta);
+	heap_page_apply_delta(relation, buffer, page, xid, multi, base,
+						  delta, is_toast);
+
+	return 0;
+}
+
+static void
+heap_xlog_base_shift(XLogReaderState *record)
+{
+	XLogRecPtr			lsn = record->EndRecPtr;
+	xl_heap_base_shift *xlrec = (xl_heap_base_shift *) XLogRecGetData(record);
+	Buffer				buffer;
+	Page				page;
+	BlockNumber			blkno;
+	RelFileLocator		target_node;
+
+	XLogRecGetBlockTag(record, 0, &target_node, NULL, &blkno);
+
+	if (XLogReadBufferForRedo(record, 0, &buffer) == BLK_NEEDS_REDO)
+	{
+		page = BufferGetPage(buffer);
+		heap_page_shift_base(NULL, InvalidBuffer, page, xlrec->multi,
+							 xlrec->delta,
+							 xlrec->flags & XLH_BASE_SHIFT_ON_TOAST_RELATION);
+		PageSetLSN(page, lsn);
+		MarkBufferDirty(buffer);
+	}
+
+	if (BufferIsValid(buffer))
+		UnlockReleaseBuffer(buffer);
+}
+
 /*
  * Ensure that given xid fits base of given page.
  */
@@ -11127,4 +11079,50 @@ heap_page_prepare_for_xid(Relation relation, Buffer buffer,
 	elog(ERROR, "could not fit xid into page");
 
 	return false;
+}
+
+/*
+ * Ensure that given xid fits base of given page.
+ */
+void
+rewrite_page_prepare_for_xid(Page page, HeapTuple tup, bool is_toast)
+{
+	TransactionId	xid;
+	int				res;
+
+	/* xmin */
+	xid = HeapTupleGetXmin(tup);
+	if (TransactionIdIsNormal(xid))
+	{
+		res = heap_page_try_prepare_for_xid(NULL, InvalidBuffer, page, xid,
+											false, is_toast);
+		if (res == -1)
+			elog(ERROR, "could not fit xid into page");
+	}
+
+	/* xmax */
+	xid = HeapTupleGetRawXmax(tup);
+	if (TransactionIdIsNormal(xid))
+	{
+		res = heap_page_try_prepare_for_xid(NULL, InvalidBuffer, page, xid,
+											tup->t_data->t_infomask & HEAP_XMAX_IS_MULTI,
+											is_toast);
+		if (res == -1)
+			elog(ERROR, "could not fit xid into page");
+	}
+}
+
+void
+heap3_redo(XLogReaderState *record)
+{
+	uint8		info = XLogRecGetInfo(record) & ~XLR_INFO_MASK;
+
+	switch (info & XLOG_HEAP_OPMASK)
+	{
+		case XLOG_HEAP3_BASE_SHIFT:
+			heap_xlog_base_shift(record);
+			break;
+		default:
+			elog(PANIC, "heap3_redo: unknown op code %u", info);
+	}
 }
