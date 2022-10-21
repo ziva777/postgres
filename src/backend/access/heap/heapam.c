@@ -2025,6 +2025,31 @@ ReleaseBulkInsertStatePin(BulkInsertState bistate)
 	bistate->current_buf = InvalidBuffer;
 }
 
+/*
+ * Add xid_base and multi base to the WAL record.
+ *
+ * WAL record must being constructed.
+ */
+static inline void
+xlog_register_base(Page page, bool is_toast, TransactionId *xid_base,
+				   TransactionId *multi_base)
+{
+	if (is_toast)
+	{
+		*xid_base = ToastPageGetSpecial(page)->pd_xid_base;
+		*multi_base = InvalidTransactionId;
+	}
+	else
+	{
+		HeapPageSpecial special = HeapPageGetSpecial(page);
+
+		*xid_base = special->pd_xid_base;
+		*multi_base = special->pd_multi_base;
+	}
+
+	XLogRegisterData((char *) xid_base, sizeof(*xid_base));
+	XLogRegisterData((char *) multi_base, sizeof(*multi_base));
+}
 
 /*
  *	heap_insert		- insert tuple into a heap
@@ -2178,23 +2203,8 @@ heap_insert(Relation relation, HeapTuple tup, CommandId cid,
 		XLogBeginInsert();
 
 		if (info & XLOG_HEAP_INIT_PAGE)
-		{
-			if (IsToastRelation(relation))
-			{
-				xid_base = ToastPageGetSpecial(page)->pd_xid_base;
-				multi_base = InvalidTransactionId;
-			}
-			else
-			{
-				HeapPageSpecial special = HeapPageGetSpecial(page);
-
-				xid_base = special->pd_xid_base;
-				multi_base = special->pd_multi_base;
-			}
-
-			XLogRegisterData((char *) &xid_base, sizeof(xid_base));
-			XLogRegisterData((char *) &multi_base, sizeof(multi_base));
-		}
+			xlog_register_base(page, IsToastRelation(relation), &xid_base,
+							   &multi_base);
 
 		XLogRegisterData((char *) &xlrec, SizeOfHeapInsert);
 
@@ -3086,23 +3096,8 @@ heap_multi_insert(Relation relation, TupleTableSlot **slots, int ntuples,
 			XLogBeginInsert();
 
 			if (info & XLOG_HEAP_INIT_PAGE)
-			{
-				if (IsToastRelation(relation))
-				{
-					xid_base = ToastPageGetSpecial(page)->pd_xid_base;
-					multi_base = InvalidTransactionId;
-				}
-				else
-				{
-					HeapPageSpecial special = HeapPageGetSpecial(page);
-
-					xid_base = special->pd_xid_base;
-					multi_base = special->pd_multi_base;
-				}
-
-				XLogRegisterData((char *) &xid_base, sizeof(xid_base));
-				XLogRegisterData((char *) &multi_base, sizeof(multi_base));
-			}
+				xlog_register_base(page, IsToastRelation(relation), &xid_base,
+								   &multi_base);
 
 			XLogRegisterData((char *) xlrec, tupledata - scratch.data);
 			XLogRegisterBuffer(0, buffer, REGBUF_STANDARD | bufflags);
