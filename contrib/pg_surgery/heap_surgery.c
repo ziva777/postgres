@@ -294,16 +294,14 @@ heap_force_common(FunctionCallInfo fcinfo, HeapTupleForceOption heap_force_opt)
 				ItemPointerSet(&htup->t_ctid, blkno, curoff);
 				if (IsToastRelation(rel))
 				{
-					ToastTupleHeaderStoreXmin(page, &tuple);
-					ToastTupleHeaderStoreXmax(page, &tuple);
+					ToastTupleAndHeaderSetXmin(page, &tuple, FrozenTransactionId);
+					ToastTupleAndHeaderSetXmax(page, &tuple, InvalidTransactionId);
 				}
 				else
 				{
-					HeapTupleHeaderStoreXmin(page, &tuple);
-					HeapTupleHeaderStoreXmax(page, &tuple);
+					HeapTupleAndHeaderSetXmin(page, &tuple, FrozenTransactionId);
+					HeapTupleAndHeaderSetXmax(page, &tuple, InvalidTransactionId);
 				}
-				HeapTupleSetXmin(&tuple, FrozenTransactionId);
-				HeapTupleSetXmax(&tuple, InvalidTransactionId);
 				if (htup->t_infomask & HEAP_MOVED)
 				{
 					if (htup->t_infomask & HEAP_MOVED_OFF)

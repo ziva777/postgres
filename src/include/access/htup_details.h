@@ -385,6 +385,20 @@ do { \
 																	   (tup)->t_xmin); \
 } while (0)
 
+static inline void
+HeapTupleAndHeaderSetXmin(Page page, HeapTuple tup, TransactionId xid)
+{
+	HeapTupleSetXmin(tup, xid);
+	HeapTupleHeaderStoreXmin(page, tup);
+}
+
+static inline void
+ToastTupleAndHeaderSetXmin(Page page, HeapTuple tup, TransactionId xid)
+{
+	HeapTupleSetXmin(tup, xid);
+	ToastTupleHeaderStoreXmin(page, tup);
+}
+
 #define HeapTupleHeaderXminCommitted(tup) \
 ( \
 	((tup)->t_infomask & HEAP_XMIN_COMMITTED) != 0 \
@@ -472,6 +486,20 @@ do { \
 				ToastPageGetSpecial(page)->pd_xid_base, \
 				((tup)->t_xmax)); \
 } while (0)
+
+static inline void
+HeapTupleAndHeaderSetXmax(Page page, HeapTuple tup, TransactionId xid)
+{
+	HeapTupleSetXmax(tup, xid);
+	HeapTupleHeaderStoreXmax(page, tup);
+}
+
+static inline void
+ToastTupleAndHeaderSetXmax(Page page, HeapTuple tup, TransactionId xid)
+{
+	HeapTupleSetXmax(tup, xid);
+	ToastTupleHeaderStoreXmax(page, tup);
+}
 
 /*
  * HeapTupleHeaderGetRawCommandId will give you what's in the header whether

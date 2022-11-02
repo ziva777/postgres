@@ -3779,8 +3779,7 @@ l2:
 		Assert(TransactionIdIsValid(xmax_lock_old_tuple));
 		oldtup.t_data->t_infomask |= infomask_lock_old_tuple;
 		oldtup.t_data->t_infomask2 |= infomask2_lock_old_tuple;
-		HeapTupleSetXmax(&oldtup, xmax_lock_old_tuple);
-		HeapTupleHeaderStoreXmax(page, &oldtup);
+		HeapTupleAndHeaderSetXmax(page, &oldtup, xmax_lock_old_tuple);
 		HeapTupleHeaderSetCmax(oldtup.t_data, cid, iscombo);
 		HeapTupleCopyXidsFromPage(buffer, &oldtup, page, false);
 
@@ -3985,17 +3984,16 @@ l2:
 	/*
 	 * Set new tuple's Xmin/Xmax, old tuple's Xmin/Xmax were already shifted.
 	 */
-	HeapTupleSetXmin(heaptup, xid);
 	if (IsToastRelation(relation))
-		ToastTupleHeaderStoreXmin(newpage, heaptup);
+	{
+		ToastTupleAndHeaderSetXmin(newpage, heaptup, xid);
+		ToastTupleAndHeaderSetXmax(newpage, heaptup, xmax_new_tuple);
+	}
 	else
-		HeapTupleHeaderStoreXmin(newpage, heaptup);
-	HeapTupleSetXmax(heaptup, xmax_new_tuple);
-
-	if (IsToastRelation(relation))
-		ToastTupleHeaderStoreXmax(newpage, heaptup);
-	else
-		HeapTupleHeaderStoreXmax(newpage, heaptup);
+	{
+		HeapTupleAndHeaderSetXmin(newpage, heaptup, xid);
+		HeapTupleAndHeaderSetXmax(newpage, heaptup, xmax_new_tuple);
+	}
 
 	/* NO EREPORT(ERROR) from here till changes are logged */
 	START_CRIT_SECTION();
@@ -4041,8 +4039,7 @@ l2:
 	Assert(TransactionIdIsValid(xmax_old_tuple));
 	oldtup.t_data->t_infomask |= infomask_old_tuple;
 	oldtup.t_data->t_infomask2 |= infomask2_old_tuple;
-	HeapTupleSetXmax(&oldtup, xmax_old_tuple);
-	HeapTupleHeaderStoreXmax(page, &oldtup);
+	HeapTupleAndHeaderSetXmax(page, &oldtup, xmax_old_tuple);
 	HeapTupleHeaderSetCmax(oldtup.t_data, cid, iscombo);
 	HeapTupleCopyXidsFromPage(buffer, &oldtup, page, false);
 
@@ -4105,11 +4102,8 @@ l2:
 		 * Old tuple's Xmin/Xmax were already shifted because old tuple is on
 		 * the page.
 		 */
-		HeapTupleCopyXids(newtup, heaptup);
-		HeapTupleSetXmin(newtup, xid);
-		HeapTupleHeaderStoreXmin(newpage, newtup);
-		HeapTupleSetXmax(newtup, xmax_new_tuple);
-		HeapTupleHeaderStoreXmax(newpage, newtup);
+		HeapTupleAndHeaderSetXmin(newpage, heaptup, xid);
+		HeapTupleAndHeaderSetXmax(newpage, newtup, xmax_new_tuple);
 	}
 
 	if (newbuf != buffer)
@@ -5034,8 +5028,7 @@ failed:
 	tuple->t_data->t_infomask2 |= new_infomask2;
 	if (HEAP_XMAX_IS_LOCKED_ONLY(new_infomask))
 		HeapTupleHeaderClearHotUpdated(tuple->t_data);
-	HeapTupleSetXmax(tuple, xid);
-	HeapTupleHeaderStoreXmax(page, tuple);
+	HeapTupleAndHeaderSetXmax(page, tuple, xid);
 
 	/*
 	 * Make sure there is no forward chain link in t_ctid.  Note that in the
@@ -5832,8 +5825,7 @@ l4:
 		mytup.t_data->t_infomask2 &= ~HEAP_KEYS_UPDATED;
 		mytup.t_data->t_infomask |= new_infomask;
 		mytup.t_data->t_infomask2 |= new_infomask2;
-		HeapTupleSetXmax(&mytup, new_xmax);
-		HeapTupleHeaderStoreXmax(BufferGetPage(buf), &mytup);
+		HeapTupleAndHeaderSetXmax(BufferGetPage(buf), &mytup, new_xmax);
 
 		MarkBufferDirty(buf);
 
@@ -6131,11 +6123,10 @@ heap_abort_speculative(Relation relation, ItemPointer tid)
 	 * need to reload xid base from page because InvalidTransactionId doesn't
 	 * require xid base to be valid.
 	 */
-	HeapTupleSetXmin(&tp, InvalidTransactionId);
 	if (IsToastRelation(relation))
-		ToastTupleHeaderStoreXmin(page, &tp);
+		ToastTupleAndHeaderSetXmin(page, &tp, InvalidTransactionId);
 	else
-		HeapTupleHeaderStoreXmin(page, &tp);
+		HeapTupleAndHeaderSetXmin(page, &tp, InvalidTransactionId);
 
 	/* Clear the speculative insertion token too */
 	tp.t_data->t_ctid = tp.t_self;
@@ -9332,19 +9323,17 @@ heap_xlog_delete(XLogReaderState *record)
 
 		if (!(xlrec->flags & XLH_DELETE_IS_SUPER))
 		{
-			HeapTupleSetXmax(&tuple, xlrec->xmax);
 			if (xlrec->flags & XLH_DELETE_PAGE_ON_TOAST_RELATION)
-				ToastTupleHeaderStoreXmax(page, &tuple);
+				ToastTupleAndHeaderSetXmax(page, &tuple, xlrec->xmax);
 			else
-				HeapTupleHeaderStoreXmax(page, &tuple);
+				HeapTupleAndHeaderSetXmax(page, &tuple, xlrec->xmax);
 		}
 		else
 		{
-			HeapTupleSetXmin(&tuple, InvalidTransactionId);
 			if (xlrec->flags & XLH_DELETE_PAGE_ON_TOAST_RELATION)
-				ToastTupleHeaderStoreXmin(page, &tuple);
+				ToastTupleAndHeaderSetXmin(page, &tuple, InvalidTransactionId);
 			else
-				HeapTupleHeaderStoreXmin(page, &tuple);
+				HeapTupleAndHeaderSetXmin(page, &tuple, InvalidTransactionId);
 		}
 		HeapTupleHeaderSetCmax(htup, FirstCommandId, false);
 
@@ -9480,11 +9469,14 @@ heap_xlog_insert(XLogReaderState *record)
 		htup->t_infomask = xlhdr.t_infomask;
 		htup->t_hoff = xlhdr.t_hoff;
 		tuple.t_data = htup;
-		HeapTupleSetXmin(&tuple, XLogRecGetXid(record));
 		if (xlrec->flags & XLH_INSERT_ON_TOAST_RELATION)
-			ToastTupleHeaderStoreXmin(page, &tuple);
+		{
+			ToastTupleAndHeaderSetXmin(page, &tuple, XLogRecGetXid(record));
+		}
 		else
-			HeapTupleHeaderStoreXmin(page, &tuple);
+		{
+			HeapTupleAndHeaderSetXmin(page, &tuple, XLogRecGetXid(record));
+		}
 		HeapTupleHeaderSetCmin(htup, FirstCommandId);
 		htup->t_ctid = target_tid;
 
@@ -9654,8 +9646,7 @@ heap_xlog_multi_insert(XLogReaderState *record)
 			htup->t_infomask = xlhdr->t_infomask;
 			htup->t_hoff = xlhdr->t_hoff;
 			tuple.t_data = htup;
-			HeapTupleSetXmin(&tuple, XLogRecGetXid(record));
-			HeapTupleHeaderStoreXmin(page, &tuple);
+			HeapTupleAndHeaderSetXmin(page, &tuple, XLogRecGetXid(record));
 			HeapTupleHeaderSetCmin(htup, FirstCommandId);
 			ItemPointerSetBlockNumber(&htup->t_ctid, blkno);
 			ItemPointerSetOffsetNumber(&htup->t_ctid, offnum);
@@ -9814,8 +9805,7 @@ heap_xlog_update(XLogReaderState *record, bool hot_update)
 		fix_infomask_from_infobits(xlrec->old_infobits_set, &htup->t_infomask,
 								   &htup->t_infomask2);
 		tuple.t_data = htup;
-		HeapTupleSetXmax(&tuple, xlrec->old_xmax);
-		HeapTupleHeaderStoreXmax(page, &tuple);
+		HeapTupleAndHeaderSetXmax(page, &tuple, xlrec->old_xmax);
 		HeapTupleHeaderSetCmax(htup, FirstCommandId, false);
 		/* Set forward chain link in t_ctid */
 		htup->t_ctid = newtid;
@@ -9958,11 +9948,9 @@ heap_xlog_update(XLogReaderState *record, bool hot_update)
 		htup->t_hoff = xlhdr.t_hoff;
 
 		tuple.t_data = htup;
-		HeapTupleSetXmin(&tuple, XLogRecGetXid(record));
-		HeapTupleHeaderStoreXmin(page, &tuple);
+		HeapTupleAndHeaderSetXmin(page, &tuple, XLogRecGetXid(record));
 		HeapTupleHeaderSetCmin(htup, FirstCommandId);
-		HeapTupleSetXmax(&tuple, xlrec->new_xmax);
-		HeapTupleHeaderStoreXmax(page, &tuple);
+		HeapTupleAndHeaderSetXmax(page, &tuple, xlrec->new_xmax);
 		/* Make sure there is no forward chain link in t_ctid */
 		htup->t_ctid = newtid;
 
@@ -10105,8 +10093,7 @@ heap_xlog_lock(XLogReaderState *record)
 		}
 
 		tuple.t_data = htup;
-		HeapTupleSetXmax(&tuple, xlrec->locking_xid);
-		HeapTupleHeaderStoreXmax(page, &tuple);
+		HeapTupleAndHeaderSetXmax(page, &tuple, xlrec->locking_xid);
 		HeapTupleHeaderSetCmax(htup, FirstCommandId, false);
 		PageSetLSN(page, lsn);
 		MarkBufferDirty(buffer);
@@ -10169,8 +10156,7 @@ heap_xlog_lock_updated(XLogReaderState *record)
 		fix_infomask_from_infobits(xlrec->infobits_set, &htup->t_infomask,
 								   &htup->t_infomask2);
 		tuple.t_data = htup;
-		HeapTupleSetXmax(&tuple, xlrec->xmax);
-		HeapTupleHeaderStoreXmax(page, &tuple);
+		HeapTupleAndHeaderSetXmax(page, &tuple, xlrec->xmax);
 
 		PageSetLSN(page, lsn);
 		MarkBufferDirty(buffer);
