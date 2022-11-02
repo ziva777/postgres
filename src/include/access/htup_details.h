@@ -299,37 +299,31 @@ struct HeapTupleHeaderData
  */
 
 /*
- * Copy base values for xid and multixacts from one heap tuple to heap tuple.
- * Should be called on tuple copy or making desc tuple on the base on src tuple
- * saving visibility information.
+ * HeapTupleGetRawXmin returns the "raw" xmin field, which is the xid
+ * originally used to insert the tuple.  However, the tuple might actually
+ * be frozen (via HeapTupleHeaderStoreXminFrozen) in which case the tuple's xmin
+ * is visible to every snapshot.  Prior to PostgreSQL 9.4, we actually changed
+ * the xmin to FrozenTransactionId, and that value may still be encountered
+ * on disk.
  */
-#define HeapTupleCopyXids(dest, src) \
-do { \
-	(dest)->t_xmin = (src)->t_xmin; \
-	(dest)->t_xmax = (src)->t_xmax; \
-} while (0)
+#define HeapTupleGetRawXmin(tup) \
+( \
+	((tup)->t_xmin) \
+)
+
+#define HeapTupleGetXmin(tup) \
+( \
+	HeapTupleHeaderXminFrozen((tup)->t_data) ? \
+		FrozenTransactionId : HeapTupleGetRawXmin(tup) \
+)
+
+#define HeapTupleSetXmin(tup, xid) \
+( \
+	((tup)->t_xmin = (xid)) \
+)
 
 /*
- * Set base values for tuple xids/multixacts to zero.  Used when visibility
- * infromation is negligible or will be set later.
- */
-#define HeapTupleSetZeroXids(tup) \
-do { \
-	(tup)->t_xmin = 0; \
-	(tup)->t_xmax = 0; \
-} while (0)
-
-/*
- * Copy HeapTupleHeader xmin/xmax in raw way ???
- */
-#define HeapTupleCopyHeaderXids(tup) \
-do { \
-	(tup)->t_xmin = (tup)->t_data->t_choice.t_heap.t_xmin; \
-	(tup)->t_xmax = (tup)->t_data->t_choice.t_heap.t_xmax; \
-} while (0)
-
-/*
- * Macros for accessing "double xmax".  On pg_upgraded instances, it might
+ * Functions for accessing "double xmax".  On pg_upgraded instances, it might
  * happend that we can't fit new special area to the page.  But we still
  * might neep to write xmax of tuples for updates and deletes.  The trick is
  * that we actually don't need xmin field.  After pg_upgrade (wich implies
@@ -340,36 +334,24 @@ do { \
  *
  * See heap_convert.c for details.
  */
-#define HeapTupleHeaderGetDoubleXmax(tup) \
-	((TransactionId)(tup)->t_choice.t_heap.t_xmax + \
-		((TransactionId)(tup)->t_choice.t_heap.t_xmin << 32))
+static inline TransactionId
+HeapTupleHeaderGetDoubleXmax(HeapTupleHeader htup)
+{
+	TransactionId xmax;
 
-#define HeapTupleHeaderSetDoubleXmax(tup, xid) \
-do { \
-	(tup)->t_choice.t_heap.t_xmax = (TransactionId) (xid) & 0xFFFFFFFF; \
-	(tup)->t_choice.t_heap.t_xmin = ((TransactionId) (xid) >> 32) & 0xFFFFFFFF; \
-} while (0)
+	xmax = htup->t_choice.t_heap.t_xmin;
+	xmax <<= 32;
+	xmax += htup->t_choice.t_heap.t_xmax;
 
-/*
- * HeapTupleGetRawXmin returns the "raw" xmin field, which is the xid
- * originally used to insert the tuple.  However, the tuple might actually
- * be frozen (via HeapTupleHeaderStoreXminFrozen) in which case the tuple's xmin
- * is visible to every snapshot.  Prior to PostgreSQL 9.4, we actually changed
- * the xmin to FrozenTransactionId, and that value may still be encountered
- * on disk.
- */
-#define HeapTupleGetRawXmin(tup)	((tup)->t_xmin)
+	return xmax;
+}
 
-#define HeapTupleGetXmin(tup) \
-( \
-	HeapTupleHeaderXminFrozen((tup)->t_data) ? \
-		FrozenTransactionId : HeapTupleGetRawXmin(tup) \
-)
-
-#define HeapTupleSetXmin(tup, xid) \
-do { \
-	((tup)->t_xmin = (xid)); \
-} while (0)
+static inline void
+HeapTupleHeaderSetDoubleXmax(HeapTupleHeader htup, TransactionId xid)
+{
+	htup->t_choice.t_heap.t_xmax = xid & 0xFFFFFFFF;
+	htup->t_choice.t_heap.t_xmin = (xid >> 32) & 0xFFFFFFFF;
+}
 
 static inline void
 HeapTupleHeaderStoreXmin(Page page, HeapTuple htup, bool is_toast)
@@ -414,6 +396,24 @@ HeapTupleAndHeaderSetXmin(Page page, HeapTuple tup, TransactionId xid,
 	((tup)->t_infomask |= HEAP_XMIN_FROZEN) \
 )
 
+#define HeapTupleHeaderSetXminCommitted(tup) \
+( \
+	AssertMacro(!HeapTupleHeaderXminInvalid(tup)), \
+	((tup)->t_infomask |= HEAP_XMIN_COMMITTED) \
+)
+
+#define HeapTupleHeaderSetXminInvalid(tup) \
+( \
+	AssertMacro(!HeapTupleHeaderXminCommitted(tup)), \
+	((tup)->t_infomask |= HEAP_XMIN_INVALID) \
+)
+
+#define HeapTupleHeaderSetXminFrozen(tup) \
+( \
+	AssertMacro(!HeapTupleHeaderXminInvalid(tup)), \
+	((tup)->t_infomask |= HEAP_XMIN_FROZEN) \
+)
+
 /*
  * HeapTupleHeaderGetRawXmax gets you the raw Xmax field.  To find out the Xid
  * that updated a tuple, you might need to resolve the MultiXactId if certain
@@ -431,25 +431,24 @@ HeapTupleAndHeaderSetXmin(Page page, HeapTuple tup, TransactionId xid,
 		HeapTupleGetRawXmax(tup) \
 )
 
-#define HeapTupleGetRawXmax(tup)	((tup)->t_xmax)
+static inline TransactionId
+HeapTupleHeaderGetRawXmax(Page page, HeapTupleHeader htup)
+{
+	TransactionId base;
 
-#define HeapTupleHeaderGetRawXmax(page, tup) \
-( \
-	HeapPageIsDoubleXmax(page) ? \
-	HeapTupleHeaderGetDoubleXmax(tup) : \
-	ShortTransactionIdToNormal( \
-		((tup)->t_infomask & HEAP_XMAX_IS_MULTI) ? \
-			HeapPageGetSpecial(page)->pd_multi_base : HeapPageGetSpecial(page)->pd_xid_base, \
-		(tup)->t_choice.t_heap.t_xmax) \
-)
+	if (HeapPageIsDoubleXmax(page))
+		return HeapTupleHeaderGetDoubleXmax(htup);
 
-#define ToastTupleHeaderGetRawXmax(page, tup) \
+	base = (htup->t_infomask & HEAP_XMAX_IS_MULTI) ?
+				HeapPageGetSpecial(page)->pd_multi_base :
+				HeapPageGetSpecial(page)->pd_xid_base;
+	return ShortTransactionIdToNormal(base,
+									  htup->t_choice.t_heap.t_xmax);
+}
+
+#define HeapTupleGetRawXmax(tup) \
 ( \
-	HeapPageIsDoubleXmax(page) ? \
-	HeapTupleHeaderGetDoubleXmax(tup) : \
-	ShortTransactionIdToNormal( \
-		ToastPageGetSpecial(page)->pd_xid_base, \
-		(tup)->t_choice.t_heap.t_xmax) \
+	((tup)->t_xmax) \
 )
 
 #define HeapTupleSetXmax(tup, xid) \
@@ -457,6 +456,9 @@ do { \
 	(tup)->t_xmax = (xid); \
 } while (0)
 
+/*
+ * Set xid as xmax for HeapTupleHeader.
+ */
 static inline void
 HeapTupleHeaderStoreXmax(Page page, HeapTuple htup, bool is_toast)
 {
@@ -478,12 +480,15 @@ HeapTupleHeaderStoreXmax(Page page, HeapTuple htup, bool is_toast)
 		NormalTransactionIdToShort(base, htup->t_xmax);
 }
 
+/*
+ * Set xid as xmax for HeadTuple and HeapTupleHeader.
+ */
 static inline void
-HeapTupleAndHeaderSetXmax(Page page, HeapTuple tup, TransactionId xid,
+HeapTupleAndHeaderSetXmax(Page page, HeapTuple htup, TransactionId xid,
 						  bool is_toast)
 {
-	HeapTupleSetXmax(tup, xid);
-	HeapTupleHeaderStoreXmax(page, tup, is_toast);
+	HeapTupleSetXmax(htup, xid);
+	HeapTupleHeaderStoreXmax(page, htup, is_toast);
 }
 
 /*
@@ -801,6 +806,39 @@ struct MinimalTupleData
 
 #define HeapTupleClearHeapOnly(tuple) \
 		HeapTupleHeaderClearHeapOnly((tuple)->t_data)
+
+/*
+ * Copy base values for xid and multixacts from one heap tuple to heap tuple.
+ * Should be called on tuple copy or making desc tuple on the base on src tuple
+ * saving visibility information.
+ */
+static inline void
+HeapTupleCopyXids(HeapTuple dest, HeapTuple src)
+{
+	dest->t_xmin = src->t_xmin;
+	dest->t_xmax = src->t_xmax;
+}
+
+/*
+ * Set base values for tuple xids/multixacts to zero.  Used when visibility
+ * infromation is negligible or will be set later.
+ */
+static inline void
+HeapTupleSetZeroXids(HeapTuple htup)
+{
+	htup->t_xmin = 0;
+	htup->t_xmax = 0;
+}
+
+/*
+ * Copy HeapTupleHeader xmin/xmax in raw way ???
+ */
+static inline void
+HeapTupleCopyHeaderXids(HeapTuple htup) \
+{
+	htup->t_xmin = htup->t_data->t_choice.t_heap.t_xmin;
+	htup->t_xmax = htup->t_data->t_choice.t_heap.t_xmax;
+}
 
 static inline void
 HeapTupleCopyXminFromPage(HeapTuple tup, Page page, bool is_toast)
