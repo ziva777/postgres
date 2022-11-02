@@ -1378,7 +1378,7 @@ FillRelCheckValues(Relation rel, Buffer buffer, Page page)
 			}
 			else
 			{
-				HeapTupleCopyBaseFromPage(buffer, &tuple, page,
+				HeapTupleCopyXidsFromPage(buffer, &tuple, page,
 										  IsToastRelation(rel));
 
 				xmin = HeapTupleGetRawXmin(&tuple);

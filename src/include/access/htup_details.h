@@ -303,7 +303,7 @@ struct HeapTupleHeaderData
  * Should be called on tuple copy or making desc tuple on the base on src tuple
  * saving visibility information.
  */
-#define HeapTupleCopyBase(dest, src) \
+#define HeapTupleCopyXids(dest, src) \
 { \
 	(dest)->t_xmin = (src)->t_xmin; \
 	(dest)->t_xmax = (src)->t_xmax; \
@@ -836,7 +836,7 @@ HeapTupleCopyXmaxFromPage(HeapTuple tup, Page page, bool is_toast)
  * to correctly read tuple xmin and xmax.
  */
 static inline void
-HeapTupleCopyBaseFromPage(Buffer buffer, HeapTuple tup, Page page,
+HeapTupleCopyXidsFromPage(Buffer buffer, HeapTuple tup, Page page,
 						  bool is_toast)
 {
 	Assert(IsBufferLocked(buffer));

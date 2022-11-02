@@ -282,7 +282,7 @@ heap_force_common(FunctionCallInfo fcinfo, HeapTupleForceOption heap_force_opt)
 				tuple.t_data = htup;
 				tuple.t_len = ItemIdGetLength(itemid);
 				tuple.t_tableOid = RelationGetRelid(rel);
-				HeapTupleCopyBaseFromPage(buf, &tuple, page,
+				HeapTupleCopyXidsFromPage(buf, &tuple, page,
 										  IsToastRelation(rel));
 
 				/*

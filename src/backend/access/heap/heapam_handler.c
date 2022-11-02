@@ -1055,7 +1055,7 @@ heapam_scan_analyze_next_tuple(TableScanDesc scan, TransactionId OldestXmin,
 		targtuple->t_tableOid = RelationGetRelid(scan->rs_rd);
 		targtuple->t_data = (HeapTupleHeader) PageGetItem(targpage, itemid);
 		targtuple->t_len = ItemIdGetLength(itemid);
-		HeapTupleCopyBaseFromPage(hscan->rs_cbuf, targtuple, targpage,
+		HeapTupleCopyXidsFromPage(hscan->rs_cbuf, targtuple, targpage,
 								  IsToastRelation(scan->rs_rd));
 
 		switch (HeapTupleSatisfiesVacuum(targtuple, OldestXmin,
@@ -2201,7 +2201,7 @@ heapam_scan_bitmap_next_block(TableScanDesc scan,
 			loctup.t_data = (HeapTupleHeader) PageGetItem((Page) dp, lp);
 			loctup.t_len = ItemIdGetLength(lp);
 			loctup.t_tableOid = scan->rs_rd->rd_id;
-			HeapTupleCopyBaseFromPage(hscan->rs_cbuf, &loctup, dp,
+			HeapTupleCopyXidsFromPage(hscan->rs_cbuf, &loctup, dp,
 									  IsToastRelation(scan->rs_rd));
 			ItemPointerSet(&loctup.t_self, page, offnum);
 			valid = HeapTupleSatisfiesVisibility(&loctup, snapshot, buffer);
@@ -2400,7 +2400,7 @@ heapam_scan_sample_next_tuple(TableScanDesc scan, SampleScanState *scanstate,
 			if (pagemode)
 				HeapTupleSetInvalid(tuple);
 			else
-				HeapTupleCopyBaseFromPage(hscan->rs_cbuf, tuple, page,
+				HeapTupleCopyXidsFromPage(hscan->rs_cbuf, tuple, page,
 										  IsToastRelation(scan->rs_rd));
 
 			ItemPointerSet(&(tuple->t_self), blockno, tupoffset);

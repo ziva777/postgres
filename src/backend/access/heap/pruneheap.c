@@ -352,7 +352,7 @@ heap_page_prune(Relation relation, Buffer buffer,
 		htup = (HeapTupleHeader) PageGetItem(page, itemid);
 		tup.t_data = htup;
 		tup.t_len = ItemIdGetLength(itemid);
-		HeapTupleCopyBaseFromPage(buffer, &tup, page,
+		HeapTupleCopyXidsFromPage(buffer, &tup, page,
 								  IsToastRelation(relation));
 		ItemPointerSet(&(tup.t_self), blockno, offnum);
 
@@ -646,7 +646,7 @@ heap_prune_chain(Buffer buffer, OffsetNumber rootoffnum, PruneState *prstate)
 		tup.t_data = htup;
 		tup.t_len = ItemIdGetLength(rootlp);
 		ItemPointerSet(&(tup.t_self), BufferGetBlockNumber(buffer), rootoffnum);
-		HeapTupleCopyBaseFromPage(buffer, &tup, dp,
+		HeapTupleCopyXidsFromPage(buffer, &tup, dp,
 								  IsToastRelation(prstate->rel));
 
 		if (HeapTupleHeaderIsHeapOnly(htup))
@@ -742,7 +742,7 @@ heap_prune_chain(Buffer buffer, OffsetNumber rootoffnum, PruneState *prstate)
 
 		tup.t_data = htup;
 		tup.t_len = ItemIdGetLength(lp);
-		HeapTupleCopyBaseFromPage(buffer, &tup, dp,
+		HeapTupleCopyXidsFromPage(buffer, &tup, dp,
 								  IsToastRelation(prstate->rel));
 		ItemPointerSet(&(tup.t_self), BufferGetBlockNumber(buffer), offnum);
 
@@ -1180,7 +1180,7 @@ heap_get_root_tuples(Relation relation, Buffer buffer, Page page,
 		{
 			htup = (HeapTupleHeader) PageGetItem(page, lp);
 			tup.t_data = htup;
-			HeapTupleCopyBaseFromPage(buffer, &tup, page,
+			HeapTupleCopyXidsFromPage(buffer, &tup, page,
 									  IsToastRelation(relation));
 
 			/*
@@ -1243,7 +1243,7 @@ heap_get_root_tuples(Relation relation, Buffer buffer, Page page,
 
 			htup = (HeapTupleHeader) PageGetItem(page, lp);
 			tup.t_data = htup;
-			HeapTupleCopyBaseFromPage(buffer, &tup, page,
+			HeapTupleCopyXidsFromPage(buffer, &tup, page,
 									  IsToastRelation(relation));
 
 			if (TransactionIdIsValid(priorXmax) &&

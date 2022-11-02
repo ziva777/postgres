@@ -379,7 +379,7 @@ rewrite_heap_tuple(RewriteState state,
 		   &old_tuple->t_data->t_choice.t_heap,
 		   sizeof(HeapTupleFields));
 
-	HeapTupleCopyBase(new_tuple, old_tuple);
+	HeapTupleCopyXids(new_tuple, old_tuple);
 	new_tuple->t_data->t_infomask &= ~HEAP_XACT_MASK;
 	new_tuple->t_data->t_infomask2 &= ~HEAP2_XACT_MASK;
 	new_tuple->t_data->t_infomask |=

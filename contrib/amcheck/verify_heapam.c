@@ -508,7 +508,7 @@ verify_heapam(PG_FUNCTION_ARGS)
 			ctx.tuple.t_data = ctx.tuphdr;
 			ctx.tuple.t_len = ItemIdGetLength(ctx.itemid);
 			ctx.tuple.t_tableOid = RelationGetRelid(ctx.rel);
-			HeapTupleCopyBaseFromPage(ctx.buffer, &ctx.tuple, ctx.page,
+			HeapTupleCopyXidsFromPage(ctx.buffer, &ctx.tuple, ctx.page,
 									  IsToastRelation(ctx.rel));
 
 			/* Ok, ready to check this next tuple */
