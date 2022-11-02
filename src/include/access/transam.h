@@ -227,10 +227,6 @@ FullTransactionIdAdvance(FullTransactionId *dest)
  * OID and XID assignment state.  For largely historical reasons, there is
  * just one struct with different fields that are protected by different
  * LWLocks.
- *
- * Note: xidWrapLimit and oldestXidDB are not "active" values, but are
- * used just to generate useful messages when xidWarnLimit or xidStopLimit
- * are exceeded.
  */
 typedef struct VariableCacheData
 {

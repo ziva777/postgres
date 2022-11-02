@@ -1870,8 +1870,8 @@ ComputeXidHorizons(ComputeXidHorizonsResult *h)
 		 * predictable transaction rate, but it offers some protection when
 		 * there's no walsender connection.  Note that we are assuming
 		 * vacuum_defer_cleanup_age isn't large enough to cause wraparound ---
-		 * so guc.c should limit it to no more than the xidStopLimit threshold
-		 * in varsup.c.  Also note that we intentionally don't apply
+		 * so guc_tables.c limits it with a proper threshold.
+		 * Also note that we intentionally don't apply
 		 * vacuum_defer_cleanup_age on standby servers.
 		 */
 		h->oldest_considered_running =

@@ -80,19 +80,6 @@ GetNewTransactionId(bool isSubXact)
 	full_xid = ShmemVariableCache->nextXid;
 	xid = XidFromFullTransactionId(full_xid);
 
-	/*----------
-	 * Check to see if it's safe to assign another XID.  This protects against
-	 * catastrophic data loss due to XID wraparound.  The basic rules are:
-	 *
-	 * If we're past xidVacLimit, start trying to force autovacuum cycles.
-	 * If we're past xidWarnLimit, start issuing warnings.
-	 * If we're past xidStopLimit, refuse to execute transactions, unless
-	 * we are running in single-user mode (which gives an escape hatch
-	 * to the DBA who somehow got past the earlier defenses).
-	 *
-	 * Note that this coding also appears in GetNewMultiXactId.
-	 *----------
-	 */
 	if (TransactionIdFollowsOrEquals(xid, ShmemVariableCache->xidVacLimit))
 	{
 		/*
@@ -294,9 +281,6 @@ SetTransactionIdLimit(TransactionId oldest_datfrozenxid, Oid oldest_datoid)
 	/*
 	 * We'll start trying to force autovacuums when oldest_datfrozenxid gets
 	 * to be more than autovacuum_freeze_max_age transactions old.
-	 *
-	 * Note: guc.c ensures that autovacuum_freeze_max_age is in a sane range,
-	 * so that xidVacLimit will be well before xidWarnLimit.
 	 *
 	 * Note: autovacuum_freeze_max_age is a PGC_POSTMASTER parameter so that
 	 * we don't have to worry about dealing with on-the-fly changes in its
