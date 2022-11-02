@@ -88,8 +88,7 @@ typedef HeapTupleData *HeapTuple;
 /* HeapTupleHeader functions implemented in utils/time/combocid.c */
 extern CommandId HeapTupleGetCmin(HeapTuple tup);
 extern CommandId HeapTupleGetCmax(HeapTuple tup);
-extern void HeapTupleHeaderAdjustCmax(HeapTuple tup,
-									  CommandId *cmax, bool *iscombo);
+extern void HeapTupleAdjustCmax(HeapTuple tup, CommandId *cmax, bool *iscombo);
 
 /* Prototype for HeapTupleHeader accessors in heapam.c */
 extern TransactionId HeapTupleGetUpdateXid(HeapTuple tuple);

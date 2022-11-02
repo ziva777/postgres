@@ -2973,7 +2973,7 @@ l1:
 	CheckForSerializableConflictIn(relation, tid, BufferGetBlockNumber(buffer));
 
 	/* replace cid with a combo CID if necessary */
-	HeapTupleHeaderAdjustCmax(&tp, &cid, &iscombo);
+	HeapTupleAdjustCmax(&tp, &cid, &iscombo);
 
 	/*
 	 * Compute replica identity tuple before entering the critical section so
@@ -3701,7 +3701,7 @@ l2:
 	 * Replace cid with a combo CID if necessary.  Note that we already put
 	 * the plain cid into the new tuple.
 	 */
-	HeapTupleHeaderAdjustCmax(&oldtup, &cid, &iscombo);
+	HeapTupleAdjustCmax(&oldtup, &cid, &iscombo);
 
 	/*
 	 * If the toaster needs to be activated, OR if the new tuple will not fit

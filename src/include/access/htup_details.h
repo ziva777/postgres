@@ -485,7 +485,7 @@ do { \
 	(tup)->t_infomask &= ~HEAP_COMBOCID; \
 } while (0)
 
-/* SetCmax must be used after HeapTupleHeaderAdjustCmax; see combocid.c */
+/* SetCmax must be used after HeapTupleAdjustCmax; see combocid.c */
 #define HeapTupleHeaderSetCmax(tup, cid, iscombo) \
 do { \
 	Assert(!((tup)->t_infomask & HEAP_MOVED)); \

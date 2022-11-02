@@ -152,9 +152,7 @@ HeapTupleGetCmax(HeapTuple tuple)
  * changes the tuple in shared buffers.
  */
 void
-HeapTupleHeaderAdjustCmax(HeapTuple tup,
-						  CommandId *cmax,
-						  bool *iscombo)
+HeapTupleAdjustCmax(HeapTuple tup, CommandId *cmax, bool *iscombo)
 {
 	/*
 	 * If we're marking a tuple deleted that was inserted by (any
