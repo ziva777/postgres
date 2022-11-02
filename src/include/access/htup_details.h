@@ -444,7 +444,7 @@ do { \
 	(tup)->t_xmax = (xid); \
 } while (0)
 
-#define HeapTupleHeaderSetXmax(page, tup) \
+#define HeapTupleHeaderStoreXmax(page, tup) \
 do { \
 	if (HeapPageIsDoubleXmax(page)) \
 		HeapTupleHeaderSetDoubleXmax((tup)->t_data, (tup)->t_xmax); \

@@ -750,7 +750,7 @@ raw_heap_insert(RewriteState state, HeapTuple tup)
 	if (!immutable_tuple)
 		HeapTupleHeaderStoreXmin(page, heaptup);
 
-	HeapTupleHeaderSetXmax(page, heaptup);
+	HeapTupleHeaderStoreXmax(page, heaptup);
 
 	/* And now we can insert the tuple into the page */
 	newoff = PageAddItem(page, (Item) heaptup->t_data, heaptup->t_len,

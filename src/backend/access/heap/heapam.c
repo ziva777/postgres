@@ -3034,7 +3034,7 @@ l1:
 	if (IsToastRelation(relation))
 		ToastTupleHeaderSetXmax(page, &tp);
 	else
-		HeapTupleHeaderSetXmax(page, &tp);
+		HeapTupleHeaderStoreXmax(page, &tp);
 	HeapTupleHeaderSetCmax(tp.t_data, cid, iscombo);
 	/* Make sure there is no forward chain link in t_ctid */
 	tp.t_data->t_ctid = tp.t_self;
@@ -3780,7 +3780,7 @@ l2:
 		oldtup.t_data->t_infomask |= infomask_lock_old_tuple;
 		oldtup.t_data->t_infomask2 |= infomask2_lock_old_tuple;
 		HeapTupleSetXmax(&oldtup, xmax_lock_old_tuple);
-		HeapTupleHeaderSetXmax(page, &oldtup);
+		HeapTupleHeaderStoreXmax(page, &oldtup);
 		HeapTupleHeaderSetCmax(oldtup.t_data, cid, iscombo);
 		HeapTupleCopyXidsFromPage(buffer, &oldtup, page, false);
 
@@ -3995,7 +3995,7 @@ l2:
 	if (IsToastRelation(relation))
 		ToastTupleHeaderSetXmax(newpage, heaptup);
 	else
-		HeapTupleHeaderSetXmax(newpage, heaptup);
+		HeapTupleHeaderStoreXmax(newpage, heaptup);
 
 	/* NO EREPORT(ERROR) from here till changes are logged */
 	START_CRIT_SECTION();
@@ -4042,7 +4042,7 @@ l2:
 	oldtup.t_data->t_infomask |= infomask_old_tuple;
 	oldtup.t_data->t_infomask2 |= infomask2_old_tuple;
 	HeapTupleSetXmax(&oldtup, xmax_old_tuple);
-	HeapTupleHeaderSetXmax(page, &oldtup);
+	HeapTupleHeaderStoreXmax(page, &oldtup);
 	HeapTupleHeaderSetCmax(oldtup.t_data, cid, iscombo);
 	HeapTupleCopyXidsFromPage(buffer, &oldtup, page, false);
 
@@ -4109,7 +4109,7 @@ l2:
 		HeapTupleSetXmin(newtup, xid);
 		HeapTupleHeaderStoreXmin(newpage, newtup);
 		HeapTupleSetXmax(newtup, xmax_new_tuple);
-		HeapTupleHeaderSetXmax(newpage, newtup);
+		HeapTupleHeaderStoreXmax(newpage, newtup);
 	}
 
 	if (newbuf != buffer)
@@ -5035,7 +5035,7 @@ failed:
 	if (HEAP_XMAX_IS_LOCKED_ONLY(new_infomask))
 		HeapTupleHeaderClearHotUpdated(tuple->t_data);
 	HeapTupleSetXmax(tuple, xid);
-	HeapTupleHeaderSetXmax(page, tuple);
+	HeapTupleHeaderStoreXmax(page, tuple);
 
 	/*
 	 * Make sure there is no forward chain link in t_ctid.  Note that in the
@@ -5833,7 +5833,7 @@ l4:
 		mytup.t_data->t_infomask |= new_infomask;
 		mytup.t_data->t_infomask2 |= new_infomask2;
 		HeapTupleSetXmax(&mytup, new_xmax);
-		HeapTupleHeaderSetXmax(BufferGetPage(buf), &mytup);
+		HeapTupleHeaderStoreXmax(BufferGetPage(buf), &mytup);
 
 		MarkBufferDirty(buf);
 
@@ -7023,7 +7023,7 @@ heap_execute_freeze_tuple_page(Page page, HeapTupleHeader htup,
 	if (is_toast)
 		ToastTupleHeaderSetXmax(page, &tuple);
 	else
-		HeapTupleHeaderSetXmax(page, &tuple);
+		HeapTupleHeaderStoreXmax(page, &tuple);
 }
 
 /*
@@ -9336,7 +9336,7 @@ heap_xlog_delete(XLogReaderState *record)
 			if (xlrec->flags & XLH_DELETE_PAGE_ON_TOAST_RELATION)
 				ToastTupleHeaderSetXmax(page, &tuple);
 			else
-				HeapTupleHeaderSetXmax(page, &tuple);
+				HeapTupleHeaderStoreXmax(page, &tuple);
 		}
 		else
 		{
@@ -9815,7 +9815,7 @@ heap_xlog_update(XLogReaderState *record, bool hot_update)
 								   &htup->t_infomask2);
 		tuple.t_data = htup;
 		HeapTupleSetXmax(&tuple, xlrec->old_xmax);
-		HeapTupleHeaderSetXmax(page, &tuple);
+		HeapTupleHeaderStoreXmax(page, &tuple);
 		HeapTupleHeaderSetCmax(htup, FirstCommandId, false);
 		/* Set forward chain link in t_ctid */
 		htup->t_ctid = newtid;
@@ -9962,7 +9962,7 @@ heap_xlog_update(XLogReaderState *record, bool hot_update)
 		HeapTupleHeaderStoreXmin(page, &tuple);
 		HeapTupleHeaderSetCmin(htup, FirstCommandId);
 		HeapTupleSetXmax(&tuple, xlrec->new_xmax);
-		HeapTupleHeaderSetXmax(page, &tuple);
+		HeapTupleHeaderStoreXmax(page, &tuple);
 		/* Make sure there is no forward chain link in t_ctid */
 		htup->t_ctid = newtid;
 
@@ -10106,7 +10106,7 @@ heap_xlog_lock(XLogReaderState *record)
 
 		tuple.t_data = htup;
 		HeapTupleSetXmax(&tuple, xlrec->locking_xid);
-		HeapTupleHeaderSetXmax(page, &tuple);
+		HeapTupleHeaderStoreXmax(page, &tuple);
 		HeapTupleHeaderSetCmax(htup, FirstCommandId, false);
 		PageSetLSN(page, lsn);
 		MarkBufferDirty(buffer);
@@ -10170,7 +10170,7 @@ heap_xlog_lock_updated(XLogReaderState *record)
 								   &htup->t_infomask2);
 		tuple.t_data = htup;
 		HeapTupleSetXmax(&tuple, xlrec->xmax);
-		HeapTupleHeaderSetXmax(page, &tuple);
+		HeapTupleHeaderStoreXmax(page, &tuple);
 
 		PageSetLSN(page, lsn);
 		MarkBufferDirty(buffer);
