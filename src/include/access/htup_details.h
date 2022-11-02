@@ -460,7 +460,7 @@ do { \
 				((tup)->t_xmax)); \
 } while (0)
 
-#define ToastTupleHeaderSetXmax(page, tup) \
+#define ToastTupleHeaderStoreXmax(page, tup) \
 do { \
 	if (HeapPageIsDoubleXmax(page)) \
 		HeapTupleHeaderSetDoubleXmax((tup)->t_data, (tup)->t_xmax); \

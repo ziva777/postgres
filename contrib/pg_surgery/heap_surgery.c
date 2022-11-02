@@ -295,7 +295,7 @@ heap_force_common(FunctionCallInfo fcinfo, HeapTupleForceOption heap_force_opt)
 				if (IsToastRelation(rel))
 				{
 					ToastTupleHeaderStoreXmin(page, &tuple);
-					ToastTupleHeaderSetXmax(page, &tuple);
+					ToastTupleHeaderStoreXmax(page, &tuple);
 				}
 				else
 				{

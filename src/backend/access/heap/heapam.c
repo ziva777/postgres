@@ -3032,7 +3032,7 @@ l1:
 	HeapTupleHeaderClearHotUpdated(tp.t_data);
 	HeapTupleSetXmax(&tp, new_xmax);
 	if (IsToastRelation(relation))
-		ToastTupleHeaderSetXmax(page, &tp);
+		ToastTupleHeaderStoreXmax(page, &tp);
 	else
 		HeapTupleHeaderStoreXmax(page, &tp);
 	HeapTupleHeaderSetCmax(tp.t_data, cid, iscombo);
@@ -3993,7 +3993,7 @@ l2:
 	HeapTupleSetXmax(heaptup, xmax_new_tuple);
 
 	if (IsToastRelation(relation))
-		ToastTupleHeaderSetXmax(newpage, heaptup);
+		ToastTupleHeaderStoreXmax(newpage, heaptup);
 	else
 		HeapTupleHeaderStoreXmax(newpage, heaptup);
 
@@ -7021,7 +7021,7 @@ heap_execute_freeze_tuple_page(Page page, HeapTupleHeader htup,
 	heap_execute_freeze_tuple(&tuple, frz);
 
 	if (is_toast)
-		ToastTupleHeaderSetXmax(page, &tuple);
+		ToastTupleHeaderStoreXmax(page, &tuple);
 	else
 		HeapTupleHeaderStoreXmax(page, &tuple);
 }
@@ -9334,7 +9334,7 @@ heap_xlog_delete(XLogReaderState *record)
 		{
 			HeapTupleSetXmax(&tuple, xlrec->xmax);
 			if (xlrec->flags & XLH_DELETE_PAGE_ON_TOAST_RELATION)
-				ToastTupleHeaderSetXmax(page, &tuple);
+				ToastTupleHeaderStoreXmax(page, &tuple);
 			else
 				HeapTupleHeaderStoreXmax(page, &tuple);
 		}
