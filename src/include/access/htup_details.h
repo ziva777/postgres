@@ -304,29 +304,29 @@ struct HeapTupleHeaderData
  * saving visibility information.
  */
 #define HeapTupleCopyXids(dest, src) \
-{ \
+do { \
 	(dest)->t_xmin = (src)->t_xmin; \
 	(dest)->t_xmax = (src)->t_xmax; \
-}
+} while (0)
 
 /*
  * Set base values for tuple xids/multixacts to zero.  Used when visibility
  * infromation is negligible or will be set later.
  */
 #define HeapTupleSetZeroXids(tup) \
-{ \
+do { \
 	(tup)->t_xmin = 0; \
 	(tup)->t_xmax = 0; \
-}
+} while (0)
 
 /*
  * Copy HeapTupleHeader xmin/xmax in raw way ???
  */
 #define HeapTupleCopyHeaderXids(tup) \
-{ \
+do { \
 	(tup)->t_xmin = (tup)->t_data->t_choice.t_heap.t_xmin; \
 	(tup)->t_xmax = (tup)->t_data->t_choice.t_heap.t_xmax; \
-}
+} while (0)
 
 /*
  * Macros for accessing "double xmax".  On pg_upgraded instances, it might
@@ -366,19 +366,24 @@ do { \
 		FrozenTransactionId : HeapTupleGetRawXmin(tup) \
 )
 
-#define HeapTupleSetXmin(tup, xid) 	((tup)->t_xmin = (xid))
+#define HeapTupleSetXmin(tup, xid) \
+do { \
+	((tup)->t_xmin = (xid)); \
+} while (0)
 
 #define HeapTupleHeaderStoreXmin(page, tup) \
-( \
-	AssertMacro(!HeapPageIsDoubleXmax(page)), \
-	(tup)->t_data->t_choice.t_heap.t_xmin = NormalTransactionIdToShort(HeapPageGetSpecial(page)->pd_xid_base, (tup)->t_xmin) \
-)
+do { \
+	AssertMacro(!HeapPageIsDoubleXmax((page))); \
+	(tup)->t_data->t_choice.t_heap.t_xmin = NormalTransactionIdToShort(HeapPageGetSpecial((page))->pd_xid_base, \
+																	   (tup)->t_xmin); \
+} while (0)
 
 #define ToastTupleHeaderSetXmin(page, tup) \
-( \
-	AssertMacro(!HeapPageIsDoubleXmax(page)), \
-	(tup)->t_data->t_choice.t_heap.t_xmin = NormalTransactionIdToShort(ToastPageGetSpecial(page)->pd_xid_base, (tup)->t_xmin) \
-)
+do { \
+	AssertMacro(!HeapPageIsDoubleXmax(page)); \
+	(tup)->t_data->t_choice.t_heap.t_xmin = NormalTransactionIdToShort(ToastPageGetSpecial(page)->pd_xid_base, \
+																	   (tup)->t_xmin); \
+} while (0)
 
 #define HeapTupleHeaderXminCommitted(tup) \
 ( \
@@ -419,7 +424,7 @@ do { \
 		HeapTupleGetRawXmax(tup) \
 )
 
-#define HeapTupleGetRawXmax(tup)  ((tup)->t_xmax)
+#define HeapTupleGetRawXmax(tup)	((tup)->t_xmax)
 
 #define HeapTupleHeaderGetRawXmax(page, tup) \
 ( \
