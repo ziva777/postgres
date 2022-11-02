@@ -60,16 +60,8 @@ RelationPutHeapTuple(Relation relation,
 	/* Add the tuple to the page */
 	pageHeader = BufferGetPage(buffer);
 
-	if (IsToastRelation(relation))
-	{
-		ToastTupleHeaderStoreXmin(pageHeader, tuple);
-		ToastTupleHeaderStoreXmax(pageHeader, tuple);
-	}
-	else
-	{
-		HeapTupleHeaderStoreXmin(pageHeader, tuple);
-		HeapTupleHeaderStoreXmax(pageHeader, tuple);
-	}
+	HeapTupleHeaderStoreXmin(pageHeader, tuple, IsToastRelation(relation));
+	HeapTupleHeaderStoreXmax(pageHeader, tuple, IsToastRelation(relation));
 
 	offnum = PageAddItem(pageHeader, (Item) tuple->t_data,
 						 tuple->t_len, InvalidOffsetNumber, false, true);

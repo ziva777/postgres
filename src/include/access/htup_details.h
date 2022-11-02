@@ -371,29 +371,25 @@ do { \
 	((tup)->t_xmin = (xid)); \
 } while (0)
 
-#define HeapTupleHeaderStoreXmin(page, tup) \
-do { \
-	AssertMacro(!HeapPageIsDoubleXmax((page))); \
-	(tup)->t_data->t_choice.t_heap.t_xmin = NormalTransactionIdToShort(HeapPageGetSpecial((page))->pd_xid_base, \
-																	   (tup)->t_xmin); \
-} while (0)
+static inline void
+HeapTupleHeaderStoreXmin(Page page, HeapTuple htup, bool is_toast)
+{
+	TransactionId base;
 
-#define ToastTupleHeaderStoreXmin(page, tup) \
-do { \
-	AssertMacro(!HeapPageIsDoubleXmax(page)); \
-	(tup)->t_data->t_choice.t_heap.t_xmin = NormalTransactionIdToShort(ToastPageGetSpecial(page)->pd_xid_base, \
-																	   (tup)->t_xmin); \
-} while (0)
+	Assert(!HeapPageIsDoubleXmax(page));
+
+	base = is_toast ? ToastPageGetSpecial(page)->pd_xid_base :
+					  HeapPageGetSpecial((page))->pd_xid_base;
+	htup->t_data->t_choice.t_heap.t_xmin =
+		NormalTransactionIdToShort(base, htup->t_xmin);
+}
 
 static inline void
 HeapTupleAndHeaderSetXmin(Page page, HeapTuple tup, TransactionId xid,
 						   bool is_toast)
 {
 	HeapTupleSetXmin(tup, xid);
-	if (is_toast)
-		ToastTupleHeaderStoreXmin(page, tup);
-	else
-		HeapTupleHeaderStoreXmin(page, tup);
+	HeapTupleHeaderStoreXmin(page, tup, is_toast);
 }
 
 #define HeapTupleHeaderXminCommitted(tup) \
@@ -461,38 +457,33 @@ do { \
 	(tup)->t_xmax = (xid); \
 } while (0)
 
-#define HeapTupleHeaderStoreXmax(page, tup) \
-do { \
-	if (HeapPageIsDoubleXmax(page)) \
-		HeapTupleHeaderSetDoubleXmax((tup)->t_data, (tup)->t_xmax); \
-	else \
-		(tup)->t_data->t_choice.t_heap.t_xmax = \
-			NormalTransactionIdToShort( \
-				((tup)->t_data->t_infomask & HEAP_XMAX_IS_MULTI) ? \
-					HeapPageGetSpecial(page)->pd_multi_base : HeapPageGetSpecial(page)->pd_xid_base, \
-				((tup)->t_xmax)); \
-} while (0)
+static inline void
+HeapTupleHeaderStoreXmax(Page page, HeapTuple htup, bool is_toast)
+{
+	TransactionId base;
 
-#define ToastTupleHeaderStoreXmax(page, tup) \
-do { \
-	if (HeapPageIsDoubleXmax(page)) \
-		HeapTupleHeaderSetDoubleXmax((tup)->t_data, (tup)->t_xmax); \
-	else \
-		(tup)->t_data->t_choice.t_heap.t_xmax = \
-			NormalTransactionIdToShort( \
-				ToastPageGetSpecial(page)->pd_xid_base, \
-				((tup)->t_xmax)); \
-} while (0)
+	if (HeapPageIsDoubleXmax(page))
+	{
+		HeapTupleHeaderSetDoubleXmax(htup->t_data, htup->t_xmax);
+		return;
+	}
+
+	if (is_toast)
+		base = ToastPageGetSpecial(page)->pd_xid_base;
+	else
+		base = (htup->t_data->t_infomask & HEAP_XMAX_IS_MULTI) != 0 ?
+					HeapPageGetSpecial(page)->pd_multi_base :
+					HeapPageGetSpecial(page)->pd_xid_base;
+	htup->t_data->t_choice.t_heap.t_xmax =
+		NormalTransactionIdToShort(base, htup->t_xmax);
+}
 
 static inline void
 HeapTupleAndHeaderSetXmax(Page page, HeapTuple tup, TransactionId xid,
 						  bool is_toast)
 {
 	HeapTupleSetXmax(tup, xid);
-	if (is_toast)
-		ToastTupleHeaderStoreXmax(page, tup);
-	else
-		HeapTupleHeaderStoreXmax(page, tup);
+	HeapTupleHeaderStoreXmax(page, tup, is_toast);
 }
 
 /*

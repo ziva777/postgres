@@ -7002,10 +7002,7 @@ heap_execute_freeze_tuple_page(Page page, HeapTupleHeader htup,
 	tuple.t_data = htup;
 	heap_execute_freeze_tuple(&tuple, frz);
 
-	if (is_toast)
-		ToastTupleHeaderStoreXmax(page, &tuple);
-	else
-		HeapTupleHeaderStoreXmax(page, &tuple);
+	HeapTupleHeaderStoreXmax(page, &tuple, is_toast);
 }
 
 /*
