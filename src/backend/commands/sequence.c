@@ -415,7 +415,7 @@ fill_seq_fork_with_data(Relation rel, HeapTuple tuple, ForkNumber forkNum)
 	 * examine the sequence tuple anyway.
 	 */
 	SeqTupleHeaderSetXmin(tuple->t_data, FrozenTransactionId);
-	HeapTupleHeaderSetXminFrozen(tuple->t_data);
+	HeapTupleHeaderStoreXminFrozen(tuple->t_data);
 	HeapTupleHeaderSetCmin(tuple->t_data, FirstCommandId);
 	SeqTupleHeaderSetXmax(tuple->t_data, InvalidTransactionId);
 	tuple->t_data->t_infomask |= HEAP_XMAX_INVALID;

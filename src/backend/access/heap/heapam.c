@@ -2286,7 +2286,7 @@ heap_prepare_insert(Relation relation, HeapTuple tup,
 	tup->t_data->t_infomask |= HEAP_XMAX_INVALID;
 	HeapTupleSetXmin(tup, InvalidTransactionId);
 	if (options & HEAP_INSERT_FROZEN)
-		HeapTupleHeaderSetXminFrozen(tup->t_data);
+		HeapTupleHeaderStoreXminFrozen(tup->t_data);
 
 	HeapTupleHeaderSetCmin(tup->t_data, cid);
 	HeapTupleSetXmax(tup, 0);	/* for cleanliness */
@@ -3989,7 +3989,7 @@ l2:
 	if (IsToastRelation(relation))
 		ToastTupleHeaderSetXmin(newpage, heaptup);
 	else
-		HeapTupleHeaderSetXmin(newpage, heaptup);
+		HeapTupleHeaderStoreXmin(newpage, heaptup);
 	HeapTupleSetXmax(heaptup, xmax_new_tuple);
 
 	if (IsToastRelation(relation))
@@ -4107,7 +4107,7 @@ l2:
 		 */
 		HeapTupleCopyXids(newtup, heaptup);
 		HeapTupleSetXmin(newtup, xid);
-		HeapTupleHeaderSetXmin(newpage, newtup);
+		HeapTupleHeaderStoreXmin(newpage, newtup);
 		HeapTupleSetXmax(newtup, xmax_new_tuple);
 		HeapTupleHeaderSetXmax(newpage, newtup);
 	}
@@ -6135,7 +6135,7 @@ heap_abort_speculative(Relation relation, ItemPointer tid)
 	if (IsToastRelation(relation))
 		ToastTupleHeaderSetXmin(page, &tp);
 	else
-		HeapTupleHeaderSetXmin(page, &tp);
+		HeapTupleHeaderStoreXmin(page, &tp);
 
 	/* Clear the speculative insertion token too */
 	tp.t_data->t_ctid = tp.t_self;
@@ -9344,7 +9344,7 @@ heap_xlog_delete(XLogReaderState *record)
 			if (xlrec->flags & XLH_DELETE_PAGE_ON_TOAST_RELATION)
 				ToastTupleHeaderSetXmin(page, &tuple);
 			else
-				HeapTupleHeaderSetXmin(page, &tuple);
+				HeapTupleHeaderStoreXmin(page, &tuple);
 		}
 		HeapTupleHeaderSetCmax(htup, FirstCommandId, false);
 
@@ -9484,7 +9484,7 @@ heap_xlog_insert(XLogReaderState *record)
 		if (xlrec->flags & XLH_INSERT_ON_TOAST_RELATION)
 			ToastTupleHeaderSetXmin(page, &tuple);
 		else
-			HeapTupleHeaderSetXmin(page, &tuple);
+			HeapTupleHeaderStoreXmin(page, &tuple);
 		HeapTupleHeaderSetCmin(htup, FirstCommandId);
 		htup->t_ctid = target_tid;
 
@@ -9655,7 +9655,7 @@ heap_xlog_multi_insert(XLogReaderState *record)
 			htup->t_hoff = xlhdr->t_hoff;
 			tuple.t_data = htup;
 			HeapTupleSetXmin(&tuple, XLogRecGetXid(record));
-			HeapTupleHeaderSetXmin(page, &tuple);
+			HeapTupleHeaderStoreXmin(page, &tuple);
 			HeapTupleHeaderSetCmin(htup, FirstCommandId);
 			ItemPointerSetBlockNumber(&htup->t_ctid, blkno);
 			ItemPointerSetOffsetNumber(&htup->t_ctid, offnum);
@@ -9959,7 +9959,7 @@ heap_xlog_update(XLogReaderState *record, bool hot_update)
 
 		tuple.t_data = htup;
 		HeapTupleSetXmin(&tuple, XLogRecGetXid(record));
-		HeapTupleHeaderSetXmin(page, &tuple);
+		HeapTupleHeaderStoreXmin(page, &tuple);
 		HeapTupleHeaderSetCmin(htup, FirstCommandId);
 		HeapTupleSetXmax(&tuple, xlrec->new_xmax);
 		HeapTupleHeaderSetXmax(page, &tuple);

@@ -452,7 +452,7 @@ repack_heap_tuples(Relation rel, Page page, Buffer buf, BlockNumber blkno,
 			if (try_double_xmax)
 			{
 				HeapTupleSetXmin(&tuple, FrozenTransactionId);
-				HeapTupleHeaderSetXminFrozen(tuple.t_data);
+				HeapTupleHeaderStoreXminFrozen(tuple.t_data);
 			}
 
 			compute_xid_min_max(&tuple, multi_base,

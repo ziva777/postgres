@@ -353,7 +353,7 @@ do { \
 /*
  * HeapTupleGetRawXmin returns the "raw" xmin field, which is the xid
  * originally used to insert the tuple.  However, the tuple might actually
- * be frozen (via HeapTupleHeaderSetXminFrozen) in which case the tuple's xmin
+ * be frozen (via HeapTupleHeaderStoreXminFrozen) in which case the tuple's xmin
  * is visible to every snapshot.  Prior to PostgreSQL 9.4, we actually changed
  * the xmin to FrozenTransactionId, and that value may still be encountered
  * on disk.
@@ -368,7 +368,7 @@ do { \
 
 #define HeapTupleSetXmin(tup, xid) 	((tup)->t_xmin = (xid))
 
-#define HeapTupleHeaderSetXmin(page, tup) \
+#define HeapTupleHeaderStoreXmin(page, tup) \
 ( \
 	AssertMacro(!HeapPageIsDoubleXmax(page)), \
 	(tup)->t_data->t_choice.t_heap.t_xmin = NormalTransactionIdToShort(HeapPageGetSpecial(page)->pd_xid_base, (tup)->t_xmin) \
@@ -396,7 +396,7 @@ do { \
 	((tup)->t_infomask & (HEAP_XMIN_FROZEN)) == HEAP_XMIN_FROZEN \
 )
 
-#define HeapTupleHeaderSetXminFrozen(tup) \
+#define HeapTupleHeaderStoreXminFrozen(tup) \
 ( \
 	AssertMacro(!HeapTupleHeaderXminInvalid(tup)), \
 	((tup)->t_infomask |= HEAP_XMIN_FROZEN) \

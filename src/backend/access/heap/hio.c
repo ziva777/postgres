@@ -68,7 +68,7 @@ RelationPutHeapTuple(Relation relation,
 	}
 	else
 	{
-		HeapTupleHeaderSetXmin(pageHeader, tuple);
+		HeapTupleHeaderStoreXmin(pageHeader, tuple);
 		HeapTupleHeaderSetXmax(pageHeader, tuple);
 	}
 	HeapTupleSetXmax(tuple, tuple->t_xmax);

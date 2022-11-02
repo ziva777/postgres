@@ -299,7 +299,7 @@ heap_force_common(FunctionCallInfo fcinfo, HeapTupleForceOption heap_force_opt)
 				}
 				else
 				{
-					HeapTupleHeaderSetXmin(page, &tuple);
+					HeapTupleHeaderStoreXmin(page, &tuple);
 					HeapTupleHeaderSetXmax(page, &tuple);
 				}
 				HeapTupleSetXmin(&tuple, FrozenTransactionId);
