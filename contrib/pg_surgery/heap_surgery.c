@@ -274,6 +274,7 @@ heap_force_common(FunctionCallInfo fcinfo, HeapTupleForceOption heap_force_opt)
 			{
 				HeapTupleHeader htup;
 				HeapTupleData tuple;
+				bool is_toast;
 
 				Assert(heap_force_opt == HEAP_FORCE_FREEZE);
 
@@ -292,16 +293,12 @@ heap_force_common(FunctionCallInfo fcinfo, HeapTupleForceOption heap_force_opt)
 				 * potentially-garbled data is left behind.
 				 */
 				ItemPointerSet(&htup->t_ctid, blkno, curoff);
-				if (IsToastRelation(rel))
-				{
-					ToastTupleAndHeaderSetXmin(page, &tuple, FrozenTransactionId);
-					ToastTupleAndHeaderSetXmax(page, &tuple, InvalidTransactionId);
-				}
-				else
-				{
-					HeapTupleAndHeaderSetXmin(page, &tuple, FrozenTransactionId);
-					HeapTupleAndHeaderSetXmax(page, &tuple, InvalidTransactionId);
-				}
+				is_toast = IsToastRelation(rel);
+				HeapTupleAndHeaderSetXmin(page, &tuple, FrozenTransactionId,
+										  is_toast);
+				HeapTupleAndHeaderSetXmax(page, &tuple, InvalidTransactionId,
+										  is_toast);
+
 				if (htup->t_infomask & HEAP_MOVED)
 				{
 					if (htup->t_infomask & HEAP_MOVED_OFF)

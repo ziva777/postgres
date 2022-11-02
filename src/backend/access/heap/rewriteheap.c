@@ -748,7 +748,7 @@ raw_heap_insert(RewriteState state, HeapTuple tup)
 	Assert(!immutable_tuple || xmin == FrozenTransactionId);
 
 	if (!immutable_tuple)
-		HeapTupleAndHeaderSetXmin(page, heaptup, xmin);
+		HeapTupleAndHeaderSetXmin(page, heaptup, xmin, false);
 
 	HeapTupleHeaderStoreXmax(page, heaptup);
 

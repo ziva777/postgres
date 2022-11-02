@@ -386,17 +386,14 @@ do { \
 } while (0)
 
 static inline void
-HeapTupleAndHeaderSetXmin(Page page, HeapTuple tup, TransactionId xid)
+HeapTupleAndHeaderSetXmin(Page page, HeapTuple tup, TransactionId xid,
+						   bool is_toast)
 {
 	HeapTupleSetXmin(tup, xid);
-	HeapTupleHeaderStoreXmin(page, tup);
-}
-
-static inline void
-ToastTupleAndHeaderSetXmin(Page page, HeapTuple tup, TransactionId xid)
-{
-	HeapTupleSetXmin(tup, xid);
-	ToastTupleHeaderStoreXmin(page, tup);
+	if (is_toast)
+		ToastTupleHeaderStoreXmin(page, tup);
+	else
+		HeapTupleHeaderStoreXmin(page, tup);
 }
 
 #define HeapTupleHeaderXminCommitted(tup) \
@@ -488,17 +485,14 @@ do { \
 } while (0)
 
 static inline void
-HeapTupleAndHeaderSetXmax(Page page, HeapTuple tup, TransactionId xid)
+HeapTupleAndHeaderSetXmax(Page page, HeapTuple tup, TransactionId xid,
+						  bool is_toast)
 {
 	HeapTupleSetXmax(tup, xid);
-	HeapTupleHeaderStoreXmax(page, tup);
-}
-
-static inline void
-ToastTupleAndHeaderSetXmax(Page page, HeapTuple tup, TransactionId xid)
-{
-	HeapTupleSetXmax(tup, xid);
-	ToastTupleHeaderStoreXmax(page, tup);
+	if (is_toast)
+		ToastTupleHeaderStoreXmax(page, tup);
+	else
+		HeapTupleHeaderStoreXmax(page, tup);
 }
 
 /*
