@@ -431,7 +431,8 @@ do { \
 	HeapPageIsDoubleXmax(page) ? \
 	HeapTupleHeaderGetDoubleXmax(tup) : \
 	ShortTransactionIdToNormal( \
-		((tup)->t_infomask & HEAP_XMAX_IS_MULTI) ? HeapPageGetSpecial(page)->pd_multi_base : HeapPageGetSpecial(page)->pd_xid_base, \
+		((tup)->t_infomask & HEAP_XMAX_IS_MULTI) ? \
+			HeapPageGetSpecial(page)->pd_multi_base : HeapPageGetSpecial(page)->pd_xid_base, \
 		(tup)->t_choice.t_heap.t_xmax) \
 )
 
@@ -456,7 +457,8 @@ do { \
 	else \
 		(tup)->t_data->t_choice.t_heap.t_xmax = \
 			NormalTransactionIdToShort( \
-				((tup)->t_data->t_infomask & HEAP_XMAX_IS_MULTI) ? HeapPageGetSpecial(page)->pd_multi_base : HeapPageGetSpecial(page)->pd_xid_base, \
+				((tup)->t_data->t_infomask & HEAP_XMAX_IS_MULTI) ? \
+					HeapPageGetSpecial(page)->pd_multi_base : HeapPageGetSpecial(page)->pd_xid_base, \
 				((tup)->t_xmax)); \
 } while (0)
 
