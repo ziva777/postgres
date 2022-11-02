@@ -378,7 +378,7 @@ do { \
 																	   (tup)->t_xmin); \
 } while (0)
 
-#define ToastTupleHeaderSetXmin(page, tup) \
+#define ToastTupleHeaderStoreXmin(page, tup) \
 do { \
 	AssertMacro(!HeapPageIsDoubleXmax(page)); \
 	(tup)->t_data->t_choice.t_heap.t_xmin = NormalTransactionIdToShort(ToastPageGetSpecial(page)->pd_xid_base, \

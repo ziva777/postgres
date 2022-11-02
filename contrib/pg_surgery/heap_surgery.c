@@ -294,7 +294,7 @@ heap_force_common(FunctionCallInfo fcinfo, HeapTupleForceOption heap_force_opt)
 				ItemPointerSet(&htup->t_ctid, blkno, curoff);
 				if (IsToastRelation(rel))
 				{
-					ToastTupleHeaderSetXmin(page, &tuple);
+					ToastTupleHeaderStoreXmin(page, &tuple);
 					ToastTupleHeaderSetXmax(page, &tuple);
 				}
 				else

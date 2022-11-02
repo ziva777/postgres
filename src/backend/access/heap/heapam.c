@@ -3987,7 +3987,7 @@ l2:
 	 */
 	HeapTupleSetXmin(heaptup, xid);
 	if (IsToastRelation(relation))
-		ToastTupleHeaderSetXmin(newpage, heaptup);
+		ToastTupleHeaderStoreXmin(newpage, heaptup);
 	else
 		HeapTupleHeaderStoreXmin(newpage, heaptup);
 	HeapTupleSetXmax(heaptup, xmax_new_tuple);
@@ -6133,7 +6133,7 @@ heap_abort_speculative(Relation relation, ItemPointer tid)
 	 */
 	HeapTupleSetXmin(&tp, InvalidTransactionId);
 	if (IsToastRelation(relation))
-		ToastTupleHeaderSetXmin(page, &tp);
+		ToastTupleHeaderStoreXmin(page, &tp);
 	else
 		HeapTupleHeaderStoreXmin(page, &tp);
 
@@ -9342,7 +9342,7 @@ heap_xlog_delete(XLogReaderState *record)
 		{
 			HeapTupleSetXmin(&tuple, InvalidTransactionId);
 			if (xlrec->flags & XLH_DELETE_PAGE_ON_TOAST_RELATION)
-				ToastTupleHeaderSetXmin(page, &tuple);
+				ToastTupleHeaderStoreXmin(page, &tuple);
 			else
 				HeapTupleHeaderStoreXmin(page, &tuple);
 		}
@@ -9482,7 +9482,7 @@ heap_xlog_insert(XLogReaderState *record)
 		tuple.t_data = htup;
 		HeapTupleSetXmin(&tuple, XLogRecGetXid(record));
 		if (xlrec->flags & XLH_INSERT_ON_TOAST_RELATION)
-			ToastTupleHeaderSetXmin(page, &tuple);
+			ToastTupleHeaderStoreXmin(page, &tuple);
 		else
 			HeapTupleHeaderStoreXmin(page, &tuple);
 		HeapTupleHeaderSetCmin(htup, FirstCommandId);

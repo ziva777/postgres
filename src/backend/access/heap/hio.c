@@ -63,7 +63,7 @@ RelationPutHeapTuple(Relation relation,
 	HeapTupleSetXmin(tuple, tuple->t_xmin);
 	if (IsToastRelation(relation))
 	{
-		ToastTupleHeaderSetXmin(pageHeader, tuple);
+		ToastTupleHeaderStoreXmin(pageHeader, tuple);
 		ToastTupleHeaderSetXmax(pageHeader, tuple);
 	}
 	else
