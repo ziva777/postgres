@@ -469,7 +469,7 @@ toast_flatten_tuple_to_datum(HeapTupleHeader tup,
 	ItemPointerSetInvalid(&(tmptup.t_self));
 	tmptup.t_tableOid = InvalidOid;
 	tmptup.t_data = tup;
-	HeapTupleSetZeroBase(&tmptup);
+	HeapTupleSetZeroXids(&tmptup);
 
 	/*
 	 * Break down the tuple into fields.

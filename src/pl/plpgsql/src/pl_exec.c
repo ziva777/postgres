@@ -7376,7 +7376,7 @@ deconstruct_composite_datum(Datum value, HeapTupleData *tmptup)
 	tmptup->t_len = HeapTupleHeaderGetDatumLength(td);
 	ItemPointerSetInvalid(&(tmptup->t_self));
 	tmptup->t_tableOid = InvalidOid;
-	HeapTupleSetZeroBase(tmptup);
+	HeapTupleSetZeroXids(tmptup);
 	tmptup->t_data = td;
 
 	/* Extract rowtype info and find a tupdesc */
@@ -7551,7 +7551,7 @@ exec_move_row_from_datum(PLpgSQL_execstate *estate,
 		tmptup.t_len = HeapTupleHeaderGetDatumLength(td);
 		ItemPointerSetInvalid(&(tmptup.t_self));
 		tmptup.t_tableOid = InvalidOid;
-		HeapTupleSetZeroBase(&tmptup);
+		HeapTupleSetZeroXids(&tmptup);
 		tmptup.t_data = td;
 
 		/* Extract rowtype info */

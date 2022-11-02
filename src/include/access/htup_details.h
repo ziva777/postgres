@@ -313,7 +313,7 @@ struct HeapTupleHeaderData
  * Set base values for tuple xids/multixacts to zero.  Used when visibility
  * infromation is negligible or will be set later.
  */
-#define HeapTupleSetZeroBase(tup) \
+#define HeapTupleSetZeroXids(tup) \
 { \
 	(tup)->t_xmin = 0; \
 	(tup)->t_xmax = 0; \

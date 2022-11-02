@@ -7332,7 +7332,7 @@ make_tuple_from_result_row(PGresult *res,
 	 */
 	if (ctid)
 		tuple->t_self = tuple->t_data->t_ctid = *ctid;
-	HeapTupleSetZeroBase(tuple);
+	HeapTupleSetZeroXids(tuple);
 
 	/*
 	 * Stomp on the xmin, xmax, and cmin fields from the tuple created by

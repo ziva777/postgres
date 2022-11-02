@@ -3180,7 +3180,7 @@ ExecEvalFieldStoreDeForm(ExprState *state, ExprEvalStep *op, ExprContext *econte
 		tmptup.t_len = HeapTupleHeaderGetDatumLength(tuphdr);
 		ItemPointerSetInvalid(&(tmptup.t_self));
 		tmptup.t_tableOid = InvalidOid;
-		HeapTupleSetZeroBase(&tmptup);
+		HeapTupleSetZeroXids(&tmptup);
 		tmptup.t_data = tuphdr;
 
 		heap_deform_tuple(&tmptup, tupDesc,
