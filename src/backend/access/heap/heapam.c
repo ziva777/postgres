@@ -479,7 +479,16 @@ heapgetpage(TableScanDesc sscan, BlockNumber page)
 												&loctup, buffer, snapshot);
 
 			if (valid)
-				scan->rs_vistuples[ntup++] = lineoff;
+			{
+				scan->rs_vistuples[ntup] = lineoff;
+				/*
+				 * Since there is no lock futher and xmin or xmax may be
+				 * changed while base shift, copy them here.
+				 */
+				scan->rs_xmin[ntup] = loctup.t_xmin;
+				scan->rs_xmax[ntup] = loctup.t_xmax;
+				++ntup;
+			}
 		}
 	}
 
@@ -1013,8 +1022,8 @@ heapgettup_pagemode(HeapScanDesc scan,
 
 		tuple->t_data = (HeapTupleHeader) PageGetItem((Page) dp, lpp);
 		tuple->t_len = ItemIdGetLength(lpp);
-		HeapTupleCopyXidsFromPage(InvalidBuffer, tuple, dp,
-								  IsToastRelation(scan->rs_base.rs_rd));
+		tuple->t_xmin = scan->rs_xmin[scan->rs_cindex];
+		tuple->t_xmax = scan->rs_xmax[scan->rs_cindex];
 
 		/* check that rs_cindex is in sync */
 		Assert(scan->rs_cindex < scan->rs_ntuples);
@@ -1037,8 +1046,8 @@ heapgettup_pagemode(HeapScanDesc scan,
 
 			tuple->t_data = (HeapTupleHeader) PageGetItem((Page) dp, lpp);
 			tuple->t_len = ItemIdGetLength(lpp);
-			HeapTupleCopyXidsFromPage(InvalidBuffer, tuple, dp,
-									  IsToastRelation(scan->rs_base.rs_rd));
+			tuple->t_xmin = scan->rs_xmin[lineindex];
+			tuple->t_xmax = scan->rs_xmax[lineindex];
 			ItemPointerSet(&(tuple->t_self), page, lineoff);
 
 			/*
@@ -3034,7 +3043,6 @@ l1:
 	HeapTupleHeaderSetCmax(tp.t_data, cid, iscombo);
 	/* Make sure there is no forward chain link in t_ctid */
 	tp.t_data->t_ctid = tp.t_self;
-	HeapTupleCopyXidsFromPage(buffer, &tp, page, IsToastRelation(relation));
 
 	/* Signal that this is actually a move into another partition */
 	if (changingPart)
@@ -3549,7 +3557,6 @@ l2:
 							  XLTW_Update);
 			checked_lockers = true;
 			LockBuffer(buffer, BUFFER_LOCK_EXCLUSIVE);
-
 			HeapTupleCopyXidsFromPage(buffer, &oldtup, page, false);
 			/*
 			 * xwait is done, but if xwait had just locked the tuple then some
@@ -3777,7 +3784,6 @@ l2:
 		oldtup.t_data->t_infomask2 |= infomask2_lock_old_tuple;
 		HeapTupleAndHeaderSetXmax(page, &oldtup, xmax_lock_old_tuple, false);
 		HeapTupleHeaderSetCmax(oldtup.t_data, cid, iscombo);
-		HeapTupleCopyXidsFromPage(buffer, &oldtup, page, false);
 
 		/* temporarily make it look not-updated, but locked */
 		oldtup.t_data->t_ctid = oldtup.t_self;
