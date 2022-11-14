@@ -53,6 +53,7 @@
 #include "storage/buffile.h"
 #include "storage/fd.h"
 #include "utils/resowner.h"
+#include "utils/spccache.h"
 
 /*
  * We break BufFiles into gigabyte-sized segments, regardless of RELSEG_SIZE.
@@ -72,6 +73,7 @@ struct BufFile
 	int			numFiles;		/* number of physical files in set */
 	/* all files except the last have length exactly MAX_PHYSICAL_FILESIZE */
 	File	   *files;			/* palloc'd array with numFiles entries */
+	Oid		   *tablespaces;	/* palloc'd array with numFiles entries */
 
 	bool		isInterXact;	/* keep open over transactions? */
 	bool		dirty;			/* does buffer need to be written? */
@@ -99,12 +101,12 @@ struct BufFile
 };
 
 static BufFile *makeBufFileCommon(int nfiles);
-static BufFile *makeBufFile(File firstfile);
+static BufFile *makeBufFile(File firstfile, Oid tablespace);
 static void extendBufFile(BufFile *file);
 static void BufFileLoadBuffer(BufFile *file);
 static void BufFileDumpBuffer(BufFile *file);
 static void BufFileFlush(BufFile *file);
-static File MakeNewFileSetSegment(BufFile *buffile, int segment);
+static File MakeNewFileSetSegment(BufFile *file, int segment, Oid *tablespace);
 
 /*
  * Create BufFile and perform the common initialization.
@@ -131,12 +133,14 @@ makeBufFileCommon(int nfiles)
  * NOTE: caller must set isInterXact if appropriate.
  */
 static BufFile *
-makeBufFile(File firstfile)
+makeBufFile(File firstfile, Oid tablespace)
 {
 	BufFile    *file = makeBufFileCommon(1);
 
 	file->files = (File *) palloc(sizeof(File));
 	file->files[0] = firstfile;
+	file->tablespaces = (Oid *) palloc0(sizeof(Oid));
+	file->tablespaces[0] = tablespace;
 	file->readOnly = false;
 	file->fileset = NULL;
 	file->name = NULL;
@@ -151,6 +155,7 @@ static void
 extendBufFile(BufFile *file)
 {
 	File		pfile;
+	Oid			tablespace;
 	ResourceOwner oldowner;
 
 	/* Be sure to associate the file with the BufFile's resource owner */
@@ -158,9 +163,9 @@ extendBufFile(BufFile *file)
 	CurrentResourceOwner = file->resowner;
 
 	if (file->fileset == NULL)
-		pfile = OpenTemporaryFile(file->isInterXact);
+		pfile = OpenTemporaryFile(file->isInterXact, &tablespace);
 	else
-		pfile = MakeNewFileSetSegment(file, file->numFiles);
+		pfile = MakeNewFileSetSegment(file, file->numFiles, &tablespace);
 
 	Assert(pfile >= 0);
 
@@ -168,7 +173,10 @@ extendBufFile(BufFile *file)
 
 	file->files = (File *) repalloc(file->files,
 									(file->numFiles + 1) * sizeof(File));
+	file->tablespaces = (Oid *) repalloc(file->tablespaces,
+										 (file->numFiles + 1) * sizeof(Oid));
 	file->files[file->numFiles] = pfile;
+	file->tablespaces[file->numFiles] = tablespace;
 	file->numFiles++;
 }
 
@@ -189,6 +197,7 @@ BufFileCreateTemp(bool interXact)
 {
 	BufFile    *file;
 	File		pfile;
+	Oid			tablespace;
 
 	/*
 	 * Ensure that temp tablespaces are set up for OpenTemporaryFile to use.
@@ -201,10 +210,10 @@ BufFileCreateTemp(bool interXact)
 	 */
 	PrepareTempTablespaces();
 
-	pfile = OpenTemporaryFile(interXact);
+	pfile = OpenTemporaryFile(interXact, &tablespace);
 	Assert(pfile >= 0);
 
-	file = makeBufFile(pfile);
+	file = makeBufFile(pfile, tablespace);
 	file->isInterXact = interXact;
 
 	return file;
@@ -223,7 +232,7 @@ FileSetSegmentName(char *name, const char *buffile_name, int segment)
  * Create a new segment file backing a fileset based BufFile.
  */
 static File
-MakeNewFileSetSegment(BufFile *buffile, int segment)
+MakeNewFileSetSegment(BufFile *buffile, int segment, Oid *tablespace)
 {
 	char		name[MAXPGPATH];
 	File		file;
@@ -239,7 +248,7 @@ MakeNewFileSetSegment(BufFile *buffile, int segment)
 
 	/* Create the new segment. */
 	FileSetSegmentName(name, buffile->name, segment);
-	file = FileSetCreate(buffile->fileset, name);
+	file = FileSetCreate(buffile->fileset, name, tablespace);
 
 	/* FileSetCreate would've errored out */
 	Assert(file > 0);
@@ -262,12 +271,15 @@ BufFile *
 BufFileCreateFileSet(FileSet *fileset, const char *name)
 {
 	BufFile    *file;
+	Oid			tablespace;
 
 	file = makeBufFileCommon(1);
 	file->fileset = fileset;
 	file->name = pstrdup(name);
 	file->files = (File *) palloc(sizeof(File));
-	file->files[0] = MakeNewFileSetSegment(file, 0);
+	file->files[0] = MakeNewFileSetSegment(file, 0, &tablespace);
+	file->tablespaces = (Oid *) palloc(sizeof(Oid));
+	file->tablespaces[0] = tablespace;
 	file->readOnly = false;
 
 	return file;
@@ -290,9 +302,12 @@ BufFileOpenFileSet(FileSet *fileset, const char *name, int mode,
 	char		segment_name[MAXPGPATH];
 	Size		capacity = 16;
 	File	   *files;
+	Oid		   *tablespaces,
+				tablespace;
 	int			nfiles = 0;
 
 	files = palloc(sizeof(File) * capacity);
+	tablespaces = palloc(sizeof(Oid) * capacity);
 
 	/*
 	 * We don't know how many segments there are, so we'll probe the
@@ -305,10 +320,12 @@ BufFileOpenFileSet(FileSet *fileset, const char *name, int mode,
 		{
 			capacity *= 2;
 			files = repalloc(files, sizeof(File) * capacity);
+			tablespaces = repalloc(tablespaces, sizeof(Oid) * capacity);
 		}
 		/* Try to load a segment. */
 		FileSetSegmentName(segment_name, name, nfiles);
-		files[nfiles] = FileSetOpen(fileset, segment_name, mode);
+		files[nfiles] = FileSetOpen(fileset, segment_name, mode, &tablespace);
+		tablespaces[nfiles] = tablespace;
 		if (files[nfiles] <= 0)
 			break;
 		++nfiles;
@@ -324,6 +341,7 @@ BufFileOpenFileSet(FileSet *fileset, const char *name, int mode,
 	{
 		/* free the memory */
 		pfree(files);
+		pfree(tablespaces);
 
 		if (missing_ok)
 			return NULL;
@@ -336,6 +354,7 @@ BufFileOpenFileSet(FileSet *fileset, const char *name, int mode,
 
 	file = makeBufFileCommon(nfiles);
 	file->files = files;
+	file->tablespaces = tablespaces;
 	file->readOnly = (mode == O_RDONLY);
 	file->fileset = fileset;
 	file->name = pstrdup(name);
@@ -415,6 +434,7 @@ BufFileClose(BufFile *file)
 		FileClose(file->files[i]);
 	/* release the buffer space */
 	pfree(file->files);
+	pfree(file->tablespaces);
 	pfree(file);
 }
 
@@ -532,10 +552,14 @@ BufFileDumpBuffer(BufFile *file)
 								 file->curOffset,
 								 WAIT_EVENT_BUFFILE_WRITE);
 		if (bytestowrite <= 0)
-			ereport(ERROR,
+		{
+			Oid		tablespace = file->tablespaces[file->curFile];
+
+			ereport(get_tablespace_elevel(tablespace),
 					(errcode_for_file_access(),
 					 errmsg("could not write to file \"%s\": %m",
 							FilePathName(thisfile))));
+		}
 
 		if (track_io_timing)
 		{
@@ -885,8 +909,14 @@ BufFileAppend(BufFile *target, BufFile *source)
 
 	target->files = (File *)
 		repalloc(target->files, sizeof(File) * newNumFiles);
+	target->tablespaces = (Oid *)
+		repalloc(target->tablespaces, sizeof(Oid) * newNumFiles);
+
 	for (i = target->numFiles; i < newNumFiles; i++)
+	{
 		target->files[i] = source->files[i - target->numFiles];
+		target->tablespaces[i] = source->tablespaces[i - target->numFiles];
+	}
 	target->numFiles = newNumFiles;
 
 	return startBlock;

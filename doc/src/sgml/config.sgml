@@ -2526,6 +2526,25 @@ include_dir 'conf.d'
        </listitem>
       </varlistentry>
 
+      <varlistentry id="guc-on_no_space" xreflabel="on_no_space">
+       <term><varname>on_no_space</varname> (<type>integer</type>)
+       <indexterm>
+        <primary><varname>on_no_space</varname> configuration parameter</primary>
+       </indexterm>
+       </term>
+       <listitem>
+        <para>
+         Specifies the log level used for reporting of an insufficient disk
+         resources from the tablespace.
+        </para>
+        <para>
+         The default is ERROR.  This value can be overridden for tables in a
+         particular tablespace by setting the tablespace parameter of the same
+         name (see <xref linkend="sql-altertablespace"/>).
+        </para>
+       </listitem>
+      </varlistentry>
+
       <varlistentry id="guc-max-worker-processes" xreflabel="max_worker_processes">
        <term><varname>max_worker_processes</varname> (<type>integer</type>)
        <indexterm>

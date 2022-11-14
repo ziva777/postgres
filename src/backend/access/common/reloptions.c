@@ -507,6 +507,15 @@ static relopt_enum_elt_def viewCheckOptValues[] =
 	{(const char *) NULL}		/* list terminator */
 };
 
+/* some values from elog level */
+static relopt_enum_elt_def onNoSpaceOptValues[] =
+{
+	{"error", ERROR},
+	{"fatal", FATAL},
+	{"panic", PANIC},
+	{(const char *) NULL}		/* list terminator */
+};
+
 static relopt_enum enumRelOpts[] =
 {
 	{
@@ -541,6 +550,17 @@ static relopt_enum enumRelOpts[] =
 		viewCheckOptValues,
 		VIEW_OPTION_CHECK_OPTION_NOT_SET,
 		gettext_noop("Valid values are \"local\" and \"cascaded\".")
+	},
+	{
+		{
+			"on_no_space",
+			"Specifies the log level used for reporting of an insufficient disk.",
+			RELOPT_KIND_TABLESPACE,
+			ShareUpdateExclusiveLock
+		},
+		onNoSpaceOptValues,
+		ERROR,
+		gettext_noop("Valid values are \"error\", \"fatal\" and \"panic\".")
 	},
 	/* list terminator */
 	{{NULL}}
@@ -2090,7 +2110,8 @@ tablespace_reloptions(Datum reloptions, bool validate)
 		{"random_page_cost", RELOPT_TYPE_REAL, offsetof(TableSpaceOpts, random_page_cost)},
 		{"seq_page_cost", RELOPT_TYPE_REAL, offsetof(TableSpaceOpts, seq_page_cost)},
 		{"effective_io_concurrency", RELOPT_TYPE_INT, offsetof(TableSpaceOpts, effective_io_concurrency)},
-		{"maintenance_io_concurrency", RELOPT_TYPE_INT, offsetof(TableSpaceOpts, maintenance_io_concurrency)}
+		{"maintenance_io_concurrency", RELOPT_TYPE_INT, offsetof(TableSpaceOpts, maintenance_io_concurrency)},
+		{"on_no_space", RELOPT_TYPE_ENUM, offsetof(TableSpaceOpts, on_no_space)}
 	};
 
 	return (bytea *) build_reloptions(reloptions, validate,

@@ -91,7 +91,7 @@ FileSetInit(FileSet *fileset)
  * Create a new file in the given set.
  */
 File
-FileSetCreate(FileSet *fileset, const char *name)
+FileSetCreate(FileSet *fileset, const char *name, Oid *tablespace)
 {
 	char		path[MAXPGPATH];
 	File		file;
@@ -118,7 +118,7 @@ FileSetCreate(FileSet *fileset, const char *name)
 /*
  * Open a file that was created with FileSetCreate() */
 File
-FileSetOpen(FileSet *fileset, const char *name, int mode)
+FileSetOpen(FileSet *fileset, const char *name, int mode, Oid *tablespace)
 {
 	char		path[MAXPGPATH];
 	File		file;

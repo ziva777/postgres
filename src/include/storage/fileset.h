@@ -30,9 +30,9 @@ typedef struct FileSet
 } FileSet;
 
 extern void FileSetInit(FileSet *fileset);
-extern File FileSetCreate(FileSet *fileset, const char *name);
+extern File FileSetCreate(FileSet *fileset, const char *name, Oid *tablespace);
 extern File FileSetOpen(FileSet *fileset, const char *name,
-						int mode);
+						int mode, Oid *tablespace);
 extern bool FileSetDelete(FileSet *fileset, const char *name,
 						  bool error_on_failure);
 extern void FileSetDeleteAll(FileSet *fileset);

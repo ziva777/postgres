@@ -77,6 +77,7 @@
 #include "utils/pg_locale.h"
 #include "utils/portal.h"
 #include "utils/ps_status.h"
+#include "utils/spccache.h"
 #include "utils/queryjumble.h"
 #include "utils/inval.h"
 #include "utils/xml.h"
@@ -454,6 +455,7 @@ extern const struct config_enum_entry archive_mode_options[];
 extern const struct config_enum_entry recovery_target_action_options[];
 extern const struct config_enum_entry sync_method_options[];
 extern const struct config_enum_entry dynamic_shared_memory_options[];
+extern const struct config_enum_entry on_no_space_options[];
 
 /*
  * GUC option variables that are exported from this module
@@ -2912,6 +2914,19 @@ struct config_int ConfigureNamesInt[] =
 		0, MAX_IO_CONCURRENCY,
 		check_maintenance_io_concurrency, assign_maintenance_io_concurrency,
 		NULL
+	},
+
+	{
+		{"on_no_space",
+			PGC_POSTMASTER,
+			RESOURCES_DISK,
+			gettext_noop("Error level on an out of disk memory."),
+			NULL,
+			GUC_EXPLAIN
+		},
+		&on_no_space,
+		ERROR, ERROR, PANIC,
+		NULL, NULL, NULL
 	},
 
 	{

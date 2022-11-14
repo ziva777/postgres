@@ -40,6 +40,7 @@
 #include "storage/sync.h"
 #include "utils/hsearch.h"
 #include "utils/memutils.h"
+#include "utils/spccache.h"
 
 /*
  *	The magnetic disk storage manager keeps track of open file
@@ -479,14 +480,16 @@ mdextend(SMgrRelation reln, ForkNumber forknum, BlockNumber blocknum,
 
 	if ((nbytes = FileWrite(v->mdfd_vfd, buffer, BLCKSZ, seekpos, WAIT_EVENT_DATA_FILE_EXTEND)) != BLCKSZ)
 	{
+		int elevel = get_tablespace_elevel(reln->smgr_rlocator.locator.spcOid);
+
 		if (nbytes < 0)
-			ereport(ERROR,
+			ereport(elevel,
 					(errcode_for_file_access(),
 					 errmsg("could not extend file \"%s\": %m",
 							FilePathName(v->mdfd_vfd)),
 					 errhint("Check free disk space.")));
 		/* short write: complain appropriately */
-		ereport(ERROR,
+		ereport(elevel,
 				(errcode(ERRCODE_DISK_FULL),
 				 errmsg("could not extend file \"%s\": wrote only %d of %d bytes at block %u",
 						FilePathName(v->mdfd_vfd),

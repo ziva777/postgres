@@ -1626,7 +1626,7 @@ PathNameDeleteTemporaryDir(const char *dirname)
  * case, the file is removed when the File is explicitly closed.
  */
 File
-OpenTemporaryFile(bool interXact)
+OpenTemporaryFile(bool interXact, Oid *tablespace)
 {
 	File		file = 0;
 

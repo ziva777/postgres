@@ -25,11 +25,24 @@
 #include "optimizer/optimizer.h"
 #include "storage/bufmgr.h"
 #include "utils/catcache.h"
+#include "utils/guc.h"
 #include "utils/hsearch.h"
 #include "utils/inval.h"
 #include "utils/spccache.h"
 #include "utils/syscache.h"
 
+/*
+ * GUC support
+ */
+const struct config_enum_entry on_no_space_options[] = {
+	{"error", ERROR, false},
+	{"fatal", FATAL, false},
+	{"panic", PANIC, false},
+	{NULL, 0, false}
+};
+
+/* GUC variable */
+int		on_no_space = ERROR;
 
 /* Hash table for information about each tablespace */
 static HTAB *TableSpaceCacheHash = NULL;
@@ -233,4 +246,33 @@ get_tablespace_maintenance_io_concurrency(Oid spcid)
 		return maintenance_io_concurrency;
 	else
 		return spc->opts->maintenance_io_concurrency;
+}
+
+/*
+ * get_tablespace_elevel
+ *
+ *		Return the error level for the namespace.
+ */
+int
+get_tablespace_elevel(Oid spcid)
+{
+	TableSpaceCacheEntry *spc;
+
+	/*
+	 * Use GUC level only in normal mode.
+	 */
+	if (!IsNormalProcessingMode())
+		return ERROR;
+
+	/*
+	 * Use GUC level only on an insufficient resources.
+	 */
+	if (errno != ENOSPC && errno != ENFILE && errno != EMFILE)
+		return ERROR;
+
+	spc = get_tablespace(spcid);
+	if (!spc->opts)
+		return on_no_space;
+	else
+		return spc->opts->on_no_space;
 }

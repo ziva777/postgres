@@ -22,6 +22,22 @@ SELECT spcoptions FROM pg_tablespace WHERE spcname = 'regress_tblspacewith';
 
 -- drop the tablespace so we can re-use the location
 DROP TABLESPACE regress_tblspacewith;
+-- check "on_no_space" tablespace opt
+CREATE TABLESPACE regress_tblspacewith LOCATION '' WITH (on_no_space = 1); -- fail
+ERROR:  invalid value for enum option "on_no_space": 1
+DETAIL:  Valid values are "error", "fatal" and "panic".
+CREATE TABLESPACE regress_tblspacewith LOCATION '' WITH (on_no_space = true); -- fail
+ERROR:  invalid value for enum option "on_no_space": true
+DETAIL:  Valid values are "error", "fatal" and "panic".
+CREATE TABLESPACE regress_tblspacewith LOCATION '' WITH (on_no_space = WARNING); -- fail
+ERROR:  invalid value for enum option "on_no_space": warning
+DETAIL:  Valid values are "error", "fatal" and "panic".
+CREATE TABLESPACE regress_tblspacewith LOCATION '' WITH (on_no_space = ERROR); -- ok
+DROP TABLESPACE regress_tblspacewith;
+CREATE TABLESPACE regress_tblspacewith LOCATION '' WITH (on_no_space = FATAL); -- ok
+DROP TABLESPACE regress_tblspacewith;
+CREATE TABLESPACE regress_tblspacewith LOCATION '' WITH (on_no_space = PANIC); -- ok
+DROP TABLESPACE regress_tblspacewith;
 -- create a tablespace we can use
 CREATE TABLESPACE regress_tblspace LOCATION '';
 -- This returns a relative path as of an effect of allow_in_place_tablespaces,
@@ -34,12 +50,15 @@ SELECT regexp_replace(pg_tablespace_location(oid), '(pg_tblspc)/(\d+)', '\1/NNN'
 (1 row)
 
 -- try setting and resetting some properties for the new tablespace
-ALTER TABLESPACE regress_tblspace SET (random_page_cost = 1.0, seq_page_cost = 1.1);
+ALTER TABLESPACE regress_tblspace SET (random_page_cost = 1.0, seq_page_cost = 1.1, on_no_space = PANIC);
 ALTER TABLESPACE regress_tblspace SET (some_nonexistent_parameter = true);  -- fail
 ERROR:  unrecognized parameter "some_nonexistent_parameter"
+ALTER TABLESPACE regress_tblspace SET (on_no_space = WARNING);  -- fail
+ERROR:  invalid value for enum option "on_no_space": warning
+DETAIL:  Valid values are "error", "fatal" and "panic".
 ALTER TABLESPACE regress_tblspace RESET (random_page_cost = 2.0); -- fail
 ERROR:  RESET must not include values for parameters
-ALTER TABLESPACE regress_tblspace RESET (random_page_cost, effective_io_concurrency); -- ok
+ALTER TABLESPACE regress_tblspace RESET (random_page_cost, effective_io_concurrency, on_no_space); -- ok
 -- REINDEX (TABLESPACE)
 -- catalogs and system tablespaces
 -- system catalog, fail

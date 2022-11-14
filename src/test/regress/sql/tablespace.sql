@@ -20,6 +20,20 @@ SELECT spcoptions FROM pg_tablespace WHERE spcname = 'regress_tblspacewith';
 -- drop the tablespace so we can re-use the location
 DROP TABLESPACE regress_tblspacewith;
 
+-- check "on_no_space" tablespace opt
+CREATE TABLESPACE regress_tblspacewith LOCATION '' WITH (on_no_space = 1); -- fail
+CREATE TABLESPACE regress_tblspacewith LOCATION '' WITH (on_no_space = true); -- fail
+CREATE TABLESPACE regress_tblspacewith LOCATION '' WITH (on_no_space = WARNING); -- fail
+
+CREATE TABLESPACE regress_tblspacewith LOCATION '' WITH (on_no_space = ERROR); -- ok
+DROP TABLESPACE regress_tblspacewith;
+
+CREATE TABLESPACE regress_tblspacewith LOCATION '' WITH (on_no_space = FATAL); -- ok
+DROP TABLESPACE regress_tblspacewith;
+
+CREATE TABLESPACE regress_tblspacewith LOCATION '' WITH (on_no_space = PANIC); -- ok
+DROP TABLESPACE regress_tblspacewith;
+
 -- create a tablespace we can use
 CREATE TABLESPACE regress_tblspace LOCATION '';
 -- This returns a relative path as of an effect of allow_in_place_tablespaces,
@@ -28,10 +42,11 @@ SELECT regexp_replace(pg_tablespace_location(oid), '(pg_tblspc)/(\d+)', '\1/NNN'
   FROM pg_tablespace  WHERE spcname = 'regress_tblspace';
 
 -- try setting and resetting some properties for the new tablespace
-ALTER TABLESPACE regress_tblspace SET (random_page_cost = 1.0, seq_page_cost = 1.1);
+ALTER TABLESPACE regress_tblspace SET (random_page_cost = 1.0, seq_page_cost = 1.1, on_no_space = PANIC);
 ALTER TABLESPACE regress_tblspace SET (some_nonexistent_parameter = true);  -- fail
+ALTER TABLESPACE regress_tblspace SET (on_no_space = WARNING);  -- fail
 ALTER TABLESPACE regress_tblspace RESET (random_page_cost = 2.0); -- fail
-ALTER TABLESPACE regress_tblspace RESET (random_page_cost, effective_io_concurrency); -- ok
+ALTER TABLESPACE regress_tblspace RESET (random_page_cost, effective_io_concurrency, on_no_space); -- ok
 
 -- REINDEX (TABLESPACE)
 -- catalogs and system tablespaces
