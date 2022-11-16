@@ -264,12 +264,6 @@ get_tablespace_elevel(Oid spcid)
 	if (!IsNormalProcessingMode())
 		return ERROR;
 
-	/*
-	 * Use GUC level only on an insufficient resources.
-	 */
-	if (errno != ENOSPC && errno != ENFILE && errno != EMFILE)
-		return ERROR;
-
 	spc = get_tablespace(spcid);
 	if (!spc->opts)
 		return on_no_space;

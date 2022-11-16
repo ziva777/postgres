@@ -23,6 +23,7 @@
 #include "storage/freespace.h"
 #include "storage/lmgr.h"
 #include "storage/smgr.h"
+#include "utils/spccache.h"
 
 
 /*
@@ -421,6 +422,11 @@ RelationGetBufferForTuple(Relation relation, Size len,
 		if (nblocks > 0)
 			targetBlock = nblocks - 1;
 	}
+
+	/*
+	 * Put tablespace into cache.
+	 */
+	get_tablespace_elevel(relation->rd_locator.spcOid);
 
 loop:
 	while (targetBlock != InvalidBlockNumber)
