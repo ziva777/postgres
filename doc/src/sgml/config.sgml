@@ -10460,6 +10460,22 @@ dynamic_library_path = 'C:\tools\postgresql;H:\my_project\lib;$libdir'
       </listitem>
      </varlistentry>
 
+     <varlistentry id="guc-no-space-panic" xreflabel="no_space_panic">
+      <term><varname>no_space_panic</varname> (<type>boolean</type>)
+      <indexterm>
+       <primary><varname>no_space_panic</varname> configuration parameter</primary>
+      </indexterm>
+      </term>
+      <listitem>
+       <para>
+        When set to on, <productname>PostgreSQL</productname> will raise a
+        PANIC-level error on failure to write data to the file system.  This
+        causes the database server to crash.  This parameter can only be set at
+        server start.  The default value is off.
+       </para>
+      </listitem>
+     </varlistentry>
+
     </variablelist>
 
    </sect1>

@@ -58,6 +58,7 @@ typedef int File;
 extern PGDLLIMPORT int max_files_per_process;
 extern PGDLLIMPORT bool data_sync_retry;
 extern PGDLLIMPORT int recovery_init_sync_method;
+extern PGDLLIMPORT bool no_space_panic;
 
 /*
  * This is private to fd.c, but exported for save/restore_backend_variables()
@@ -183,6 +184,7 @@ extern int	durable_rename(const char *oldfile, const char *newfile, int elevel);
 extern int	durable_unlink(const char *fname, int elevel);
 extern void SyncDataDirectory(void);
 extern int	data_sync_elevel(int elevel);
+extern int	no_space_elevel(int elevel);
 
 /* Filename components */
 #define PG_TEMP_FILES_DIR "pgsql_tmp"

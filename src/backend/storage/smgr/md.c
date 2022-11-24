@@ -480,13 +480,13 @@ mdextend(SMgrRelation reln, ForkNumber forknum, BlockNumber blocknum,
 	if ((nbytes = FileWrite(v->mdfd_vfd, buffer, BLCKSZ, seekpos, WAIT_EVENT_DATA_FILE_EXTEND)) != BLCKSZ)
 	{
 		if (nbytes < 0)
-			ereport(ERROR,
+			ereport(no_space_elevel(ERROR),
 					(errcode_for_file_access(),
 					 errmsg("could not extend file \"%s\": %m",
 							FilePathName(v->mdfd_vfd)),
 					 errhint("Check free disk space.")));
 		/* short write: complain appropriately */
-		ereport(ERROR,
+		ereport(no_space_elevel(ERROR),
 				(errcode(ERRCODE_DISK_FULL),
 				 errmsg("could not extend file \"%s\": wrote only %d of %d bytes at block %u",
 						FilePathName(v->mdfd_vfd),

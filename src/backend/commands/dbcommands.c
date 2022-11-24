@@ -513,7 +513,7 @@ CreateDirAndVersionFile(char *dbpath, Oid dbid, Oid tsid, bool isRedo)
 		fd = OpenTransientFile(versionfile, O_WRONLY | O_TRUNC | PG_BINARY);
 
 	if (fd < 0)
-		ereport(ERROR,
+		ereport(no_space_elevel(ERROR),
 				(errcode_for_file_access(),
 				 errmsg("could not create file \"%s\": %m", versionfile)));
 
@@ -525,7 +525,7 @@ CreateDirAndVersionFile(char *dbpath, Oid dbid, Oid tsid, bool isRedo)
 		/* If write didn't set errno, assume problem is no disk space. */
 		if (errno == 0)
 			errno = ENOSPC;
-		ereport(ERROR,
+		ereport(no_space_elevel(ERROR),
 				(errcode_for_file_access(),
 				 errmsg("could not write to file \"%s\": %m", versionfile)));
 	}

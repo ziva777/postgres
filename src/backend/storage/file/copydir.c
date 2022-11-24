@@ -192,7 +192,7 @@ copy_file(char *fromfile, char *tofile)
 			/* if write didn't set errno, assume problem is no disk space */
 			if (errno == 0)
 				errno = ENOSPC;
-			ereport(ERROR,
+			ereport(no_space_elevel(ERROR),
 					(errcode_for_file_access(),
 					 errmsg("could not write to file \"%s\": %m", tofile)));
 		}

@@ -324,7 +324,7 @@ writeTimeLineHistory(TimeLineID newTLI, TimeLineID parentTLI,
 	/* do not use get_sync_bit() here --- want to fsync only at end of fill */
 	fd = OpenTransientFile(tmppath, O_RDWR | O_CREAT | O_EXCL);
 	if (fd < 0)
-		ereport(ERROR,
+		ereport(no_space_elevel(ERROR),
 				(errcode_for_file_access(),
 				 errmsg("could not create file \"%s\": %m", tmppath)));
 
@@ -379,7 +379,7 @@ writeTimeLineHistory(TimeLineID newTLI, TimeLineID parentTLI,
 				 */
 				errno = save_errno ? save_errno : ENOSPC;
 
-				ereport(ERROR,
+				ereport(no_space_elevel(ERROR),
 						(errcode_for_file_access(),
 						 errmsg("could not write to file \"%s\": %m", tmppath)));
 			}
@@ -419,7 +419,7 @@ writeTimeLineHistory(TimeLineID newTLI, TimeLineID parentTLI,
 		/* if write didn't set errno, assume problem is no disk space */
 		errno = save_errno ? save_errno : ENOSPC;
 
-		ereport(ERROR,
+		ereport(no_space_elevel(ERROR),
 				(errcode_for_file_access(),
 				 errmsg("could not write to file \"%s\": %m", tmppath)));
 	}
@@ -476,7 +476,7 @@ writeTimeLineHistoryFile(TimeLineID tli, char *content, int size)
 	/* do not use get_sync_bit() here --- want to fsync only at end of fill */
 	fd = OpenTransientFile(tmppath, O_RDWR | O_CREAT | O_EXCL);
 	if (fd < 0)
-		ereport(ERROR,
+		ereport(no_space_elevel(ERROR),
 				(errcode_for_file_access(),
 				 errmsg("could not create file \"%s\": %m", tmppath)));
 
@@ -493,7 +493,7 @@ writeTimeLineHistoryFile(TimeLineID tli, char *content, int size)
 		/* if write didn't set errno, assume problem is no disk space */
 		errno = save_errno ? save_errno : ENOSPC;
 
-		ereport(ERROR,
+		ereport(no_space_elevel(ERROR),
 				(errcode_for_file_access(),
 				 errmsg("could not write to file \"%s\": %m", tmppath)));
 	}

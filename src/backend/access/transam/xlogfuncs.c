@@ -612,13 +612,13 @@ pg_promote(PG_FUNCTION_ARGS)
 	/* create the promote signal file */
 	promote_file = AllocateFile(PROMOTE_SIGNAL_FILE, "w");
 	if (!promote_file)
-		ereport(ERROR,
+		ereport(no_space_elevel(ERROR),
 				(errcode_for_file_access(),
 				 errmsg("could not create file \"%s\": %m",
 						PROMOTE_SIGNAL_FILE)));
 
 	if (FreeFile(promote_file))
-		ereport(ERROR,
+		ereport(no_space_elevel(ERROR),
 				(errcode_for_file_access(),
 				 errmsg("could not write file \"%s\": %m",
 						PROMOTE_SIGNAL_FILE)));

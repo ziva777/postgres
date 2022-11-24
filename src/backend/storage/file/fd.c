@@ -162,6 +162,9 @@ bool		data_sync_retry = false;
 /* How SyncDataDirectory() should do its job. */
 int			recovery_init_sync_method = RECOVERY_INIT_SYNC_METHOD_FSYNC;
 
+/* Whether it is safe to continue running after "no space left" error. */
+bool		no_space_panic = false;
+
 /* Debugging.... */
 
 #ifdef FDDEBUG
@@ -3736,4 +3739,17 @@ int
 data_sync_elevel(int elevel)
 {
 	return data_sync_retry ? elevel : PANIC;
+}
+
+/*
+ * Return the passed-in error level, or PANIC if no_space_panic is on and the
+ * error is "no space left".
+ */
+int
+no_space_elevel(int elevel)
+{
+	if (errno != ENOSPC)
+		return elevel;
+
+	return no_space_panic ? PANIC : elevel;
 }

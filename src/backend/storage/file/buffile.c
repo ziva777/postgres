@@ -532,7 +532,7 @@ BufFileDumpBuffer(BufFile *file)
 								 file->curOffset,
 								 WAIT_EVENT_BUFFILE_WRITE);
 		if (bytestowrite <= 0)
-			ereport(ERROR,
+			ereport(no_space_elevel(ERROR),
 					(errcode_for_file_access(),
 					 errmsg("could not write to file \"%s\": %m",
 							FilePathName(thisfile))));

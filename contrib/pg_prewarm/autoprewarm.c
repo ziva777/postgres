@@ -646,7 +646,7 @@ apw_dump_now(bool is_bgworker, bool dump_unlogged)
 	snprintf(transient_dump_file_path, MAXPGPATH, "%s.tmp", AUTOPREWARM_FILE);
 	file = AllocateFile(transient_dump_file_path, "w");
 	if (!file)
-		ereport(ERROR,
+		ereport(no_space_elevel(ERROR),
 				(errcode_for_file_access(),
 				 errmsg("could not open file \"%s\": %m",
 						transient_dump_file_path)));
@@ -659,7 +659,7 @@ apw_dump_now(bool is_bgworker, bool dump_unlogged)
 		FreeFile(file);
 		unlink(transient_dump_file_path);
 		errno = save_errno;
-		ereport(ERROR,
+		ereport(no_space_elevel(ERROR),
 				(errcode_for_file_access(),
 				 errmsg("could not write to file \"%s\": %m",
 						transient_dump_file_path)));
@@ -682,7 +682,7 @@ apw_dump_now(bool is_bgworker, bool dump_unlogged)
 			FreeFile(file);
 			unlink(transient_dump_file_path);
 			errno = save_errno;
-			ereport(ERROR,
+			ereport(no_space_elevel(ERROR),
 					(errcode_for_file_access(),
 					 errmsg("could not write to file \"%s\": %m",
 							transient_dump_file_path)));

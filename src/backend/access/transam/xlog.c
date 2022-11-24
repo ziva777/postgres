@@ -2960,7 +2960,7 @@ XLogFileInitInternal(XLogSegNo logsegno, TimeLineID logtli,
 	/* do not use get_sync_bit() here --- want to fsync only at end of fill */
 	fd = BasicOpenFile(tmppath, O_RDWR | O_CREAT | O_EXCL | PG_BINARY);
 	if (fd < 0)
-		ereport(ERROR,
+		ereport(no_space_elevel(ERROR),
 				(errcode_for_file_access(),
 				 errmsg("could not create file \"%s\": %m", tmppath)));
 
@@ -3010,7 +3010,7 @@ XLogFileInitInternal(XLogSegNo logsegno, TimeLineID logtli,
 
 		errno = save_errno;
 
-		ereport(ERROR,
+		ereport(no_space_elevel(ERROR),
 				(errcode_for_file_access(),
 				 errmsg("could not write to file \"%s\": %m", tmppath)));
 	}
@@ -3150,7 +3150,7 @@ XLogFileCopy(TimeLineID destTLI, XLogSegNo destsegno,
 	/* do not use get_sync_bit() here --- want to fsync only at end of fill */
 	fd = OpenTransientFile(tmppath, O_RDWR | O_CREAT | O_EXCL | PG_BINARY);
 	if (fd < 0)
-		ereport(ERROR,
+		ereport(no_space_elevel(ERROR),
 				(errcode_for_file_access(),
 				 errmsg("could not create file \"%s\": %m", tmppath)));
 
@@ -3206,7 +3206,7 @@ XLogFileCopy(TimeLineID destTLI, XLogSegNo destsegno,
 			/* if write didn't set errno, assume problem is no disk space */
 			errno = save_errno ? save_errno : ENOSPC;
 
-			ereport(ERROR,
+			ereport(no_space_elevel(ERROR),
 					(errcode_for_file_access(),
 					 errmsg("could not write to file \"%s\": %m", tmppath)));
 		}
@@ -8697,7 +8697,7 @@ do_pg_backup_stop(BackupState *state, bool waitforarchive)
 							  state->startpoint, wal_segment_size);
 		fp = AllocateFile(histfilepath, "w");
 		if (!fp)
-			ereport(ERROR,
+			ereport(no_space_elevel(ERROR),
 					(errcode_for_file_access(),
 					 errmsg("could not create file \"%s\": %m",
 							histfilepath)));
@@ -8708,7 +8708,7 @@ do_pg_backup_stop(BackupState *state, bool waitforarchive)
 		pfree(history_file);
 
 		if (fflush(fp) || ferror(fp) || FreeFile(fp))
-			ereport(ERROR,
+			ereport(no_space_elevel(ERROR),
 					(errcode_for_file_access(),
 					 errmsg("could not write file \"%s\": %m",
 							histfilepath)));

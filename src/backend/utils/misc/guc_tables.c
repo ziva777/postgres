@@ -1951,6 +1951,15 @@ struct config_bool ConfigureNamesBool[] =
 		NULL, NULL, NULL
 	},
 
+	{
+		{"no_space_panic", PGC_POSTMASTER, ERROR_HANDLING_OPTIONS,
+			gettext_noop("Whether to continue running after a no disk space left."),
+		},
+		&no_space_panic,
+		false,
+		NULL, NULL, NULL
+	},
+
 	/* End-of-list marker */
 	{
 		{NULL, 0, 0, NULL, NULL}, NULL, false, NULL, NULL, NULL

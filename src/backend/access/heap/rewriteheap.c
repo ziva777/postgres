@@ -914,7 +914,7 @@ logical_heap_rewrite_flush_mappings(RewriteState state)
 		written = FileWrite(src->vfd, waldata_start, len, src->off,
 							WAIT_EVENT_LOGICAL_REWRITE_WRITE);
 		if (written != len)
-			ereport(ERROR,
+			ereport(no_space_elevel(ERROR),
 					(errcode_for_file_access(),
 					 errmsg("could not write to file \"%s\", wrote %d of %d: %m", src->path,
 							written, len)));
@@ -1006,7 +1006,7 @@ logical_rewrite_log_mapping(RewriteState state, TransactionId xid,
 		src->vfd = PathNameOpenFile(path,
 									O_CREAT | O_EXCL | O_WRONLY | PG_BINARY);
 		if (src->vfd < 0)
-			ereport(ERROR,
+			ereport(no_space_elevel(ERROR),
 					(errcode_for_file_access(),
 					 errmsg("could not create file \"%s\": %m", path)));
 	}
@@ -1123,7 +1123,7 @@ heap_xlog_logical_rewrite(XLogReaderState *r)
 	fd = OpenTransientFile(path,
 						   O_CREAT | O_WRONLY | PG_BINARY);
 	if (fd < 0)
-		ereport(ERROR,
+		ereport(no_space_elevel(ERROR),
 				(errcode_for_file_access(),
 				 errmsg("could not create file \"%s\": %m", path)));
 
@@ -1151,7 +1151,7 @@ heap_xlog_logical_rewrite(XLogReaderState *r)
 		/* if write didn't set errno, assume problem is no disk space */
 		if (errno == 0)
 			errno = ENOSPC;
-		ereport(ERROR,
+		ereport(no_space_elevel(ERROR),
 				(errcode_for_file_access(),
 				 errmsg("could not write to file \"%s\": %m", path)));
 	}

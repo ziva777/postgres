@@ -1670,7 +1670,7 @@ SaveSlotToPath(ReplicationSlot *slot, const char *dir, int elevel)
 
 		/* if write didn't set errno, assume problem is no disk space */
 		errno = save_errno ? save_errno : ENOSPC;
-		ereport(elevel,
+		ereport(no_space_elevel(elevel),
 				(errcode_for_file_access(),
 				 errmsg("could not write to file \"%s\": %m",
 						tmppath)));

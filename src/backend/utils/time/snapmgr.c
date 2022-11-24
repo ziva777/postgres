@@ -1258,12 +1258,12 @@ ExportSnapshot(Snapshot snapshot)
 	 */
 	snprintf(pathtmp, sizeof(pathtmp), "%s.tmp", path);
 	if (!(f = AllocateFile(pathtmp, PG_BINARY_W)))
-		ereport(ERROR,
+		ereport(no_space_elevel(ERROR),
 				(errcode_for_file_access(),
 				 errmsg("could not create file \"%s\": %m", pathtmp)));
 
 	if (fwrite(buf.data, buf.len, 1, f) != 1)
-		ereport(ERROR,
+		ereport(no_space_elevel(ERROR),
 				(errcode_for_file_access(),
 				 errmsg("could not write to file \"%s\": %m", pathtmp)));
 
