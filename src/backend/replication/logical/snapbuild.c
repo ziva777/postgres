@@ -605,10 +605,10 @@ SnapBuildInitialSnapshot(SnapBuild *builder)
 	LWLockRelease(ProcArrayLock);
 
 	if (TransactionIdFollows(safeXid, snap->xmin))
-		elog(ERROR, "cannot build an initial slot snapshot as oldest safe xid %u follows snapshot's xmin %u",
-			 safeXid, snap->xmin);
+		elog(ERROR, "cannot build an initial slot snapshot as oldest safe xid %llu follows snapshot's xmin %llu",
+			 (unsigned long long) safeXid, (unsigned long long) snap->xmin);
 
-	MyProc->xmin = snap->xmin;
+	pg_atomic_write_u64(&MyProc->xmin, snap->xmin);
 
 	/* allocate in transaction context */
 	newxip = (TransactionId *)
@@ -1006,9 +1006,10 @@ SnapBuildPurgeOlderTxn(SnapBuild *builder)
 			builder->catchange.xip = NULL;
 		}
 
-		elog(DEBUG3, "purged catalog modifying transactions from %u to %u, xmin: %u, xmax: %u",
+		elog(DEBUG3, "purged catalog modifying transactions from %u to %u, xmin: %llu, xmax: %llu",
 			 (uint32) builder->catchange.xcnt, (uint32) surviving_xids,
-			 builder->xmin, builder->xmax);
+			 (unsigned long long) builder->xmin,
+			 (unsigned long long) builder->xmax);
 		builder->catchange.xcnt = surviving_xids;
 	}
 }
