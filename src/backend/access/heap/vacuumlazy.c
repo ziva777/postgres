@@ -95,7 +95,8 @@
 #define BYPASS_THRESHOLD_PAGES	0.02	/* i.e. 2% of rel_pages */
 
 /*
- * Perform a failsafe check every 4GB during the heap scan, approximately
+ * Perform a failsafe check each time we scan another 4GB of pages.
+ * (Note that this is deliberately kept to a power-of-two, usually 2^19.)
  */
 #define FAILSAFE_EVERY_PAGES \
 	((BlockNumber) (((uint64) 4 * 1024 * 1024 * 1024) / BLCKSZ))
@@ -824,7 +825,6 @@ lazy_scan_heap(LVRelState *vacrel)
 	BlockNumber rel_pages = vacrel->rel_pages,
 				blkno,
 				next_unskippable_block,
-				next_failsafe_block = 0,
 				next_fsm_block_to_vacuum = 0;
 	VacDeadItems *dead_items = vacrel->dead_items;
 	Buffer		vmbuffer = InvalidBuffer;
@@ -888,20 +888,6 @@ lazy_scan_heap(LVRelState *vacrel)
 								 blkno, InvalidOffsetNumber);
 
 		vacuum_delay_point();
-
-		/*
-		 * Regularly check if wraparound failsafe should trigger.
-		 *
-		 * There is a similar check inside lazy_vacuum_all_indexes(), but
-		 * relfrozenxid might start to look dangerously old before we reach
-		 * that point.  This check also provides failsafe coverage for the
-		 * one-pass strategy, and the two-pass strategy with the index_cleanup
-		 * param set to 'off'.
-		 */
-		if (blkno - next_failsafe_block >= FAILSAFE_EVERY_PAGES)
-		{
-			next_failsafe_block = blkno;
-		}
 
 		/*
 		 * Consider if we definitely have enough space to process TIDs on page
