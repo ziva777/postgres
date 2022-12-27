@@ -6824,7 +6824,6 @@ heap_prepare_freeze_tuple(HeapTuple htup,
 			 * it'll leave nothing in xmax (neither an Xid nor a MultiXactId).
 			 */
 			Assert(flags & FRM_INVALIDATE_XMAX);
-			Assert(MultiXactIdPrecedes(xid, cutoffs->OldestMxact));
 			Assert(!TransactionIdIsValid(newxmax));
 
 			/* Will set t_infomask/t_infomask2 flags in freeze plan below */
