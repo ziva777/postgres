@@ -388,7 +388,6 @@ heapgetpage(TableScanDesc sscan, BlockNumber block)
 	int			lines;
 	int			ntup;
 	OffsetNumber lineoff;
-	ItemId		lpp;
 	bool		all_visible;
 
 	Assert(block < scan->rs_nblocks);
@@ -457,41 +456,40 @@ heapgetpage(TableScanDesc sscan, BlockNumber block)
 	 */
 	all_visible = PageIsAllVisible(page) && !snapshot->takenDuringRecovery;
 
-	for (lineoff = FirstOffsetNumber, lpp = PageGetItemId(page, lineoff);
-		 lineoff <= lines;
-		 lineoff++, lpp++)
+	for (lineoff = FirstOffsetNumber; lineoff <= lines; lineoff++)
 	{
-		if (ItemIdIsNormal(lpp))
+		ItemId		lpp = PageGetItemId(page, lineoff);
+		HeapTupleData loctup;
+		bool		valid;
+
+		if (!ItemIdIsNormal(lpp))
+			continue;
+
+		loctup.t_tableOid = RelationGetRelid(scan->rs_base.rs_rd);
+		loctup.t_data = (HeapTupleHeader) PageGetItem(page, lpp);
+		loctup.t_len = ItemIdGetLength(lpp);
+		HeapTupleCopyXidsFromPage(buffer, &loctup, page,
+								  IsToastRelation(scan->rs_base.rs_rd));
+		ItemPointerSet(&(loctup.t_self), block, lineoff);
+
+		if (all_visible)
+			valid = true;
+		else
+			valid = HeapTupleSatisfiesVisibility(&loctup, snapshot, buffer);
+
+		HeapCheckForSerializableConflictOut(valid, scan->rs_base.rs_rd,
+											&loctup, buffer, snapshot);
+
+		if (valid)
 		{
-			HeapTupleData loctup;
-			bool		valid;
-
-			loctup.t_tableOid = RelationGetRelid(scan->rs_base.rs_rd);
-			loctup.t_data = (HeapTupleHeader) PageGetItem(page, lpp);
-			loctup.t_len = ItemIdGetLength(lpp);
-			HeapTupleCopyXidsFromPage(buffer, &loctup, page,
-									  IsToastRelation(scan->rs_base.rs_rd));
-			ItemPointerSet(&(loctup.t_self), block, lineoff);
-
-			if (all_visible)
-				valid = true;
-			else
-				valid = HeapTupleSatisfiesVisibility(&loctup, snapshot, buffer);
-
-			HeapCheckForSerializableConflictOut(valid, scan->rs_base.rs_rd,
-												&loctup, buffer, snapshot);
-
-			if (valid)
-			{
-				scan->rs_vistuples[ntup] = lineoff;
-				/*
-				 * Since there is no lock futher and xmin or xmax may be
-				 * changed while base shift, copy them here.
-				 */
-				scan->rs_xmin[ntup] = loctup.t_xmin;
-				scan->rs_xmax[ntup] = loctup.t_xmax;
-				++ntup;
-			}
+			scan->rs_vistuples[ntup] = lineoff;
+			/*
+			 * Since there is no lock futher and xmin or xmax may be
+			 * changed while base shift, copy them here.
+			 */
+			scan->rs_xmin[ntup] = loctup.t_xmin;
+			scan->rs_xmax[ntup] = loctup.t_xmax;
+			++ntup;
 		}
 	}
 
