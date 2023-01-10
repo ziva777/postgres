@@ -20,6 +20,7 @@
 #include "access/tupmacs.h"
 #include "storage/bufpage.h"
 #include "storage/bufmgr.h"
+#include "varatt.h"
 
 /*
  * MaxTupleAttributeNumber limits the number of (user) columns in a tuple.
