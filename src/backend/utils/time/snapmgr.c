@@ -230,7 +230,7 @@ SnapMgrInit(void)
 		oldSnapshotControl->latest_xmin = InvalidTransactionId;
 		oldSnapshotControl->next_map_update = 0;
 		SpinLockInit(&oldSnapshotControl->mutex_threshold);
-		oldSnapshotControl->threshold_timestamp = 0;
+		pg_atomic_init_u64(&oldSnapshotControl->threshold_timestamp, 0);
 		oldSnapshotControl->threshold_xid = InvalidTransactionId;
 		oldSnapshotControl->head_offset = 0;
 		oldSnapshotControl->head_timestamp = 0;
@@ -1706,9 +1706,7 @@ GetOldSnapshotThresholdTimestamp(void)
 {
 	TimestampTz threshold_timestamp;
 
-	SpinLockAcquire(&oldSnapshotControl->mutex_threshold);
-	threshold_timestamp = oldSnapshotControl->threshold_timestamp;
-	SpinLockRelease(&oldSnapshotControl->mutex_threshold);
+	threshold_timestamp = pg_atomic_read_u64(&oldSnapshotControl->threshold_timestamp);
 
 	return threshold_timestamp;
 }
@@ -1717,9 +1715,9 @@ void
 SetOldSnapshotThresholdTimestamp(TimestampTz ts, TransactionId xlimit)
 {
 	SpinLockAcquire(&oldSnapshotControl->mutex_threshold);
-	Assert(oldSnapshotControl->threshold_timestamp <= ts);
+	Assert(pg_atomic_read_u64(&oldSnapshotControl->threshold_timestamp) <= ts);
 	Assert(TransactionIdPrecedesOrEquals(oldSnapshotControl->threshold_xid, xlimit));
-	oldSnapshotControl->threshold_timestamp = ts;
+	pg_atomic_write_u64(&oldSnapshotControl->threshold_timestamp, ts);
 	oldSnapshotControl->threshold_xid = xlimit;
 	SpinLockRelease(&oldSnapshotControl->mutex_threshold);
 }
@@ -1739,9 +1737,7 @@ SnapshotTooOldMagicForTest(void)
 
 	ts -= 5 * USECS_PER_SEC;
 
-	SpinLockAcquire(&oldSnapshotControl->mutex_threshold);
-	oldSnapshotControl->threshold_timestamp = ts;
-	SpinLockRelease(&oldSnapshotControl->mutex_threshold);
+	pg_atomic_write_u64(&oldSnapshotControl->threshold_timestamp, ts);
 }
 
 /*
@@ -1846,7 +1842,7 @@ TransactionIdLimitedForOldSnapshots(TransactionId recentXmin,
 
 		/* Check for fast exit without LW locking. */
 		SpinLockAcquire(&oldSnapshotControl->mutex_threshold);
-		threshold_timestamp = oldSnapshotControl->threshold_timestamp;
+		threshold_timestamp = pg_atomic_read_u64(&oldSnapshotControl->threshold_timestamp);
 		threshold_xid = oldSnapshotControl->threshold_xid;
 		SpinLockRelease(&oldSnapshotControl->mutex_threshold);
 

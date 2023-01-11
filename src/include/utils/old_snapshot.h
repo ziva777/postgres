@@ -16,6 +16,7 @@
 #define OLD_SNAPSHOT_H
 
 #include "datatype/timestamp.h"
+#include "port/atomics.h"
 #include "storage/s_lock.h"
 
 /*
@@ -32,9 +33,20 @@ typedef struct OldSnapshotControlData
 	slock_t		mutex_latest_xmin;	/* protect latest_xmin and next_map_update */
 	TransactionId latest_xmin;	/* latest snapshot xmin */
 	TimestampTz next_map_update;	/* latest snapshot valid up to */
-	slock_t		mutex_threshold;	/* protect threshold fields */
-	TimestampTz threshold_timestamp;	/* earlier snapshot is old */
-	TransactionId threshold_xid;	/* earlier xid may be gone */
+	/*
+	 * Use the spinlock to protect:
+	 *  - the simultaneous access to the threshold_timestamp and the
+	 *	  threshold_xid;
+	 *  - access to the threshold_xid.
+	 *
+	 * NOTE: if threshold fields should be accessed simultaneously, we must use
+	 * spinlock to protect them. If we only read threshold_timestamp, we may
+	 * use atomicity, thus avoid using spinlock. This become critical in some
+	 * workloads.
+	 */
+	slock_t		mutex_threshold;
+	pg_atomic_uint64 threshold_timestamp;	/* earlier snapshot is old */
+	TransactionId threshold_xid;			/* earlier xid may be gone */
 
 	/*
 	 * Keep one xid per minute for old snapshot error handling.
