@@ -1189,8 +1189,8 @@ pa_send_data(ParallelApplyWorkerInfo *winfo, Size nbytes, const void *data)
 											SHM_SEND_TIMEOUT_MS))
 		{
 			ereport(LOG,
-					(errmsg("logical replication apply worker will serialize the remaining changes of remote transaction %u to a file",
-							winfo->shared->xid)));
+					(errmsg("logical replication apply worker will serialize the remaining changes of remote transaction %llu to a file",
+							(unsigned long long) winfo->shared->xid)));
 			return false;
 		}
 	}
