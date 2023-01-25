@@ -147,10 +147,11 @@ static TransactionId recentXid;
 static MultiXactId recentMulti;
 
 /* Default freeze ages to use for autovacuum (varies by database) */
-static int64 default_freeze_min_age;
-static int64 default_freeze_table_age;
-static int64 default_multixact_freeze_min_age;
-static int64 default_multixact_freeze_table_age;
+static int64	default_freeze_min_age;
+static int64	default_freeze_table_age;
+static int64	default_multixact_freeze_min_age;
+static int64	default_multixact_freeze_table_age;
+static int		default_freeze_strategy_threshold;
 
 /* Memory context for long-lived data */
 static MemoryContext AutovacMemCxt;
@@ -2012,6 +2013,7 @@ do_autovacuum(void)
 		default_freeze_table_age = 0;
 		default_multixact_freeze_min_age = 0;
 		default_multixact_freeze_table_age = 0;
+		default_freeze_strategy_threshold = 0;
 	}
 	else
 	{
@@ -2019,6 +2021,7 @@ do_autovacuum(void)
 		default_freeze_table_age = vacuum_freeze_table_age;
 		default_multixact_freeze_min_age = vacuum_multixact_freeze_min_age;
 		default_multixact_freeze_table_age = vacuum_multixact_freeze_table_age;
+		default_freeze_strategy_threshold = vacuum_freeze_strategy_threshold;
 	}
 
 	ReleaseSysCache(tuple);
@@ -2803,6 +2806,7 @@ table_recheck_autovac(Oid relid, HTAB *table_toast_map,
 		int64		freeze_table_age;
 		int64		multixact_freeze_min_age;
 		int64		multixact_freeze_table_age;
+		int			freeze_strategy_threshold;
 		int			vac_cost_limit;
 		double		vac_cost_delay;
 		int			log_min_duration;
@@ -2852,6 +2856,11 @@ table_recheck_autovac(Oid relid, HTAB *table_toast_map,
 			? avopts->multixact_freeze_table_age
 			: default_multixact_freeze_table_age;
 
+		freeze_strategy_threshold = (avopts &&
+									 avopts->freeze_strategy_threshold >= 0)
+			? avopts->freeze_strategy_threshold
+			: default_freeze_strategy_threshold;
+
 		tab = palloc(sizeof(autovac_table));
 		tab->at_relid = relid;
 		tab->at_sharedrel = classForm->relisshared;
@@ -2879,6 +2888,7 @@ table_recheck_autovac(Oid relid, HTAB *table_toast_map,
 		tab->at_params.freeze_table_age = freeze_table_age;
 		tab->at_params.multixact_freeze_min_age = multixact_freeze_min_age;
 		tab->at_params.multixact_freeze_table_age = multixact_freeze_table_age;
+		tab->at_params.freeze_strategy_threshold = freeze_strategy_threshold;
 		tab->at_params.is_wraparound = wraparound;
 		tab->at_params.log_min_duration = log_min_duration;
 		tab->at_vacuum_cost_limit = vac_cost_limit;

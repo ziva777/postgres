@@ -262,6 +262,14 @@ static relopt_int intRelOpts[] =
 	},
 	{
 		{
+			"autovacuum_freeze_strategy_threshold",
+			"Table size at which VACUUM freezes using eager strategy, in megabytes.",
+			RELOPT_KIND_HEAP | RELOPT_KIND_TOAST,
+			ShareUpdateExclusiveLock
+		}, -1, 0, MAX_KILOBYTES
+	},
+	{
+		{
 			"log_autovacuum_min_duration",
 			"Sets the minimum execution time above which autovacuum actions will be logged",
 			RELOPT_KIND_HEAP | RELOPT_KIND_TOAST,
@@ -339,56 +347,56 @@ static relopt_int64 int64RelOpts[] =
 	{
 		{
 			"autovacuum_freeze_min_age",
-				"Minimum age at which VACUUM should freeze a table row, for autovacuum",
-				RELOPT_KIND_HEAP | RELOPT_KIND_TOAST,
-				ShareUpdateExclusiveLock
+			"Minimum age at which VACUUM should freeze a table row, for autovacuum",
+			RELOPT_KIND_HEAP | RELOPT_KIND_TOAST,
+			ShareUpdateExclusiveLock
 		},
-			INT64CONST(-1), INT64CONST(0), INT64CONST(1000000000)
+		INT64CONST(-1), INT64CONST(0), INT64CONST(1000000000)
 	},
 	{
 		{
 			"autovacuum_multixact_freeze_min_age",
-				"Minimum multixact age at which VACUUM should freeze a row multixact's, for autovacuum",
-				RELOPT_KIND_HEAP | RELOPT_KIND_TOAST,
-				ShareUpdateExclusiveLock
+			"Minimum multixact age at which VACUUM should freeze a row multixact's, for autovacuum",
+			RELOPT_KIND_HEAP | RELOPT_KIND_TOAST,
+			ShareUpdateExclusiveLock
 		},
-			INT64CONST(-1), INT64CONST(0), INT64CONST(1000000000)
+		INT64CONST(-1), INT64CONST(0), INT64CONST(1000000000)
 	},
 	{
 		{
 			"autovacuum_freeze_max_age",
-				"Age at which to autovacuum a table to prevent transaction ID wraparound",
-				RELOPT_KIND_HEAP | RELOPT_KIND_TOAST,
-				ShareUpdateExclusiveLock
+			"Age at which to autovacuum a table to prevent transaction ID wraparound",
+			RELOPT_KIND_HEAP | RELOPT_KIND_TOAST,
+			ShareUpdateExclusiveLock
 		},
-			INT64CONST(-1), INT64CONST(100000), INT64CONST(2000000000)
+		INT64CONST(-1), INT64CONST(100000), INT64CONST(2000000000)
 	},
 	{
 		{
 			"autovacuum_multixact_freeze_max_age",
-				"Multixact age at which to autovacuum a table to prevent multixact wraparound",
-				RELOPT_KIND_HEAP | RELOPT_KIND_TOAST,
-				ShareUpdateExclusiveLock
+			"Multixact age at which to autovacuum a table to prevent multixact wraparound",
+			RELOPT_KIND_HEAP | RELOPT_KIND_TOAST,
+			ShareUpdateExclusiveLock
 		},
-			INT64CONST(-1), INT64CONST(10000), INT64CONST(2000000000)
+		INT64CONST(-1), INT64CONST(10000), INT64CONST(2000000000)
 	},
 	{
 		{
 			"autovacuum_freeze_table_age",
-				"Age at which VACUUM should perform a full table sweep to freeze row versions",
-				RELOPT_KIND_HEAP | RELOPT_KIND_TOAST,
-				ShareUpdateExclusiveLock
+			"Age at which VACUUM should perform a full table sweep to freeze row versions",
+			RELOPT_KIND_HEAP | RELOPT_KIND_TOAST,
+			ShareUpdateExclusiveLock
 		},
-			INT64CONST(-1), INT64CONST(0), INT64CONST(2000000000)
+		INT64CONST(-1), INT64CONST(0), INT64CONST(2000000000)
 	},
 	{
 		{
 			"autovacuum_multixact_freeze_table_age",
-				"Age of multixact at which VACUUM should perform a full table sweep to freeze row versions",
-				RELOPT_KIND_HEAP | RELOPT_KIND_TOAST,
-				ShareUpdateExclusiveLock
+			"Age of multixact at which VACUUM should perform a full table sweep to freeze row versions",
+			RELOPT_KIND_HEAP | RELOPT_KIND_TOAST,
+			ShareUpdateExclusiveLock
 		},
-			INT64CONST(-1), INT64CONST(0), INT64CONST(2000000000)
+		INT64CONST(-1), INT64CONST(0), INT64CONST(2000000000)
 	},
 	/* list terminator */
 	{{NULL}}
@@ -1934,6 +1942,8 @@ default_reloptions(Datum reloptions, bool validate, relopt_kind kind)
 		offsetof(StdRdOptions, autovacuum) + offsetof(AutoVacOpts, multixact_freeze_max_age)},
 		{"autovacuum_multixact_freeze_table_age", RELOPT_TYPE_INT64,
 		offsetof(StdRdOptions, autovacuum) + offsetof(AutoVacOpts, multixact_freeze_table_age)},
+		{"autovacuum_freeze_strategy_threshold", RELOPT_TYPE_INT,
+		offsetof(StdRdOptions, autovacuum) + offsetof(AutoVacOpts, freeze_strategy_threshold)},
 		{"log_autovacuum_min_duration", RELOPT_TYPE_INT,
 		offsetof(StdRdOptions, autovacuum) + offsetof(AutoVacOpts, log_min_duration)},
 		{"toast_tuple_target", RELOPT_TYPE_INT,
