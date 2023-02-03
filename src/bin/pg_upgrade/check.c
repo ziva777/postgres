@@ -1668,13 +1668,13 @@ check_for_32bit_xid_usage(ClusterInfo *cluster)
 
 	if (found)
 	{
-		pg_log(PG_REPORT, "fatal\n");
+		pg_log(PG_REPORT, "fatal");
 		pg_fatal("Your installation contains the \"xid\" data type in user tables.\n"
 				 "The internal format of \"xid\" changed in Postgres Pro Enterprise so this cluster\n"
 				 "cannot currently be upgraded.  Note that even dropped attributes cause a problem.\n"
 				 "You can remove the problem tables and restart the upgrade.\n"
 				 "A list of the problem columns is in the file:\n"
-				 "    %s\n\n", output_path);
+				 "    %s", output_path);
 	}
 	else
 		check_ok();
