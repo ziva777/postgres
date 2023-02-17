@@ -54,13 +54,8 @@ Datum
 xidrecv(PG_FUNCTION_ARGS)
 {
 	StringInfo	buf = (StringInfo) PG_GETARG_POINTER(0);
-	uint32		lo,
-				hi;
 
-	lo = (uint32) pq_getmsgint(buf, sizeof(TransactionId));
-	hi = (uint32) pq_getmsgint(buf, sizeof(TransactionId));
-
-	PG_RETURN_TRANSACTIONID((uint64) lo + ((uint64) hi << 32));
+	PG_RETURN_TRANSACTIONID((TransactionId) pq_getmsgint64(buf));
 }
 
 /*
@@ -71,15 +66,9 @@ xidsend(PG_FUNCTION_ARGS)
 {
 	TransactionId arg1 = PG_GETARG_TRANSACTIONID(0);
 	StringInfoData buf;
-	uint32		lo,
-				hi;
-
-	lo = (uint32) (arg1 & 0xFFFFFFFF);
-	hi = (uint32) (arg1 >> 32);
 
 	pq_begintypsend(&buf);
-	pq_sendint(&buf, lo, sizeof(lo));
-	pq_sendint(&buf, hi, sizeof(hi));
+	pq_sendint64(&buf, arg1);
 	PG_RETURN_BYTEA_P(pq_endtypsend(&buf));
 }
 
@@ -118,7 +107,7 @@ xid_age(PG_FUNCTION_ARGS)
 
 	/* Permanent XIDs are always infinitely old */
 	if (!TransactionIdIsNormal(xid))
-		PG_RETURN_INT64(PG_INT8_MAX);
+		PG_RETURN_INT64(0);
 
 	PG_RETURN_INT64((int64) (now - xid));
 }
@@ -133,7 +122,7 @@ mxid_age(PG_FUNCTION_ARGS)
 	MultiXactId now = ReadNextMultiXactId();
 
 	if (!MultiXactIdIsValid(xid))
-		PG_RETURN_INT64(PG_INT8_MAX);
+		PG_RETURN_INT64(0);
 
 	PG_RETURN_INT64((int64) (now - xid));
 }
