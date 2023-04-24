@@ -368,8 +368,7 @@ static void ProcArrayGroupClearXid(PGPROC *proc, TransactionId latestXid);
 static void MaintainLatestCompletedXid(TransactionId latestXid);
 static void MaintainLatestCompletedXidRecovery(TransactionId latestXid);
 static void TransactionIdRetreatSafely(TransactionId *xid,
-									   int retreat_by,
-									   FullTransactionId rel);
+									   int retreat_by);
 
 static inline FullTransactionId FullXidRelativeTo(FullTransactionId rel,
 												  TransactionId xid);
@@ -1903,14 +1902,11 @@ ComputeXidHorizons(ComputeXidHorizonsResult *h)
 		if (vacuum_defer_cleanup_age > 0)
 		{
 			TransactionIdRetreatSafely(&h->oldest_considered_running,
-									   vacuum_defer_cleanup_age,
-									   h->latest_completed);
+									   vacuum_defer_cleanup_age);
 			TransactionIdRetreatSafely(&h->shared_oldest_nonremovable,
-									   vacuum_defer_cleanup_age,
-									   h->latest_completed);
+									   vacuum_defer_cleanup_age);
 			TransactionIdRetreatSafely(&h->data_oldest_nonremovable,
-									   vacuum_defer_cleanup_age,
-									   h->latest_completed);
+									   vacuum_defer_cleanup_age);
 			/* defer doesn't apply to temp relations */
 
 
@@ -2487,8 +2483,7 @@ GetSnapshotData(Snapshot snapshot)
 		/* apply vacuum_defer_cleanup_age */
 		def_vis_xid_data = xmin;
 		TransactionIdRetreatSafely(&def_vis_xid_data,
-								   vacuum_defer_cleanup_age,
-								   oldestfxid);
+								   vacuum_defer_cleanup_age);
 
 		/* Check whether there's a replication slot requiring an older xmin. */
 		def_vis_xid_data =
@@ -4316,11 +4311,9 @@ GlobalVisCheckRemovableXid(Relation rel, TransactionId xid)
  * returned instead.
  */
 static void
-TransactionIdRetreatSafely(TransactionId *xid, int retreat_by, FullTransactionId rel)
+TransactionIdRetreatSafely(TransactionId *xid, int retreat_by)
 {
 	TransactionId original_xid = *xid;
-	FullTransactionId fxid;
-	uint64		fxid_i;
 
 	Assert(TransactionIdIsNormal(original_xid));
 	Assert(retreat_by >= 0);	/* relevant GUCs are stored as ints */
@@ -4329,10 +4322,9 @@ TransactionIdRetreatSafely(TransactionId *xid, int retreat_by, FullTransactionId
 	if (retreat_by == 0)
 		return;
 
-	fxid = FullXidRelativeTo(rel, original_xid);
-	fxid_i = XidFromFullTransactionId(fxid);
+	fxid = FullXidRelativeTo(original_xid);
 
-	if ((fxid_i - FirstNormalTransactionId) <= retreat_by)
+	if ((original_xid - FirstNormalTransactionId) <= retreat_by)
 		*xid = FirstNormalTransactionId;
 	else
 	{
@@ -4340,31 +4332,6 @@ TransactionIdRetreatSafely(TransactionId *xid, int retreat_by, FullTransactionId
 		Assert(TransactionIdIsNormal(*xid));
 		Assert(NormalTransactionIdPrecedes(*xid, original_xid));
 	}
-}
-
-/*
- * Convert a 32 bit transaction id into 64 bit transaction id, by assuming it
- * is within MaxTransactionId / 2 of XidFromFullTransactionId(rel).
- *
- * Be very careful about when to use this function. It can only safely be used
- * when there is a guarantee that xid is within MaxTransactionId / 2 xids of
- * rel. That e.g. can be guaranteed if the caller assures a snapshot is
- * held by the backend and xid is from a table (where vacuum/freezing ensures
- * the xid has to be within that range), or if xid is from the procarray and
- * prevents xid wraparound that way.
- */
-static inline FullTransactionId
-FullXidRelativeTo(FullTransactionId rel, TransactionId xid)
-{
-	TransactionId rel_xid = XidFromFullTransactionId(rel);
-
-	Assert(TransactionIdIsValid(xid));
-	Assert(TransactionIdIsValid(rel_xid));
-
-	/* not guaranteed to find issues, but likely to catch mistakes */
-	AssertTransactionIdInAllowableRange(xid);
-
-	return FullTransactionIdFromXid(rel_xid);
 }
 
 
