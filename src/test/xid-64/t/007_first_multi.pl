@@ -14,17 +14,9 @@ sub test_multixact
 		INSERT INTO t SELECT 1, repeat('a', 1000);
 	});
 
-	my %in = ('1' => '', '2' => '');
-	my %out = ('1' => '', '2' => '');
-	my %timer = (
-		'1' => IPC::Run::timeout($PostgreSQL::Test::Utils::timeout_default),
-		'2' => IPC::Run::timeout($PostgreSQL::Test::Utils::timeout_default),
-	);
 	my %psql = (
-		'1' => $primary->background_psql('postgres', \$in{1}, \$out{1},
-										 $timer{1}),
-		'2' => $primary->background_psql('postgres', \$in{2}, \$out{2},
-										 $timer{2}),
+		'1' => $primary->background_psql('postgres'),
+		'2' => $primary->background_psql('postgres'),
 	);
 
 	# Lock tuples
