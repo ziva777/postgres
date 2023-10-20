@@ -198,11 +198,15 @@ main(int argc, char *argv[])
 
 				if (set_oldest_commit_ts_xid < FirstNormalTransactionId &&
 					set_oldest_commit_ts_xid != InvalidTransactionId)
-					pg_fatal("transaction ID (-c) must be either %u or greater than or equal to %u", InvalidTransactionId, FirstNormalTransactionId);
+					pg_fatal("transaction ID (-c) must be either %llu or greater than or equal to %llu",
+							 (unsigned long long) InvalidTransactionId,
+							 (unsigned long long) FirstNormalTransactionId);
 
 				if (set_newest_commit_ts_xid < FirstNormalTransactionId &&
 					set_newest_commit_ts_xid != InvalidTransactionId)
-					pg_fatal("transaction ID (-c) must be either %u or greater than or equal to %u", InvalidTransactionId, FirstNormalTransactionId);
+					pg_fatal("transaction ID (-c) must be either %llu or greater than or equal to %llu",
+							 (unsigned long long) InvalidTransactionId,
+							 (unsigned long long) FirstNormalTransactionId);
 				break;
 
 			case 'o':
