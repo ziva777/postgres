@@ -2481,7 +2481,7 @@ usage(const char *progname)
 	printf(_("      --no-instructions     do not print instructions for next steps\n"));
 	printf(_("  -o, --multixact-offset=START_MXOFF\n"
 			 "                            set initial database cluster multixact offset\n"
-			 "                            max value is 2^62-1"));
+			 "                            max value is 2^62-1\n"));
 	printf(_("  -s, --show                show internal settings\n"));
 	printf(_("      --sync-method=METHOD  set method for syncing files to disk\n"));
 	printf(_("  -S, --sync-only           only sync database files to disk, then exit\n"));
