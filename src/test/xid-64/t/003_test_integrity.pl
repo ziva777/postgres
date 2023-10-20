@@ -31,7 +31,7 @@ $node->safe_psql('pgbench_db', qq(
 	CREATE INDEX pa_aid_idx ON pgbench_accounts (aid);
 	CLUSTER pgbench_accounts USING pa_aid_idx));
 $node->command_ok(
-	[ "pg_dump", "-w", "--inserts", "--file=$tempdir/pgbench.sql", "pgbench_db" ],
+	[ "pg_dump", "--encoding=UTF8", "-w", "--inserts", "--file=$tempdir/pgbench.sql", "pgbench_db" ],
 	  'pgdump finished without errors');
 $node->stop('fast');
 
@@ -51,8 +51,11 @@ $node2->command_ok(["psql", "-q", "-f", "$tempdir/pgbench.sql", "pgbench_db"]);
 # Dump the database and compare the dumped content with the previous one
 $node2->safe_psql('pgbench_db', 'CLUSTER pgbench_accounts');
 $node2->command_ok(
-	[ "pg_dump", "-w", "--inserts", "--file=$tempdir/pgbench2.sql", "pgbench_db" ],
+	[ "pg_dump", "--encoding=UTF8", "-w", "--inserts", "--file=$tempdir/pgbench2.sql", "pgbench_db" ],
 	  'pgdump finished without errors');
+print "----\n";
+print File::Compare::compare_text("$tempdir/pgbench.sql", "$tempdir/pgbench2.sql");
+print "----\n";
 ok(File::Compare::compare_text("$tempdir/pgbench.sql", "$tempdir/pgbench2.sql") == 0, "no differences detected");
 
 done_testing();
