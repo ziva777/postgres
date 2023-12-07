@@ -1865,14 +1865,14 @@ MultiXactShmemInit(void)
 				  MultiXactOffsetSLRULock, "pg_multixact/offsets",
 				  LWTRANCHE_MULTIXACTOFFSET_BUFFER,
 				  SYNC_HANDLER_MULTIXACT_OFFSET,
-				  false);
+				  true);
 	SlruPagePrecedesUnitTests(MultiXactOffsetCtl, MULTIXACT_OFFSETS_PER_PAGE);
 	SimpleLruInit(MultiXactMemberCtl,
 				  "MultiXactMember", NUM_MULTIXACTMEMBER_BUFFERS, 0,
 				  MultiXactMemberSLRULock, "pg_multixact/members",
 				  LWTRANCHE_MULTIXACTMEMBER_BUFFER,
 				  SYNC_HANDLER_MULTIXACT_MEMBER,
-				  false);
+				  true);
 	/* doesn't call SimpleLruTruncate() or meet criteria for unit tests */
 
 	/* Initialize our shared state struct */
