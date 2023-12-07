@@ -204,7 +204,7 @@ SUBTRANSShmemInit(void)
 	SimpleLruInit(SubTransCtl, "Subtrans", NUM_SUBTRANS_BUFFERS, 0,
 				  SubtransSLRULock, "pg_subtrans",
 				  LWTRANCHE_SUBTRANS_BUFFER, SYNC_HANDLER_NONE,
-				  false);
+				  true);
 	SlruPagePrecedesUnitTests(SubTransCtl, SUBTRANS_XACTS_PER_PAGE);
 }
 
