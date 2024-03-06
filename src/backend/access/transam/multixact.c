@@ -2771,8 +2771,11 @@ MultiXactMemberFreezeThreshold(void)
 	 * we try to eliminate from the system is based on how far we are past
 	 * MULTIXACT_MEMBER_SAFE_THRESHOLD.
 	 */
-	fraction = (double) (members - MULTIXACT_MEMBER_SAFE_THRESHOLD);
-	fraction /= MULTIXACT_MEMBER_DANGER_THRESHOLD - MULTIXACT_MEMBER_SAFE_THRESHOLD;
+	{
+		uint64		threshold = MULTIXACT_MEMBER_DANGER_THRESHOLD - MULTIXACT_MEMBER_SAFE_THRESHOLD;
+		fraction = (double) (members - MULTIXACT_MEMBER_SAFE_THRESHOLD);
+		fraction /= (double) threshold;
+	}
 	victim_multixacts = multixacts * fraction;
 
 	/* fraction could be > 1.0, but lowest possible freeze age is zero */
