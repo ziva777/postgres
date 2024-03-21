@@ -94,14 +94,6 @@
 /*
  * Defines for MultiXactOffset page sizes.  A page is the same BLCKSZ as is
  * used everywhere else in Postgres.
- *
- * Note: because MultiXactOffsets are 32 bits and wrap around at 0xFFFFFFFF,
- * MultiXact page numbering also wraps around at
- * 0xFFFFFFFF/MULTIXACT_OFFSETS_PER_PAGE, and segment numbering at
- * 0xFFFFFFFF/MULTIXACT_OFFSETS_PER_PAGE/SLRU_PAGES_PER_SEGMENT.  We need
- * take no explicit notice of that fact in this module, except when comparing
- * segment and page numbers in TruncateMultiXact (see
- * MultiXactOffsetPagePrecedes).
  */
 
 /* We need four bytes per offset */
@@ -2982,9 +2974,9 @@ TruncateMultiXact(MultiXactId newOldestMulti, Oid newOldestMultiDB)
 	}
 
 	elog(DEBUG1, "performing multixact truncation: "
-		 "offsets [%llu, %llu), offsets segments [%llx, %llx), "
+		 "offsets [%u, %u), offsets segments [%llx, %llx), "
 		 "members [%llu, %llu), members segments [%llx, %llx)",
-		 (unsigned long long) oldestMulti, (unsigned long long) newOldestMulti,
+		 oldestMulti, newOldestMulti,
 		 (unsigned long long) MultiXactIdToOffsetSegment(oldestMulti),
 		 (unsigned long long) MultiXactIdToOffsetSegment(newOldestMulti),
 		 (unsigned long long) oldestOffset, (unsigned long long) newOldestOffset,
@@ -3242,10 +3234,9 @@ multixact_redo(XLogReaderState *record)
 			   SizeOfMultiXactTruncate);
 
 		elog(DEBUG1, "replaying multixact truncation: "
-			 "offsets [%llu, %llu), offsets segments [%llx, %llx), "
+			 "offsets [%u, %u), offsets segments [%llx, %llx), "
 			 "members [%llu, %llu), members segments [%llx, %llx)",
-			 (unsigned long long) xlrec.startTruncOff,
-			 (unsigned long long) xlrec.endTruncOff,
+			 xlrec.startTruncOff, xlrec.endTruncOff,
 			 (unsigned long long) MultiXactIdToOffsetSegment(xlrec.startTruncOff),
 			 (unsigned long long) MultiXactIdToOffsetSegment(xlrec.endTruncOff),
 			 (unsigned long long) xlrec.startTruncMemb,
