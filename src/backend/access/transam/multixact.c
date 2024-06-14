@@ -156,16 +156,16 @@
 		((uint32) ((0xFFFFFFFF % MULTIXACT_MEMBERS_PER_PAGE) + 1))
 
 /* page in which a member is to be found */
-#define MXOffsetToMemberPage(offset) ((offset) / (TransactionId) MULTIXACT_MEMBERS_PER_PAGE)
+#define MXOffsetToMemberPage(offset) ((offset) / (MultiXactOffset) MULTIXACT_MEMBERS_PER_PAGE)
 #define MXOffsetToMemberSegment(offset) (MXOffsetToMemberPage(offset) / SLRU_PAGES_PER_SEGMENT)
 
 /* Location (byte offset within page) of flag word for a given member */
 #define MXOffsetToFlagsOffset(offset) \
-	((((offset) / (TransactionId) MULTIXACT_MEMBERS_PER_MEMBERGROUP) % \
-	  (TransactionId) MULTIXACT_MEMBERGROUPS_PER_PAGE) * \
-	 (TransactionId) MULTIXACT_MEMBERGROUP_SIZE)
+	((((offset) / (MultiXactOffset) MULTIXACT_MEMBERS_PER_MEMBERGROUP) % \
+	  (MultiXactOffset) MULTIXACT_MEMBERGROUPS_PER_PAGE) * \
+	 (MultiXactOffset) MULTIXACT_MEMBERGROUP_SIZE)
 #define MXOffsetToFlagsBitShift(offset) \
-	(((offset) % (TransactionId) MULTIXACT_MEMBERS_PER_MEMBERGROUP) * \
+	(((offset) % (MultiXactOffset) MULTIXACT_MEMBERS_PER_MEMBERGROUP) * \
 	 MXACT_MEMBER_BITS_PER_XACT)
 
 /* Location (byte offset within page) of TransactionId of given member */
