@@ -276,8 +276,9 @@ main(int argc, char *argv[])
 					pg_log_error_hint("Try \"%s --help\" for more information.", progname);
 					exit(1);
 				}
-				if (tmpi64 < 0 || tmpi64 > (int64) MaxMultiXactOffset)
-					pg_fatal("multitransaction offset (-O) must be between 0 and %u", MaxMultiXactOffset);
+				if (tmpi64 < 0 || tmpi64 > PG_UINT64_MAX)
+					pg_fatal("multitransaction offset (-O) must be between 0 and %" PRIi64,
+							 PG_INT64_MAX);
 
 				set_mxoff = (MultiXactOffset) tmpi64;
 				mxoff_given = true;
@@ -749,7 +750,7 @@ PrintControlValues(bool guessed)
 		   ControlFile.checkPointCopy.nextOid);
 	printf(_("Latest checkpoint's NextMultiXactId:  %u\n"),
 		   ControlFile.checkPointCopy.nextMulti);
-	printf(_("Latest checkpoint's NextMultiOffset:  %u\n"),
+	printf(_("Latest checkpoint's NextMultiOffset:  %" PRIu64 "\n"),
 		   ControlFile.checkPointCopy.nextMultiOffset);
 	printf(_("Latest checkpoint's oldestXID:        %u\n"),
 		   ControlFile.checkPointCopy.oldestXid);
@@ -825,7 +826,7 @@ PrintNewControlValues(void)
 
 	if (mxoff_given)
 	{
-		printf(_("NextMultiOffset:                      %u\n"),
+		printf(_("NextMultiOffset:                      %" PRIu64 "\n"),
 			   ControlFile.checkPointCopy.nextMultiOffset);
 	}
 
