@@ -1264,7 +1264,8 @@ GetNewMultiXactId(int nmembers, MultiXactOffset *offset)
 
 	LWLockRelease(MultiXactGenLock);
 
-	debug_elog4(DEBUG2, "GetNew: returning %u offset %u", result, *offset);
+	debug_elog4(DEBUG2, "GetNew: returning %u offset %" PRIu64, result,
+				*offset);
 	return result;
 }
 
@@ -2293,7 +2294,7 @@ MultiXactGetCheckptMulti(bool is_shutdown,
 	LWLockRelease(MultiXactGenLock);
 
 	debug_elog6(DEBUG2,
-				"MultiXact: checkpoint is nextMulti %u, nextOffset %u, oldestMulti %u in DB %u",
+				"MultiXact: checkpoint is nextMulti %u, nextOffset %" PRIu64 ", oldestMulti %u in DB %u",
 				*nextMulti, *nextMultiOffset, *oldestMulti, *oldestMultiDB);
 }
 
@@ -2328,7 +2329,7 @@ void
 MultiXactSetNextMXact(MultiXactId nextMulti,
 					  MultiXactOffset nextMultiOffset)
 {
-	debug_elog4(DEBUG2, "MultiXact: setting next multi to %u offset %u",
+	debug_elog4(DEBUG2, "MultiXact: setting next multi to %u offset %" PRIu64,
 				nextMulti, nextMultiOffset);
 	LWLockAcquire(MultiXactGenLock, LW_EXCLUSIVE);
 	MultiXactState->nextMXact = nextMulti;
@@ -2519,7 +2520,7 @@ MultiXactAdvanceNextMXact(MultiXactId minMulti,
 	}
 	if (MultiXactOffsetPrecedes(MultiXactState->nextOffset, minMultiOffset))
 	{
-		debug_elog3(DEBUG2, "MultiXact: setting next offset to %u",
+		debug_elog3(DEBUG2, "MultiXact: setting next offset to %" PRIU64,
 					minMultiOffset);
 		MultiXactState->nextOffset = minMultiOffset;
 	}
@@ -3211,7 +3212,7 @@ TruncateMultiXact(MultiXactId newOldestMulti, Oid newOldestMultiDB)
 
 	elog(DEBUG1, "performing multixact truncation: "
 		 "offsets [%u, %u), offsets segments [%" PRIx64 ", %" PRIx64 "), "
-		 "members [%u, %u), members segments [%" PRIx64 ", %" PRIx64 ")",
+		 "members [%" PRIu64 ", %" PRIu64 "), members segments [%" PRIx64 ", %" PRIx64 ")",
 		 oldestMulti, newOldestMulti,
 		 MultiXactIdToOffsetSegment(oldestMulti),
 		 MultiXactIdToOffsetSegment(newOldestMulti),
@@ -3471,7 +3472,7 @@ multixact_redo(XLogReaderState *record)
 
 		elog(DEBUG1, "replaying multixact truncation: "
 			 "offsets [%u, %u), offsets segments [%" PRIx64 ", %" PRIx64 "), "
-			 "members [%u, %u), members segments [%" PRIx64 ", %" PRIx64 ")",
+			 "members [%" PRIu64 ", %" PRIu64 "), members segments [%" PRIx64 ", %" PRIx64 ")",
 			 xlrec.startTruncOff, xlrec.endTruncOff,
 			 MultiXactIdToOffsetSegment(xlrec.startTruncOff),
 			 MultiXactIdToOffsetSegment(xlrec.endTruncOff),
