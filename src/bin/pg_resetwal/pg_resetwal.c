@@ -759,7 +759,7 @@ PrintControlValues(bool guessed)
 		   ControlFile.checkPointCopy.nextOid);
 	printf(_("Latest checkpoint's NextMultiXactId:  %u\n"),
 		   ControlFile.checkPointCopy.nextMulti);
-	printf(_("Latest checkpoint's NextMultiOffset:  %u\n"),
+	printf(_("Latest checkpoint's NextMultiOffset:  %" PRIu64 "\n"),
 		   ControlFile.checkPointCopy.nextMultiOffset);
 	printf(_("Latest checkpoint's oldestXID:        %u\n"),
 		   ControlFile.checkPointCopy.oldestXid);
@@ -833,7 +833,7 @@ PrintNewControlValues(void)
 
 	if (set_mxoff != -1)
 	{
-		printf(_("NextMultiOffset:                      %u\n"),
+		printf(_("NextMultiOffset:                      %" PRIu64 "\n"),
 			   ControlFile.checkPointCopy.nextMultiOffset);
 	}
 
