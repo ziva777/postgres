@@ -1258,7 +1258,8 @@ GetNewMultiXactId(int nmembers, MultiXactOffset *offset)
 
 	LWLockRelease(MultiXactGenLock);
 
-	debug_elog4(DEBUG2, "GetNew: returning %u offset %u", result, *offset);
+	debug_elog4(DEBUG2, "GetNew: returning %u offset %llu", result,
+				(unsigned long long) *offset);
 	return result;
 }
 
@@ -2285,8 +2286,9 @@ MultiXactGetCheckptMulti(bool is_shutdown,
 	LWLockRelease(MultiXactGenLock);
 
 	debug_elog6(DEBUG2,
-				"MultiXact: checkpoint is nextMulti %u, nextOffset %u, oldestMulti %u in DB %u",
-				*nextMulti, *nextMultiOffset, *oldestMulti, *oldestMultiDB);
+				"MultiXact: checkpoint is nextMulti %u, nextOffset %llu, oldestMulti %u in DB %u",
+				*nextMulti, (unsigned long long) *nextMultiOffset, *oldestMulti,
+				*oldestMultiDB);
 }
 
 /*
@@ -2320,8 +2322,8 @@ void
 MultiXactSetNextMXact(MultiXactId nextMulti,
 					  MultiXactOffset nextMultiOffset)
 {
-	debug_elog4(DEBUG2, "MultiXact: setting next multi to %u offset %u",
-				nextMulti, nextMultiOffset);
+	debug_elog4(DEBUG2, "MultiXact: setting next multi to %u offset %llu",
+				nextMulti, (unsigned long long) nextMultiOffset);
 	LWLockAcquire(MultiXactGenLock, LW_EXCLUSIVE);
 	MultiXactState->nextMXact = nextMulti;
 	MultiXactState->nextOffset = nextMultiOffset;
@@ -2511,8 +2513,8 @@ MultiXactAdvanceNextMXact(MultiXactId minMulti,
 	}
 	if (MultiXactOffsetPrecedes(MultiXactState->nextOffset, minMultiOffset))
 	{
-		debug_elog3(DEBUG2, "MultiXact: setting next offset to %u",
-					minMultiOffset);
+		debug_elog3(DEBUG2, "MultiXact: setting next offset to %llu",
+					(unsigned long long) minMultiOffset);
 		MultiXactState->nextOffset = minMultiOffset;
 	}
 	LWLockRelease(MultiXactGenLock);
@@ -3203,11 +3205,12 @@ TruncateMultiXact(MultiXactId newOldestMulti, Oid newOldestMultiDB)
 
 	elog(DEBUG1, "performing multixact truncation: "
 		 "offsets [%u, %u), offsets segments [%llx, %llx), "
-		 "members [%u, %u), members segments [%llx, %llx)",
+		 "members [%llu, %llu), members segments [%llx, %llx)",
 		 oldestMulti, newOldestMulti,
 		 (unsigned long long) MultiXactIdToOffsetSegment(oldestMulti),
 		 (unsigned long long) MultiXactIdToOffsetSegment(newOldestMulti),
-		 oldestOffset, newOldestOffset,
+		 (unsigned long long) oldestOffset,
+		 (unsigned long long) newOldestOffset,
 		 (unsigned long long) MXOffsetToMemberSegment(oldestOffset),
 		 (unsigned long long) MXOffsetToMemberSegment(newOldestOffset));
 
@@ -3463,11 +3466,12 @@ multixact_redo(XLogReaderState *record)
 
 		elog(DEBUG1, "replaying multixact truncation: "
 			 "offsets [%u, %u), offsets segments [%llx, %llx), "
-			 "members [%u, %u), members segments [%llx, %llx)",
+			 "members [%llu, %llu), members segments [%llx, %llx)",
 			 xlrec.startTruncOff, xlrec.endTruncOff,
 			 (unsigned long long) MultiXactIdToOffsetSegment(xlrec.startTruncOff),
 			 (unsigned long long) MultiXactIdToOffsetSegment(xlrec.endTruncOff),
-			 xlrec.startTruncMemb, xlrec.endTruncMemb,
+			 (unsigned long long) xlrec.startTruncMemb,
+			 (unsigned long long) xlrec.endTruncMemb,
 			 (unsigned long long) MXOffsetToMemberSegment(xlrec.startTruncMemb),
 			 (unsigned long long) MXOffsetToMemberSegment(xlrec.endTruncMemb));
 
