@@ -783,8 +783,42 @@ copy_xact_xlog_xid(void)
 	if (old_cluster.controldata.cat_ver >= MULTIXACT_FORMATCHANGE_CAT_VER &&
 		new_cluster.controldata.cat_ver >= MULTIXACT_FORMATCHANGE_CAT_VER)
 	{
-		copy_subdir_files("pg_multixact/offsets", "pg_multixact/offsets");
-		copy_subdir_files("pg_multixact/members", "pg_multixact/members");
+		/*
+		 * If the old server is before the MULTIXACTOFFSET_FORMATCHANGE_CAT_VER
+		 * it must have 32-bit multixid offsets, thus it should be converted.
+		 */
+		if (old_cluster.controldata.cat_ver < MULTIXACTOFFSET_FORMATCHANGE_CAT_VER &&
+			new_cluster.controldata.cat_ver >= MULTIXACTOFFSET_FORMATCHANGE_CAT_VER)
+		{
+			MultiXactOffset		oldest_offset,
+								next_offset;
+
+			remove_new_subdir("pg_multixact/offsets", false);
+			prep_status("Converting pg_multixact/offsets to 64-bit");
+			oldest_offset = convert_multixact_offsets();
+			check_ok();
+
+			remove_new_subdir("pg_multixact/members", false);
+			prep_status("Converting pg_multixact/members");
+			convert_multixact_members(oldest_offset);
+			check_ok();
+
+			next_offset = old_cluster.controldata.chkpnt_nxtmxoff;
+			if (oldest_offset)
+			{
+				if (next_offset < oldest_offset)
+					next_offset += ((MultiXactOffset) 1 << 32) - 1;
+
+				next_offset -= oldest_offset - 1;
+
+				old_cluster.controldata.chkpnt_nxtmxoff = next_offset;
+			}
+		}
+		else
+		{
+			copy_subdir_files("pg_multixact/offsets", "pg_multixact/offsets");
+			copy_subdir_files("pg_multixact/members", "pg_multixact/members");
+		}
 
 		prep_status("Setting next multixact ID and offset for new cluster");
 
@@ -793,9 +827,9 @@ copy_xact_xlog_xid(void)
 		 * counters here and the oldest multi present on system.
 		 */
 		exec_prog(UTILITY_LOG_FILE, NULL, true, true,
-				  "\"%s/pg_resetwal\" -O %u -m %u,%u \"%s\"",
+				  "\"%s/pg_resetwal\" -O %llu -m %u,%u \"%s\"",
 				  new_cluster.bindir,
-				  old_cluster.controldata.chkpnt_nxtmxoff,
+				  (unsigned long long) old_cluster.controldata.chkpnt_nxtmxoff,
 				  old_cluster.controldata.chkpnt_nxtmulti,
 				  old_cluster.controldata.chkpnt_oldstMulti,
 				  new_cluster.pgdata);
