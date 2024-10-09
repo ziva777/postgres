@@ -6681,6 +6681,14 @@ FreezeMultiXactId(MultiXactId multi, uint16 t_infomask,
 				 errmsg_internal("found multixact %llu from before relminmxid %llu",
 								 (unsigned long long) multi,
 								 (unsigned long long) cutoffs->relminmxid)));
+	else if (MultiXactIdIsValid(multi) &&
+			 (t_infomask & HEAP_XMAX_INVALID))
+	{
+		/* Xmax is already marked as invalid */
+		*flags |= FRM_INVALIDATE_XMAX;
+		pagefrz->freeze_required = true;
+		return InvalidTransactionId;
+	}
 	else if (MultiXactIdPrecedes(multi, cutoffs->OldestMxact))
 	{
 		TransactionId update_xact;
