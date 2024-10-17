@@ -6407,6 +6407,9 @@ heap_inplace_lock(Relation relation,
 	LockTuple(relation, &oldtup.t_self, InplaceUpdateTupleLock);
 	LockBuffer(buffer, BUFFER_LOCK_EXCLUSIVE);
 
+	HeapTupleCopyXidsFromPage(buffer, &oldtup, BufferGetPage(buffer),
+							  IsToastRelation(relation));
+
 	/*----------
 	 * Interpret HeapTupleSatisfiesUpdate() like heap_update() does, except:
 	 *
