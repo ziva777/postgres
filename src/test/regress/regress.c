@@ -1195,6 +1195,7 @@ xid64_test_1(PG_FUNCTION_ARGS)
 
 	hdr->pd_special = BLCKSZ;
 	PageSetPageSizeAndVersion(page, BLCKSZ, PG_PAGE_LAYOUT_VERSION - 1);
+	hdr->pd_checksum = pg_checksum_page((char *) page, 0);
 
 	convert_page(rel, page, buf, 0);
 	CheckNewPage("test 1", page);
@@ -1323,6 +1324,7 @@ xid64_test_2(PG_FUNCTION_ARGS)
 		/* make page look like 32-bit xid page */
 		hdr->pd_special = BLCKSZ;
 		PageSetPageSizeAndVersion(page, BLCKSZ, PG_PAGE_LAYOUT_VERSION - 1);
+		hdr->pd_checksum = pg_checksum_page((char *) page, pageno);
 
 		before = FillRelCheckValues(rel, buf, page);
 		convert_page(rel, page, buf, pageno);
@@ -1403,6 +1405,7 @@ xid64_test_double_xmax(PG_FUNCTION_ARGS)
 
 		hdr->pd_special = BLCKSZ;
 		PageSetPageSizeAndVersion(page, BLCKSZ, PG_PAGE_LAYOUT_VERSION - 1);
+		hdr->pd_checksum = pg_checksum_page((char *) page, pageno);
 
 		convert_page(rel, page, buf, pageno);
 
