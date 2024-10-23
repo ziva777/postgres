@@ -199,10 +199,14 @@ MXOffsetToMemberOffset(MultiXactOffset offset)
 		member_in_group * sizeof(TransactionId);
 }
 
-/* Multixact members wraparound thresholds. */
-#define MULTIXACT_MEMBER_SAFE_THRESHOLD		(MaxMultiXactOffset / 2)
-#define MULTIXACT_MEMBER_DANGER_THRESHOLD	\
-	(MaxMultiXactOffset - MaxMultiXactOffset / 4)
+/*
+ * Multixact members warning threshold.
+ *
+ * If difference bettween nextOffset and oldestOffset exceed this value, we
+ * trigger autovacuumin order to release the disk space, reduce table bloat if
+ * possible.
+ */
+#define MULTIXACT_MEMBER_AUTOVAC_THRESHOLD		UINT64CONST(0xFFFFFFFF)
 
 static inline MultiXactId
 PreviousMultiXactId(MultiXactId multi)
@@ -2548,15 +2552,13 @@ GetOldestMultiXactId(void)
 }
 
 /*
- * Determine how aggressively we need to vacuum in order to prevent member
- * wraparound.
+ * Determine if we need to vacuum for member or not.
  *
  * To do so determine what's the oldest member offset and install the limit
  * info in MultiXactState, where it can be used to prevent overrun of old data
  * in the members SLRU area.
  *
- * The return value is true if emergency autovacuum is required and false
- * otherwise.
+ * The return value is true if autovacuum is required and false otherwise.
  */
 static bool
 SetOffsetVacuumLimit(bool is_startup)
@@ -2644,10 +2646,10 @@ SetOffsetVacuumLimit(bool is_startup)
 	LWLockRelease(MultiXactGenLock);
 
 	/*
-	 * Do we need an emergency autovacuum?	If we're not sure, assume yes.
+	 * Do we need autovacuum?	If we're not sure, assume yes.
 	 */
 	return !oldestOffsetKnown ||
-		(nextOffset - oldestOffset > MULTIXACT_MEMBER_SAFE_THRESHOLD);
+		(nextOffset - oldestOffset > MULTIXACT_MEMBER_AUTOVAC_THRESHOLD);
 }
 
 /*
