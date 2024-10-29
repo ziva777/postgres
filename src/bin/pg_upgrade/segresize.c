@@ -13,7 +13,7 @@
 #include "access/multixact.h"
 
 /* See slru.h */
-#define SLRU_PAGES_PER_SEGMENT		32
+#define SLRU_PAGES_PER_SEGMENT		2
 
 /*
  * Some kind of iterator associated with a particular SLRU segment.  The idea is
