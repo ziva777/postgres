@@ -30,6 +30,45 @@
 #define MaxMultiXactOffset	((MultiXactOffset) 0xFFFFFFFF)
 
 /*
+ * A 64 bit value that contains an epoch and a MultiXactId.
+ */
+typedef struct FullMultiXactId
+{
+	uint64		value;
+} FullMultiXactId;
+
+#define InvalidFullMultiXactId		FullTransactionIdFromEpochAndXid(0, InvalidMultiXactId)
+#define FirstNormalFullMultiXactId	FullTransactionIdFromEpochAndXid(0, FirstMultiXactId)
+
+static inline FullMultiXactId
+FullMultiXactIdFromEpochAndMxid(uint32 epoch, MultiXactId mxid)
+{
+	FullMultiXactId result;
+
+	result.value = ((uint64) epoch) << 32 | mxid;
+
+	return result;
+}
+
+static inline MultiXactId
+MxidFromFullMultiXactId(FullMultiXactId fmxid)
+{
+	return (uint32) fmxid.value;
+}
+
+static inline uint32
+EpochFromFullMultiXactId(FullMultiXactId fmxid)
+{
+	return fmxid.value >> 32;
+}
+
+static inline bool
+FullMultiXactIdIsValid(FullMultiXactId fmxid)
+{
+	return MultiXactIdIsValid(MxidFromFullMultiXactId(fmxid));
+}
+
+/*
  * Possible multixact lock modes ("status").  The first four modes are for
  * tuple locks (FOR KEY SHARE, FOR SHARE, FOR NO KEY UPDATE, FOR UPDATE); the
  * next two are used for update and delete modes.
