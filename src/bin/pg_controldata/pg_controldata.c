@@ -251,8 +251,9 @@ main(int argc, char *argv[])
 		   XidFromFullTransactionId(ControlFile->checkPointCopy.nextXid));
 	printf(_("Latest checkpoint's NextOID:          %u\n"),
 		   ControlFile->checkPointCopy.nextOid);
-	printf(_("Latest checkpoint's NextMultiXactId:  %u\n"),
-		   ControlFile->checkPointCopy.nextMulti);
+	printf(_("Latest checkpoint's NextMultiXactId:  %u:%u\n"),
+		   EpochFromFullMultiXactId(ControlFile->checkPointCopy.nextMulti),
+		   MxidFromFullMultiXactId(ControlFile->checkPointCopy.nextMulti));
 	printf(_("Latest checkpoint's NextMultiOffset:  %u\n"),
 		   ControlFile->checkPointCopy.nextMultiOffset);
 	printf(_("Latest checkpoint's oldestXID:        %u\n"),

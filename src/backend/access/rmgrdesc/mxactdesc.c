@@ -65,7 +65,9 @@ multixact_desc(StringInfo buf, XLogReaderState *record)
 		xl_multixact_create *xlrec = (xl_multixact_create *) rec;
 		int			i;
 
-		appendStringInfo(buf, "%u offset %u nmembers %d: ", xlrec->mid,
+		appendStringInfo(buf, "%u:%u offset %u nmembers %d: ",
+						 EpochFromFullMultiXactId(xlrec->mid),
+						 MxidFromFullMultiXactId(xlrec->mid),
 						 xlrec->moff, xlrec->nmembers);
 		for (i = 0; i < xlrec->nmembers; i++)
 			out_member(buf, &xlrec->members[i]);

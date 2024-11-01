@@ -377,21 +377,22 @@ static MemoryContext MXactContext = NULL;
 #define debug_elog4(a,b,c,d) elog(a,b,c,d)
 #define debug_elog5(a,b,c,d,e) elog(a,b,c,d,e)
 #define debug_elog6(a,b,c,d,e,f) elog(a,b,c,d,e,f)
+#define debug_elog7(a,b,c,d,e,f, g) elog(a,b,c,d,e,f,g)
 #else
 #define debug_elog2(a,b)
 #define debug_elog3(a,b,c)
 #define debug_elog4(a,b,c,d)
 #define debug_elog5(a,b,c,d,e)
 #define debug_elog6(a,b,c,d,e,f)
+#define debug_elog7(a,b,c,d,e,f,g)
 #endif
 
 /* internal MultiXactId management */
 static void MultiXactIdSetOldestVisible(void);
-static void RecordNewMultiXact(MultiXactId multi, MultiXactOffset offset,
+static void RecordNewMultiXact(FullMultiXactId multi, MultiXactOffset offset,
 							   int nmembers, MultiXactMember *members);
-static MultiXactId GetNewMultiXactId(int nmembers, MultiXactOffset *offset);
+static FullMultiXactId GetNewMultiXactId(int nmembers, MultiXactOffset *offset);
 static FullMultiXactId AdjustToFullMultiXactId(MultiXactId multi);
-static FullMultiXactId AdjustToFutureFullMultiXactId(MultiXactId multi);
 
 /* MultiXact cache management */
 static int	mxactMemberComparator(const void *arg1, const void *arg2);
@@ -816,6 +817,7 @@ ReadMultiXactIdRange(MultiXactId *oldest, MultiXactId *next)
 MultiXactId
 MultiXactIdCreateFromMembers(int nmembers, MultiXactMember *members)
 {
+	FullMultiXactId fullMulti;
 	MultiXactId multi;
 	MultiXactOffset offset;
 	xl_multixact_create xlrec;
@@ -872,12 +874,13 @@ MultiXactIdCreateFromMembers(int nmembers, MultiXactMember *members)
 	 * in vacuum.  During vacuum, in particular, it would be unacceptable to
 	 * keep OldestMulti set, in case it runs for long.
 	 */
-	multi = GetNewMultiXactId(nmembers, &offset);
+	fullMulti = GetNewMultiXactId(nmembers, &offset);
+	multi = MxidFromFullMultiXactId(fullMulti);
 
 	INJECTION_POINT_CACHED("multixact-create-from-members");
 
 	/* Make an XLOG entry describing the new MXID. */
-	xlrec.mid = multi;
+	xlrec.mid = fullMulti;
 	xlrec.moff = offset;
 	xlrec.nmembers = nmembers;
 
@@ -894,7 +897,7 @@ MultiXactIdCreateFromMembers(int nmembers, MultiXactMember *members)
 	(void) XLogInsert(RM_MULTIXACT_ID, XLOG_MULTIXACT_CREATE_ID);
 
 	/* Now enter the information into the OFFSETs and MEMBERs logs */
-	RecordNewMultiXact(multi, offset, nmembers, members);
+	RecordNewMultiXact(fullMulti, offset, nmembers, members);
 
 	/* Done with critical section */
 	END_CRIT_SECTION();
@@ -915,7 +918,7 @@ MultiXactIdCreateFromMembers(int nmembers, MultiXactMember *members)
  * use it.
  */
 static void
-RecordNewMultiXact(MultiXactId multi, MultiXactOffset offset,
+RecordNewMultiXact(FullMultiXactId multi, MultiXactOffset offset,
 				   int nmembers, MultiXactMember *members)
 {
 	int64		pageno;
@@ -927,8 +930,8 @@ RecordNewMultiXact(MultiXactId multi, MultiXactOffset offset,
 	LWLock	   *lock;
 	LWLock	   *prevlock = NULL;
 
-	pageno = MultiXactIdToOffsetPage(multi);
-	entryno = MultiXactIdToOffsetEntry(multi);
+	pageno = MultiXactIdToOffsetPage(MxidFromFullMultiXactId(multi));
+	entryno = MultiXactIdToOffsetEntry(MxidFromFullMultiXactId(multi));
 
 	lock = SimpleLruGetBankLock(MultiXactOffsetCtl, pageno);
 	LWLockAcquire(lock, LW_EXCLUSIVE);
@@ -940,7 +943,8 @@ RecordNewMultiXact(MultiXactId multi, MultiXactOffset offset,
 	 * enough that a MultiXactId is really involved.  Perhaps someday we'll
 	 * take the trouble to generalize the slru.c error reporting code.
 	 */
-	slotno = SimpleLruReadPage(MultiXactOffsetCtl, pageno, true, multi);
+	slotno = SimpleLruReadPage(MultiXactOffsetCtl, pageno, true,
+							   MxidFromFullMultiXactId(multi));
 	offptr = (MultiXactOffset *) MultiXactOffsetCtl->shared->page_buffer[slotno];
 	offptr += entryno;
 
@@ -991,7 +995,8 @@ RecordNewMultiXact(MultiXactId multi, MultiXactOffset offset,
 				LWLockAcquire(lock, LW_EXCLUSIVE);
 				prevlock = lock;
 			}
-			slotno = SimpleLruReadPage(MultiXactMemberCtl, pageno, true, multi);
+			slotno = SimpleLruReadPage(MultiXactMemberCtl, pageno, true,
+									   MxidFromFullMultiXactId(multi));
 			prev_pageno = pageno;
 		}
 
@@ -1030,9 +1035,10 @@ RecordNewMultiXact(MultiXactId multi, MultiXactOffset offset,
  * We start a critical section before advancing the shared counters.  The
  * caller must end the critical section after writing SLRU data.
  */
-static MultiXactId
+static FullMultiXactId
 GetNewMultiXactId(int nmembers, MultiXactOffset *offset)
 {
+	FullMultiXactId nextMulti;
 	MultiXactId result;
 	MultiXactOffset nextOffset;
 
@@ -1050,7 +1056,8 @@ GetNewMultiXactId(int nmembers, MultiXactOffset *offset)
 																	FirstMultiXactId);
 
 	/* Assign the MXID */
-	result = MxidFromFullMultiXactId(MultiXactState->nextMulti);
+	nextMulti = MultiXactState->nextMulti;
+	result = MxidFromFullMultiXactId(nextMulti);
 
 	/*----------
 	 * Check to see if it's safe to assign another MultiXactId.  This protects
@@ -1145,7 +1152,8 @@ GetNewMultiXactId(int nmembers, MultiXactOffset *offset)
 
 		/* Re-acquire lock and start over */
 		LWLockAcquire(MultiXactGenLock, LW_EXCLUSIVE);
-		result = MxidFromFullMultiXactId(MultiXactState->nextMulti);
+		nextMulti = MultiXactState->nextMulti;
+		result = MxidFromFullMultiXactId(nextMulti);
 		if (result < FirstMultiXactId)
 			result = FirstMultiXactId;
 	}
@@ -1268,7 +1276,7 @@ GetNewMultiXactId(int nmembers, MultiXactOffset *offset)
 	LWLockRelease(MultiXactGenLock);
 
 	debug_elog4(DEBUG2, "GetNew: returning %u offset %u", result, *offset);
-	return result;
+	return nextMulti;
 }
 
 /*
@@ -1302,36 +1310,6 @@ AdjustToFullMultiXactId(MultiXactId multi)
 		/* Wraparound occurred, must be from a prev epoch. */
 		Assert(epoch > 0);
 		epoch--;
-	}
-
-	return FullMultiXactIdFromEpochAndMxid(epoch, multi);
-}
-
-static FullMultiXactId
-AdjustToFutureFullMultiXactId(MultiXactId multi)
-{
-	FullMultiXactId	nextFullMulti;
-	MultiXactId		nextMulti;
-	uint32			epoch;
-
-	Assert(MultiXactIdIsValid(multi));
-	Assert(LWLockHeldByMe(MultiXactGenLock));
-
-	nextFullMulti = MultiXactState->nextMulti;
-	/*
-	 * If we came here from BootStrapXLOG, nextFullMulti is not valid yet.
-	 * Assume 0 epoch.
-	 */
-	if (!FullMultiXactIdIsValid(nextFullMulti))
-		return FullMultiXactIdFromEpochAndMxid(0, multi);
-
-	nextMulti = MxidFromFullMultiXactId(nextFullMulti);
-	epoch = EpochFromFullMultiXactId(nextFullMulti);
-	if (unlikely(multi < nextMulti))
-	{
-		/* Wraparound occurred, must be from a next epoch. */
-		Assert(epoch != UINT32_MAX);
-		epoch++;
 	}
 
 	return FullMultiXactIdFromEpochAndMxid(epoch, multi);
@@ -2349,21 +2327,23 @@ TrimMultiXact(void)
  */
 void
 MultiXactGetCheckptMulti(bool is_shutdown,
-						 MultiXactId *nextMulti,
+						 FullMultiXactId *nextMulti,
 						 MultiXactOffset *nextMultiOffset,
 						 MultiXactId *oldestMulti,
 						 Oid *oldestMultiDB)
 {
 	LWLockAcquire(MultiXactGenLock, LW_SHARED);
-	*nextMulti = MxidFromFullMultiXactId(MultiXactState->nextMulti);
+	*nextMulti = MultiXactState->nextMulti;
 	*nextMultiOffset = MultiXactState->nextOffset;
 	*oldestMulti = MxidFromFullMultiXactId(MultiXactState->oldestMulti);
 	*oldestMultiDB = MultiXactState->oldestMultiXactDB;
 	LWLockRelease(MultiXactGenLock);
 
-	debug_elog6(DEBUG2,
-				"MultiXact: checkpoint is nextMulti %u, nextOffset %u, oldestMulti %u in DB %u",
-				*nextMulti, *nextMultiOffset, *oldestMulti, *oldestMultiDB);
+	debug_elog7(DEBUG2,
+				"MultiXact: checkpoint is nextMulti %u:%u, nextOffset %u, oldestMulti %u in DB %u",
+				EpochFromFullMultiXactId(*nextMulti),
+				MxidFromFullMultiXactId(*nextMulti),
+				*nextMultiOffset, *oldestMulti, *oldestMultiDB);
 }
 
 /*
@@ -2394,13 +2374,13 @@ CheckPointMultiXact(void)
  * examining the values.
  */
 void
-MultiXactSetNextMXact(MultiXactId nextMulti,
+MultiXactSetNextMXact(FullMultiXactId nextMulti,
 					  MultiXactOffset nextMultiOffset)
 {
 	debug_elog4(DEBUG2, "MultiXact: setting next multi to %u offset %u",
 				nextMulti, nextMultiOffset);
 	LWLockAcquire(MultiXactGenLock, LW_EXCLUSIVE);
-	MultiXactState->nextMulti = AdjustToFullMultiXactId(nextMulti);
+	MultiXactState->nextMulti = nextMulti;
 	MultiXactState->nextOffset = nextMultiOffset;
 	LWLockRelease(MultiXactGenLock);
 
@@ -2577,16 +2557,18 @@ SetMultiXactIdLimit(MultiXactId oldest_datminmxid, Oid oldest_datoid,
  * any hot-standby backends are examining the values.
  */
 void
-MultiXactAdvanceNextMXact(MultiXactId minMulti,
+MultiXactAdvanceNextMXact(FullMultiXactId minMulti,
 						  MultiXactOffset minMultiOffset)
 {
 	LWLockAcquire(MultiXactGenLock, LW_EXCLUSIVE);
 	if (MultiXactIdPrecedes(MxidFromFullMultiXactId(MultiXactState->nextMulti),
-													minMulti))
+							MxidFromFullMultiXactId(minMulti)))
 	{
-		debug_elog3(DEBUG2, "MultiXact: setting next multi to %u", minMulti);
+		debug_elog4(DEBUG2, "MultiXact: setting next multi to %u:%u",
+					EpochFromFullMultiXactId(minMulti),
+					MxidFromFullMultiXactId(minMulti));
 
-		MultiXactState->nextMulti = AdjustToFutureFullMultiXactId(minMulti);
+		MultiXactState->nextMulti = minMulti;
 	}
 	if (MultiXactOffsetPrecedes(MultiXactState->nextOffset, minMultiOffset))
 	{
@@ -3510,6 +3492,7 @@ multixact_redo(XLogReaderState *record)
 	{
 		xl_multixact_create *xlrec =
 			(xl_multixact_create *) XLogRecGetData(record);
+		FullMultiXactId nextMulti;
 		TransactionId max_xid;
 		int			i;
 
@@ -3518,7 +3501,9 @@ multixact_redo(XLogReaderState *record)
 						   xlrec->members);
 
 		/* Make sure nextMulti/nextOffset are beyond what this record has */
-		MultiXactAdvanceNextMXact(xlrec->mid + 1,
+		nextMulti = xlrec->mid;
+		nextMulti.value++;
+		MultiXactAdvanceNextMXact(nextMulti,
 								  xlrec->moff + xlrec->nmembers);
 
 		/*

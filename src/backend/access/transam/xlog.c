@@ -5073,7 +5073,7 @@ BootStrapXLOG(uint32 data_checksum_version)
 	checkPoint.nextXid =
 		FullTransactionIdFromEpochAndXid(0, FirstNormalTransactionId);
 	checkPoint.nextOid = FirstGenbkiObjectId;
-	checkPoint.nextMulti = FirstMultiXactId;
+	checkPoint.nextMulti = FirstFullMultiXactId;
 	checkPoint.nextMultiOffset = 0;
 	checkPoint.oldestXid = FirstNormalTransactionId;
 	checkPoint.oldestXidDB = Template1DbOid;

@@ -37,9 +37,6 @@ typedef struct FullMultiXactId
 	uint64		value;
 } FullMultiXactId;
 
-#define InvalidFullMultiXactId		FullTransactionIdFromEpochAndXid(0, InvalidMultiXactId)
-#define FirstNormalFullMultiXactId	FullTransactionIdFromEpochAndXid(0, FirstMultiXactId)
-
 static inline FullMultiXactId
 FullMultiXactIdFromEpochAndMxid(uint32 epoch, MultiXactId mxid)
 {
@@ -67,6 +64,9 @@ FullMultiXactIdIsValid(FullMultiXactId fmxid)
 {
 	return MultiXactIdIsValid(MxidFromFullMultiXactId(fmxid));
 }
+
+#define InvalidFullMultiXactId		FullMultiXactIdFromEpochAndMxid(0, InvalidMultiXactId)
+#define FirstFullMultiXactId		FullMultiXactIdFromEpochAndMxid(0, FirstMultiXactId)
 
 /*
  * Possible multixact lock modes ("status").  The first four modes are for
@@ -111,7 +111,7 @@ typedef struct MultiXactMember
 
 typedef struct xl_multixact_create
 {
-	MultiXactId mid;			/* new MultiXact's ID */
+	FullMultiXactId mid;		/* new MultiXact's ID */
 	MultiXactOffset moff;		/* its starting offset in members file */
 	int32		nmembers;		/* number of member XIDs */
 	MultiXactMember members[FLEXIBLE_ARRAY_MEMBER];
@@ -169,7 +169,7 @@ extern void SetMultiXactIdLimit(MultiXactId oldest_datminmxid,
 								Oid oldest_datoid,
 								bool is_startup);
 extern void MultiXactGetCheckptMulti(bool is_shutdown,
-									 MultiXactId *nextMulti,
+									 FullMultiXactId *nextMulti,
 									 MultiXactOffset *nextMultiOffset,
 									 MultiXactId *oldestMulti,
 									 Oid *oldestMultiDB);
@@ -177,9 +177,9 @@ extern void CheckPointMultiXact(void);
 extern MultiXactId GetOldestMultiXactId(void);
 extern void TruncateMultiXact(MultiXactId newOldestMulti,
 							  Oid newOldestMultiDB);
-extern void MultiXactSetNextMXact(MultiXactId nextMulti,
+extern void MultiXactSetNextMXact(FullMultiXactId nextMulti,
 								  MultiXactOffset nextMultiOffset);
-extern void MultiXactAdvanceNextMXact(MultiXactId minMulti,
+extern void MultiXactAdvanceNextMXact(FullMultiXactId minMulti,
 									  MultiXactOffset minMultiOffset);
 extern void MultiXactAdvanceOldest(MultiXactId oldestMulti, Oid oldestMultiDB);
 extern int	MultiXactMemberFreezeThreshold(void);

@@ -124,7 +124,9 @@ pg_control_checkpoint(PG_FUNCTION_ARGS)
 	values[7] = ObjectIdGetDatum(ControlFile->checkPointCopy.nextOid);
 	nulls[7] = false;
 
-	values[8] = TransactionIdGetDatum(ControlFile->checkPointCopy.nextMulti);
+	values[8] = TransactionIdGetDatum(psprintf("%u:%u",
+											 EpochFromFullMultiXactId(ControlFile->checkPointCopy.nextMulti),
+											 MxidFromFullMultiXactId(ControlFile->checkPointCopy.nextMulti)));
 	nulls[8] = false;
 
 	values[9] = TransactionIdGetDatum(ControlFile->checkPointCopy.nextMultiOffset);

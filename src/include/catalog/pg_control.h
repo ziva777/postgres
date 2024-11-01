@@ -16,6 +16,7 @@
 #define PG_CONTROL_H
 
 #include "access/transam.h"
+#include "access/multixact.h"
 #include "access/xlogdefs.h"
 #include "pgtime.h"				/* for pg_time_t */
 #include "port/pg_crc32c.h"
@@ -43,7 +44,7 @@ typedef struct CheckPoint
 	int			wal_level;		/* current wal_level */
 	FullTransactionId nextXid;	/* next free transaction ID */
 	Oid			nextOid;		/* next free OID */
-	MultiXactId nextMulti;		/* next free MultiXactId */
+	FullMultiXactId nextMulti;	/* next free MultiXactId */
 	MultiXactOffset nextMultiOffset;	/* next free MultiXact offset */
 	TransactionId oldestXid;	/* cluster-wide minimum datfrozenxid */
 	Oid			oldestXidDB;	/* database with minimum datfrozenxid */
