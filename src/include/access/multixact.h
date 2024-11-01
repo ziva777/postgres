@@ -65,6 +65,12 @@ FullMultiXactIdIsValid(FullMultiXactId fmxid)
 	return MultiXactIdIsValid(MxidFromFullMultiXactId(fmxid));
 }
 
+static inline bool
+FullMultiXactIdEquals(FullMultiXactId a, FullMultiXactId b)
+{
+	return a.value == b.value;
+}
+
 #define InvalidFullMultiXactId		FullMultiXactIdFromEpochAndMxid(0, InvalidMultiXactId)
 #define FirstFullMultiXactId		FullMultiXactIdFromEpochAndMxid(0, FirstMultiXactId)
 
@@ -121,15 +127,15 @@ typedef struct xl_multixact_create
 
 typedef struct xl_multixact_truncate
 {
-	Oid			oldestMultiDB;
-
 	/* to-be-truncated range of multixact offsets */
-	MultiXactId startTruncOff;	/* just for completeness' sake */
-	MultiXactId endTruncOff;
+	FullMultiXactId startTruncOff;	/* just for completeness' sake */
+	FullMultiXactId endTruncOff;
 
 	/* to-be-truncated range of multixact members */
 	MultiXactOffset startTruncMemb;
 	MultiXactOffset endTruncMemb;
+
+	Oid			oldestMultiDB;
 } xl_multixact_truncate;
 
 #define SizeOfMultiXactTruncate (sizeof(xl_multixact_truncate))

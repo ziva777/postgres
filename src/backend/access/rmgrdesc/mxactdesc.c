@@ -76,8 +76,11 @@ multixact_desc(StringInfo buf, XLogReaderState *record)
 	{
 		xl_multixact_truncate *xlrec = (xl_multixact_truncate *) rec;
 
-		appendStringInfo(buf, "offsets [%u, %u), members [%u, %u)",
-						 xlrec->startTruncOff, xlrec->endTruncOff,
+		appendStringInfo(buf, "offsets [%u:%u, %u:%u), members [%u, %u)",
+						 EpochFromFullMultiXactId(xlrec->startTruncOff),
+						 MxidFromFullMultiXactId(xlrec->startTruncOff),
+						 EpochFromFullMultiXactId(xlrec->endTruncOff),
+						 MxidFromFullMultiXactId(xlrec->endTruncOff),
 						 xlrec->startTruncMemb, xlrec->endTruncMemb);
 	}
 }
