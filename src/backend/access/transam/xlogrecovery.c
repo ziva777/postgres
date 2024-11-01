@@ -885,8 +885,10 @@ InitWalRecovery(ControlFileData *ControlFile, bool *wasShutdown_ptr,
 			(errmsg_internal("oldest unfrozen transaction ID: %u, in database %u",
 							 checkPoint.oldestXid, checkPoint.oldestXidDB)));
 	ereport(DEBUG1,
-			(errmsg_internal("oldest MultiXactId: %u, in database %u",
-							 checkPoint.oldestMulti, checkPoint.oldestMultiDB)));
+			(errmsg_internal("oldest MultiXactId: %u:%u, in database %u",
+							 EpochFromFullMultiXactId(checkPoint.oldestMulti),
+							 MxidFromFullMultiXactId(checkPoint.oldestMulti),
+							 checkPoint.oldestMultiDB)));
 	ereport(DEBUG1,
 			(errmsg_internal("commit timestamp Xid oldest/newest: %u/%u",
 							 checkPoint.oldestCommitTsXid,

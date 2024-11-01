@@ -174,10 +174,13 @@ extern void TrimMultiXact(void);
 extern void SetMultiXactIdLimit(MultiXactId oldest_datminmxid,
 								Oid oldest_datoid,
 								bool is_startup);
+extern void SetFullMultiXactIdLimit(FullMultiXactId oldest_datminfmxid,
+									Oid oldest_datoid,
+									bool is_startup);
 extern void MultiXactGetCheckptMulti(bool is_shutdown,
 									 FullMultiXactId *nextMulti,
 									 MultiXactOffset *nextMultiOffset,
-									 MultiXactId *oldestMulti,
+									 FullMultiXactId *oldestMulti,
 									 Oid *oldestMultiDB);
 extern void CheckPointMultiXact(void);
 extern MultiXactId GetOldestMultiXactId(void);
@@ -187,7 +190,7 @@ extern void MultiXactSetNextMXact(FullMultiXactId nextMulti,
 								  MultiXactOffset nextMultiOffset);
 extern void MultiXactAdvanceNextMXact(FullMultiXactId minMulti,
 									  MultiXactOffset minMultiOffset);
-extern void MultiXactAdvanceOldest(MultiXactId oldestMulti, Oid oldestMultiDB);
+extern void MultiXactAdvanceOldest(FullMultiXactId oldestMulti, Oid oldestMultiDB);
 extern int	MultiXactMemberFreezeThreshold(void);
 
 extern void multixact_twophase_recover(TransactionId xid, uint16 info,

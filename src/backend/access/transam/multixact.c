@@ -377,7 +377,8 @@ static MemoryContext MXactContext = NULL;
 #define debug_elog4(a,b,c,d) elog(a,b,c,d)
 #define debug_elog5(a,b,c,d,e) elog(a,b,c,d,e)
 #define debug_elog6(a,b,c,d,e,f) elog(a,b,c,d,e,f)
-#define debug_elog7(a,b,c,d,e,f, g) elog(a,b,c,d,e,f,g)
+#define debug_elog7(a,b,c,d,e,f,g) elog(a,b,c,d,e,f,g)
+#define debug_elog8(a,b,c,d,e,f,g,h) elog(a,b,c,d,e,f,g,h)
 #else
 #define debug_elog2(a,b)
 #define debug_elog3(a,b,c)
@@ -385,6 +386,7 @@ static MemoryContext MXactContext = NULL;
 #define debug_elog5(a,b,c,d,e)
 #define debug_elog6(a,b,c,d,e,f)
 #define debug_elog7(a,b,c,d,e,f,g)
+#define debug_elog8(a,b,c,d,e,f,g,h)
 #endif
 
 /* internal MultiXactId management */
@@ -2329,21 +2331,24 @@ void
 MultiXactGetCheckptMulti(bool is_shutdown,
 						 FullMultiXactId *nextMulti,
 						 MultiXactOffset *nextMultiOffset,
-						 MultiXactId *oldestMulti,
+						 FullMultiXactId *oldestMulti,
 						 Oid *oldestMultiDB)
 {
 	LWLockAcquire(MultiXactGenLock, LW_SHARED);
 	*nextMulti = MultiXactState->nextMulti;
 	*nextMultiOffset = MultiXactState->nextOffset;
-	*oldestMulti = MxidFromFullMultiXactId(MultiXactState->oldestMulti);
+	*oldestMulti = MultiXactState->oldestMulti;
 	*oldestMultiDB = MultiXactState->oldestMultiXactDB;
 	LWLockRelease(MultiXactGenLock);
 
-	debug_elog7(DEBUG2,
-				"MultiXact: checkpoint is nextMulti %u:%u, nextOffset %u, oldestMulti %u in DB %u",
+	debug_elog8(DEBUG2,
+				"MultiXact: checkpoint is nextMulti %u:%u, nextOffset %u, oldestMulti %u:%u in DB %u",
 				EpochFromFullMultiXactId(*nextMulti),
 				MxidFromFullMultiXactId(*nextMulti),
-				*nextMultiOffset, *oldestMulti, *oldestMultiDB);
+				*nextMultiOffset,
+				EpochFromFullMultiXactId(*oldestMulti),
+				MxidFromFullMultiXactId(*oldestMulti),
+				*oldestMultiDB);
 }
 
 /*
@@ -2411,6 +2416,19 @@ void
 SetMultiXactIdLimit(MultiXactId oldest_datminmxid, Oid oldest_datoid,
 					bool is_startup)
 {
+	FullMultiXactId oldest_datminfmxid;
+
+	LWLockAcquire(MultiXactGenLock, LW_SHARED);
+	oldest_datminfmxid = AdjustToFullMultiXactId(oldest_datminmxid);
+	LWLockRelease(MultiXactGenLock);
+
+	SetFullMultiXactIdLimit(oldest_datminfmxid, oldest_datoid, is_startup);
+}
+
+void
+SetFullMultiXactIdLimit(FullMultiXactId oldest_datminfmxid, Oid oldest_datoid,
+						bool is_startup)
+{
 	MultiXactId multiVacLimit;
 	MultiXactId multiWarnLimit;
 	MultiXactId multiStopLimit;
@@ -2418,7 +2436,7 @@ SetMultiXactIdLimit(MultiXactId oldest_datminmxid, Oid oldest_datoid,
 	MultiXactId curMulti;
 	bool		needs_offset_vacuum;
 
-	Assert(MultiXactIdIsValid(oldest_datminmxid));
+	Assert(FullMultiXactIdIsValid(oldest_datminfmxid));
 
 	/*
 	 * We pretend that a wrap will happen halfway through the multixact ID
@@ -2427,7 +2445,7 @@ SetMultiXactIdLimit(MultiXactId oldest_datminmxid, Oid oldest_datoid,
 	 * multixact IDs wrapping, we must ensure that multixact members do not
 	 * wrap.  Limits for that are set in SetOffsetVacuumLimit, not here.
 	 */
-	multiWrapLimit = oldest_datminmxid + (MaxMultiXactId >> 1);
+	multiWrapLimit = MxidFromFullMultiXactId(oldest_datminfmxid) + (MaxMultiXactId >> 1);
 	if (multiWrapLimit < FirstMultiXactId)
 		multiWrapLimit += FirstMultiXactId;
 
@@ -2454,20 +2472,20 @@ SetMultiXactIdLimit(MultiXactId oldest_datminmxid, Oid oldest_datoid,
 		multiWarnLimit -= FirstMultiXactId;
 
 	/*
-	 * We'll start trying to force autovacuums when oldest_datminmxid gets to
+	 * We'll start trying to force autovacuums when oldest_datminfmxid gets to
 	 * be more than autovacuum_multixact_freeze_max_age mxids old.
 	 *
 	 * Note: autovacuum_multixact_freeze_max_age is a PGC_POSTMASTER parameter
 	 * so that we don't have to worry about dealing with on-the-fly changes in
 	 * its value.  See SetTransactionIdLimit.
 	 */
-	multiVacLimit = oldest_datminmxid + autovacuum_multixact_freeze_max_age;
+	multiVacLimit = MxidFromFullMultiXactId(oldest_datminfmxid) + autovacuum_multixact_freeze_max_age;
 	if (multiVacLimit < FirstMultiXactId)
 		multiVacLimit += FirstMultiXactId;
 
 	/* Grab lock for just long enough to set the new limit values */
 	LWLockAcquire(MultiXactGenLock, LW_EXCLUSIVE);
-	MultiXactState->oldestMulti = AdjustToFullMultiXactId(oldest_datminmxid);
+	MultiXactState->oldestMulti = oldest_datminfmxid;
 	MultiXactState->oldestMultiXactDB = oldest_datoid;
 	MultiXactState->multiVacLimit = multiVacLimit;
 	MultiXactState->multiWarnLimit = multiWarnLimit;
@@ -2586,14 +2604,14 @@ MultiXactAdvanceNextMXact(FullMultiXactId minMulti,
  * This may only be called during WAL replay.
  */
 void
-MultiXactAdvanceOldest(MultiXactId oldestMulti, Oid oldestMultiDB)
+MultiXactAdvanceOldest(FullMultiXactId oldestMulti, Oid oldestMultiDB)
 {
 	Assert(InRecovery);
 
 	if (MultiXactIdPrecedes(MxidFromFullMultiXactId(MultiXactState->oldestMulti),
-													oldestMulti))
+							MxidFromFullMultiXactId(oldestMulti)))
 	{
-		SetMultiXactIdLimit(oldestMulti, oldestMultiDB, false);
+		SetFullMultiXactIdLimit(oldestMulti, oldestMultiDB, false);
 	}
 }
 

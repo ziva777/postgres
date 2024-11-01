@@ -141,7 +141,9 @@ pg_control_checkpoint(PG_FUNCTION_ARGS)
 	values[12] = TransactionIdGetDatum(ControlFile->checkPointCopy.oldestActiveXid);
 	nulls[12] = false;
 
-	values[13] = TransactionIdGetDatum(ControlFile->checkPointCopy.oldestMulti);
+	values[13] = CStringGetTextDatum(psprintf("%u:%u",
+											 EpochFromFullMultiXactId(ControlFile->checkPointCopy.oldestMulti),
+											 MxidFromFullMultiXactId(ControlFile->checkPointCopy.oldestMulti)));
 	nulls[13] = false;
 
 	values[14] = ObjectIdGetDatum(ControlFile->checkPointCopy.oldestMultiDB);

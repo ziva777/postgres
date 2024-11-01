@@ -440,9 +440,11 @@ main(int argc, char *argv[])
 			FullMultiXactIdFromEpochAndMxid(EpochFromFullMultiXactId(ControlFile.checkPointCopy.nextMulti),
 											set_mxid);
 
-		ControlFile.checkPointCopy.oldestMulti = set_oldestmxid;
-		if (ControlFile.checkPointCopy.oldestMulti < FirstMultiXactId)
-			ControlFile.checkPointCopy.oldestMulti += FirstMultiXactId;
+		if (set_oldestmxid < FirstMultiXactId)
+			set_oldestmxid += FirstMultiXactId;
+		ControlFile.checkPointCopy.oldestMulti =
+			FullMultiXactIdFromEpochAndMxid(EpochFromFullMultiXactId(ControlFile.checkPointCopy.oldestMulti),
+											set_oldestmxid);
 		ControlFile.checkPointCopy.oldestMultiDB = InvalidOid;
 	}
 
@@ -668,7 +670,7 @@ GuessControlValues(void)
 	ControlFile.checkPointCopy.nextMultiOffset = 0;
 	ControlFile.checkPointCopy.oldestXid = FirstNormalTransactionId;
 	ControlFile.checkPointCopy.oldestXidDB = InvalidOid;
-	ControlFile.checkPointCopy.oldestMulti = FirstMultiXactId;
+	ControlFile.checkPointCopy.oldestMulti = FirstFullMultiXactId;
 	ControlFile.checkPointCopy.oldestMultiDB = InvalidOid;
 	ControlFile.checkPointCopy.time = (pg_time_t) time(NULL);
 	ControlFile.checkPointCopy.oldestActiveXid = InvalidTransactionId;
@@ -748,8 +750,9 @@ PrintControlValues(bool guessed)
 		   ControlFile.checkPointCopy.oldestXidDB);
 	printf(_("Latest checkpoint's oldestActiveXID:  %u\n"),
 		   ControlFile.checkPointCopy.oldestActiveXid);
-	printf(_("Latest checkpoint's oldestMultiXid:   %u\n"),
-		   ControlFile.checkPointCopy.oldestMulti);
+	printf(_("Latest checkpoint's oldestMultiXid:   %u:%u\n"),
+		   EpochFromFullMultiXactId(ControlFile.checkPointCopy.oldestMulti),
+		   MxidFromFullMultiXactId(ControlFile.checkPointCopy.oldestMulti));
 	printf(_("Latest checkpoint's oldestMulti's DB: %u\n"),
 		   ControlFile.checkPointCopy.oldestMultiDB);
 	printf(_("Latest checkpoint's oldestCommitTsXid:%u\n"),
@@ -805,7 +808,7 @@ PrintNewControlValues(void)
 		printf(_("NextMultiXactId:                      %u\n"),
 			   MxidFromFullMultiXactId(ControlFile.checkPointCopy.nextMulti));
 		printf(_("OldestMultiXid:                       %u\n"),
-			   ControlFile.checkPointCopy.oldestMulti);
+			   MxidFromFullMultiXactId(ControlFile.checkPointCopy.oldestMulti));
 		printf(_("OldestMulti's DB:                     %u\n"),
 			   ControlFile.checkPointCopy.oldestMultiDB);
 	}

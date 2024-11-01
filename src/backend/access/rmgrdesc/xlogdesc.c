@@ -67,7 +67,7 @@ xlog_desc(StringInfo buf, XLogReaderState *record)
 
 		appendStringInfo(buf, "redo %X/%X; "
 						 "tli %u; prev tli %u; fpw %s; wal_level %s; xid %u:%u; oid %u; multi %u:%u; offset %u; "
-						 "oldest xid %u in DB %u; oldest multi %u in DB %u; "
+						 "oldest xid %u in DB %u; oldest multi %u:%u in DB %u; "
 						 "oldest/newest commit timestamp xid: %u/%u; "
 						 "oldest running xid %u; %s",
 						 LSN_FORMAT_ARGS(checkpoint->redo),
@@ -83,7 +83,8 @@ xlog_desc(StringInfo buf, XLogReaderState *record)
 						 checkpoint->nextMultiOffset,
 						 checkpoint->oldestXid,
 						 checkpoint->oldestXidDB,
-						 checkpoint->oldestMulti,
+						 EpochFromFullMultiXactId(checkpoint->oldestMulti),
+						 MxidFromFullMultiXactId(checkpoint->oldestMulti),
 						 checkpoint->oldestMultiDB,
 						 checkpoint->oldestCommitTsXid,
 						 checkpoint->newestCommitTsXid,
