@@ -1054,8 +1054,10 @@ GetNewMultiXactId(int nmembers, MultiXactOffset *offset)
 
 	/* Handle wraparound of the nextMulti counter */
 	if (MxidFromFullMultiXactId(MultiXactState->nextMulti) < FirstMultiXactId)
-		MultiXactState->nextMulti = FullMultiXactIdFromEpochAndMxid(EpochFromFullMultiXactId(MultiXactState->nextMulti),
-																	FirstMultiXactId);
+	{
+		while (MxidFromFullMultiXactId(MultiXactState->nextMulti) < FirstMultiXactId)
+			MultiXactState->nextMulti.value++;
+	}
 
 	/* Assign the MXID */
 	nextMulti = MultiXactState->nextMulti;
@@ -3520,7 +3522,6 @@ multixact_redo(XLogReaderState *record)
 	{
 		xl_multixact_create *xlrec =
 			(xl_multixact_create *) XLogRecGetData(record);
-		FullMultiXactId nextMulti;
 		TransactionId max_xid;
 		int			i;
 
@@ -3529,9 +3530,7 @@ multixact_redo(XLogReaderState *record)
 						   xlrec->members);
 
 		/* Make sure nextMulti/nextOffset are beyond what this record has */
-		nextMulti = xlrec->mid;
-		nextMulti.value++;
-		MultiXactAdvanceNextMXact(nextMulti,
+		MultiXactAdvanceNextMXact((FullMultiXactId) { xlrec->mid.value + 1 },
 								  xlrec->moff + xlrec->nmembers);
 
 		/*
@@ -3576,7 +3575,7 @@ multixact_redo(XLogReaderState *record)
 		 * Advance the horizon values, so they're current at the end of
 		 * recovery.
 		 */
-		SetMultiXactIdLimit(MxidFromFullMultiXactId(xlrec.endTruncOff), xlrec.oldestMultiDB, false);
+		SetFullMultiXactIdLimit(xlrec.endTruncOff, xlrec.oldestMultiDB, false);
 
 		PerformMembersTruncation(xlrec.startTruncMemb, xlrec.endTruncMemb);
 

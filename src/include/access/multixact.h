@@ -138,7 +138,7 @@ typedef struct xl_multixact_truncate
 	Oid			oldestMultiDB;
 } xl_multixact_truncate;
 
-#define SizeOfMultiXactTruncate (sizeof(xl_multixact_truncate))
+#define SizeOfMultiXactTruncate (offsetof(xl_multixact_truncate, oldestMultiDB))
 
 
 extern MultiXactId MultiXactIdCreate(TransactionId xid1,
