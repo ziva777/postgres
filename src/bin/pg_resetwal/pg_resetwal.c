@@ -69,6 +69,7 @@ static TransactionId set_xid = 0;
 static TransactionId set_oldest_commit_ts_xid = 0;
 static TransactionId set_newest_commit_ts_xid = 0;
 static Oid	set_oid = 0;
+static uint32 set_mxid_epoch = (uint32) -1;
 static MultiXactId set_mxid = 0;
 static MultiXactOffset set_mxoff = (MultiXactOffset) -1;
 static TimeLineID minXlogTli = 0;
@@ -112,6 +113,7 @@ main(int argc, char *argv[])
 	int			c;
 	bool		force = false;
 	bool		noupdate = false;
+	uint32		set_oldestmxid_epoch = -1;
 	MultiXactId set_oldestmxid = 0;
 	char	   *endptr;
 	char	   *endptr2;
@@ -236,8 +238,24 @@ main(int argc, char *argv[])
 
 			case 'm':
 				errno = 0;
-				set_mxid = strtoul(optarg, &endptr, 0);
-				if (endptr == optarg || *endptr != ',' || errno != 0)
+				set_mxid_epoch = strtoul(optarg, &endptr, 0);
+				if (endptr == optarg || *endptr != ':' || errno != 0)
+				{
+					pg_log_error("invalid argument for option %s", "-m");
+					pg_log_error_hint("Try \"%s --help\" for more information.", progname);
+					exit(1);
+				}
+
+				set_mxid = strtoul(endptr + 1, &endptr2, 0);
+				if (endptr2 == endptr + 1 || *endptr2 != ',' || errno != 0)
+				{
+					pg_log_error("invalid argument for option %s", "-m");
+					pg_log_error_hint("Try \"%s --help\" for more information.", progname);
+					exit(1);
+				}
+
+				set_oldestmxid_epoch = strtoul(endptr2 + 1, &endptr, 0);
+				if (endptr == endptr2 + 1 || *endptr != ':' || errno != 0)
 				{
 					pg_log_error("invalid argument for option %s", "-m");
 					pg_log_error_hint("Try \"%s --help\" for more information.", progname);
@@ -434,16 +452,16 @@ main(int argc, char *argv[])
 	if (set_oid != 0)
 		ControlFile.checkPointCopy.nextOid = set_oid;
 
-	if (set_mxid != 0)
+	if (set_mxid_epoch != -1)
 	{
 		ControlFile.checkPointCopy.nextMulti =
-			FullMultiXactIdFromEpochAndMxid(EpochFromFullMultiXactId(ControlFile.checkPointCopy.nextMulti),
+			FullMultiXactIdFromEpochAndMxid(set_mxid_epoch,
 											set_mxid);
 
 		if (set_oldestmxid < FirstMultiXactId)
 			set_oldestmxid += FirstMultiXactId;
 		ControlFile.checkPointCopy.oldestMulti =
-			FullMultiXactIdFromEpochAndMxid(EpochFromFullMultiXactId(ControlFile.checkPointCopy.oldestMulti),
+			FullMultiXactIdFromEpochAndMxid(set_oldestmxid_epoch,
 											set_oldestmxid);
 		ControlFile.checkPointCopy.oldestMultiDB = InvalidOid;
 	}
@@ -803,7 +821,7 @@ PrintNewControlValues(void)
 				 newXlogSegNo, WalSegSz);
 	printf(_("First log segment after reset:        %s\n"), fname);
 
-	if (set_mxid != 0)
+	if (set_mxid_epoch != -1)
 	{
 		printf(_("NextMultiXactId:                      %u\n"),
 			   MxidFromFullMultiXactId(ControlFile.checkPointCopy.nextMulti));

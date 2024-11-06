@@ -229,8 +229,10 @@ typedef struct
 	uint32		chkpnt_nxtxid;
 	uint32		chkpnt_nxtepoch;
 	uint32		chkpnt_nxtoid;
+	uint32		chkpnt_nxtmulti_epoch;
 	uint32		chkpnt_nxtmulti;
 	uint32		chkpnt_nxtmxoff;
+	uint32		chkpnt_oldstMulti_epoch;
 	uint32		chkpnt_oldstMulti;
 	uint32		chkpnt_oldstxid;
 	uint32		align;

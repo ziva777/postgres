@@ -449,6 +449,7 @@ ok(!-d $newnode->data_dir . "/pg_upgrade_output.d",
 	"pg_upgrade_output.d/ removed after pg_upgrade --check success");
 
 # Actual run, pg_upgrade_output.d is removed at the end.
+printf("here!\n");
 command_ok(
 	[
 		'pg_upgrade', '--no-sync', '-d', $oldnode->data_dir,

@@ -40,6 +40,7 @@
 
 #include <time.h>
 
+#include "access/multixact.h"
 #include "catalog/pg_class_d.h"
 #include "common/file_perm.h"
 #include "common/logging.h"
@@ -760,16 +761,20 @@ copy_xact_xlog_xid(void)
 		 * counters here and the oldest multi present on system.
 		 */
 		exec_prog(UTILITY_LOG_FILE, NULL, true, true,
-				  "\"%s/pg_resetwal\" -O %u -m %u,%u \"%s\"",
+				  "\"%s/pg_resetwal\" -O %u -m %u:%u,%u:%u \"%s\"",
 				  new_cluster.bindir,
 				  old_cluster.controldata.chkpnt_nxtmxoff,
+				  old_cluster.controldata.chkpnt_nxtmulti_epoch,
 				  old_cluster.controldata.chkpnt_nxtmulti,
+				  old_cluster.controldata.chkpnt_oldstMulti_epoch,
 				  old_cluster.controldata.chkpnt_oldstMulti,
 				  new_cluster.pgdata);
 		check_ok();
 	}
 	else if (new_cluster.controldata.cat_ver >= MULTIXACT_FORMATCHANGE_CAT_VER)
 	{
+		FullMultiXactId fmxid_next;
+
 		/*
 		 * Remove offsets/0000 file created by initdb that no longer matches
 		 * the new multi-xid value.  "members" starts at zero so no need to
@@ -787,10 +792,21 @@ copy_xact_xlog_xid(void)
 		 * might end up wrapped around (i.e. 0) if the old cluster had
 		 * next=MaxMultiXactId, but multixact.c can cope with that just fine.
 		 */
+		if (old_cluster.controldata.chkpnt_nxtmulti > 
+				old_cluster.controldata.chkpnt_nxtmulti + 1)
+			/* wraparound */
+			fmxid_next = FullMultiXactIdFromEpochAndMxid(
+						old_cluster.controldata.chkpnt_nxtmulti_epoch + 1,
+						FirstMultiXactId);
+		else
+			fmxid_next = FullMultiXactIdFromEpochAndMxid(old_cluster.controldata.chkpnt_nxtmulti_epoch,
+													old_cluster.controldata.chkpnt_nxtmulti);
 		exec_prog(UTILITY_LOG_FILE, NULL, true, true,
-				  "\"%s/pg_resetwal\" -m %u,%u \"%s\"",
+				  "\"%s/pg_resetwal\" -m %u:%u,%u:%u \"%s\"",
 				  new_cluster.bindir,
-				  old_cluster.controldata.chkpnt_nxtmulti + 1,
+				  EpochFromFullMultiXactId(fmxid_next),
+				  MxidFromFullMultiXactId(fmxid_next),
+				  old_cluster.controldata.chkpnt_nxtmulti_epoch,
 				  old_cluster.controldata.chkpnt_nxtmulti,
 				  new_cluster.pgdata);
 		check_ok();
@@ -857,7 +873,7 @@ set_frozenxids(bool minmxid_only)
 	PQclear(executeQueryOrDie(conn_template1,
 							  "UPDATE pg_catalog.pg_database "
 							  "SET	datminmxid = '%u'",
-							  old_cluster.controldata.chkpnt_nxtmulti));
+								  old_cluster.controldata.chkpnt_nxtmulti));
 
 	/* get database names */
 	dbres = executeQueryOrDie(conn_template1,

@@ -115,15 +115,15 @@ command_fails_like(
 	qr/error: invalid argument for option -m/,
 	'fails with incorrect -m option');
 command_fails_like(
-	[ 'pg_resetwal', '-m', '10,bar', $node->data_dir ],
+	[ 'pg_resetwal', '-m', '0:10,bar', $node->data_dir ],
 	qr/error: invalid argument for option -m/,
 	'fails with incorrect -m option part 2');
 command_fails_like(
-	[ 'pg_resetwal', '-m', '0,10', $node->data_dir ],
+	[ 'pg_resetwal', '-m', '0:0,0:10', $node->data_dir ],
 	qr/must not be 0/,
 	'fails with -m value 0 part 1');
 command_fails_like(
-	[ 'pg_resetwal', '-m', '10,0', $node->data_dir ],
+	[ 'pg_resetwal', '-m', '0:10,0:0', $node->data_dir ],
 	qr/must not be 0/,
 	'fails with -m value 0 part 2');
 # -o
@@ -207,9 +207,9 @@ push @cmd,
 
 @files = get_slru_files('pg_multixact/offsets');
 $mult = 32 * $blcksz / 4;
-# -m argument is "new,old"
+# -m argument is "new_epoch:new,old_epoch:old"
 push @cmd, '-m',
-  sprintf("%d,%d",
+  sprintf("0:%d,0:%d",
 	(hex($files[-1]) + 1) * $mult,
 	hex($files[0]) == 0 ? 1 : hex($files[0] * $mult));
 

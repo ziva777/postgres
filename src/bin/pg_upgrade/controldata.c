@@ -315,6 +315,14 @@ get_control_data(ClusterInfo *cluster)
 				pg_fatal("%d: controldata retrieval problem", __LINE__);
 
 			p++;				/* remove ':' char */
+			cluster->controldata.chkpnt_nxtmulti_epoch = str2uint(p);
+
+			p = strchr(p, ':');
+
+			if (p == NULL || strlen(p) <= 1)
+				pg_fatal("%d: controldata retrieval problem", __LINE__);
+
+			p++;				/* remove ':' char */
 			cluster->controldata.chkpnt_nxtmulti = str2uint(p);
 			got_multi = true;
 		}
@@ -331,6 +339,15 @@ get_control_data(ClusterInfo *cluster)
 		}
 		else if ((p = strstr(bufin, "Latest checkpoint's oldestMultiXid:")) != NULL)
 		{
+			p = strchr(p, ':');
+
+			if (p == NULL || strlen(p) <= 1)
+				pg_fatal("%d: controldata retrieval problem", __LINE__);
+
+			p++;				/* remove ':' char */
+
+			cluster->controldata.chkpnt_oldstMulti_epoch = str2uint(p);
+
 			p = strchr(p, ':');
 
 			if (p == NULL || strlen(p) <= 1)
