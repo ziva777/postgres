@@ -36,7 +36,7 @@
  * take no explicit notice of that fact in slru.c, except when comparing
  * segment and page numbers in SimpleLruTruncate (see PagePrecedes()).
  */
-#define SLRU_PAGES_PER_SEGMENT	32
+#define SLRU_PAGES_PER_SEGMENT	2
 
 /*
  * Page status codes.  Note that these do not include the "dirty" bit.
