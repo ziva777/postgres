@@ -119,7 +119,7 @@ extern char *output_files[];
  *
  * XXX: should be changed to the actual CATALOG_VERSION_NO on commit.
  */
-#define MULTIXACTOFFSET_FORMATCHANGE_CAT_VER 202409041
+#define MULTIXACTOFFSET_FORMATCHANGE_CAT_VER 202411112
 
 /*
  * large object chunk size added to pg_controldata,
