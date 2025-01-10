@@ -941,7 +941,7 @@ static inline int
 TwoPhaseFilePath(char *path, FullTransactionId fxid)
 {
 	return snprintf(path, MAXPGPATH, TWOPHASE_DIR "/%016llX",
-					(unsigned long long) xid);
+					(unsigned long long) XidFromFullTransactionId(fxid));
 }
 
 /*
@@ -1965,7 +1965,6 @@ PrescanPreparedTransactions(TransactionId **xids_p, int *nxids_p)
 	TransactionId origNextXid = XidFromFullTransactionId(nextXid);
 	TransactionId result = origNextXid;
 	TransactionId *xids = NULL;
-	uint32		epoch = EpochFromFullTransactionId(nextXid);
 	int			nxids = 0;
 	int			allocsize = 0;
 	int			i;
@@ -1974,20 +1973,13 @@ PrescanPreparedTransactions(TransactionId **xids_p, int *nxids_p)
 	for (i = 0; i < TwoPhaseState->numPrepXacts; i++)
 	{
 		TransactionId xid;
-		FullTransactionId fxid;
 		char	   *buf;
 		GlobalTransaction gxact = TwoPhaseState->prepXacts[i];
 
 		Assert(gxact->inredo);
 
 		xid = gxact->xid;
-
-		/*
-		 * All two-phase files with past and future epoch in pg_twophase are
-		 * gone at this point, so we're OK to rely on only the current epoch.
-		 */
-		fxid = FullTransactionIdFromEpochAndXid(epoch, xid);
-		buf = ProcessTwoPhaseBuffer(fxid,
+		buf = ProcessTwoPhaseBuffer(FullTransactionIdFromXid(xid),
 									gxact->prepare_start_lsn,
 									gxact->ondisk, false, true);
 
@@ -2049,18 +2041,11 @@ void
 StandbyRecoverPreparedTransactions(void)
 {
 	int			i;
-	uint32		epoch;
-	FullTransactionId nextFullXid;
-
-	/* get current epoch */
-	nextFullXid = ReadNextFullTransactionId();
-	epoch = EpochFromFullTransactionId(nextFullXid);
 
 	LWLockAcquire(TwoPhaseStateLock, LW_EXCLUSIVE);
 	for (i = 0; i < TwoPhaseState->numPrepXacts; i++)
 	{
 		TransactionId xid;
-		FullTransactionId fxid;
 		char	   *buf;
 		GlobalTransaction gxact = TwoPhaseState->prepXacts[i];
 
@@ -2072,8 +2057,7 @@ StandbyRecoverPreparedTransactions(void)
 		 * At this stage, we're OK to work with the current epoch as all past
 		 * and future files have been already discarded.
 		 */
-		fxid = FullTransactionIdFromEpochAndXid(epoch, xid);
-		buf = ProcessTwoPhaseBuffer(fxid,
+		buf = ProcessTwoPhaseBuffer(FullTransactionIdFromXid(xid),
 									gxact->prepare_start_lsn,
 									gxact->ondisk, true, false);
 		if (buf != NULL)
@@ -2102,18 +2086,11 @@ void
 RecoverPreparedTransactions(void)
 {
 	int			i;
-	uint32		epoch;
-	FullTransactionId nextFullXid;
-
-	/* get current epoch */
-	nextFullXid = ReadNextFullTransactionId();
-	epoch = EpochFromFullTransactionId(nextFullXid);
 
 	LWLockAcquire(TwoPhaseStateLock, LW_EXCLUSIVE);
 	for (i = 0; i < TwoPhaseState->numPrepXacts; i++)
 	{
 		TransactionId xid;
-		FullTransactionId fxid;
 		char	   *buf;
 		GlobalTransaction gxact = TwoPhaseState->prepXacts[i];
 		char	   *bufptr;
@@ -2136,8 +2113,7 @@ RecoverPreparedTransactions(void)
 		 * SubTransSetParent has been set before, if the prepared transaction
 		 * generated xid assignment records.
 		 */
-		fxid = FullTransactionIdFromEpochAndXid(epoch, xid);
-		buf = ProcessTwoPhaseBuffer(fxid,
+		buf = ProcessTwoPhaseBuffer(FullTransactionIdFromXid(xid),
 									gxact->prepare_start_lsn,
 									gxact->ondisk, true, false);
 		if (buf == NULL)
@@ -2255,25 +2231,31 @@ ProcessTwoPhaseBuffer(FullTransactionId fxid,
 		return NULL;
 	}
 
+#if 0
+	/*
+	 * Do not need this, since with 64-bit xids we do not have incorrect epoch
+	 * handling.
+	 */
 	/* Discard files from past epochs */
 	if (EpochFromFullTransactionId(fxid) < EpochFromFullTransactionId(nextXid))
 	{
 		if (fromdisk)
 		{
 			ereport(WARNING,
-					(errmsg("removing past two-phase state file of epoch %u for transaction %u",
-							EpochFromFullTransactionId(fxid), xid)));
+					(errmsg("removing past two-phase state file for transaction %llu",
+							 (unsigned long long) xid)));
 			RemoveTwoPhaseFile(fxid, true);
 		}
 		else
 		{
 			ereport(WARNING,
-					(errmsg("removing past two-phase state from memory for transaction %u",
-							xid)));
+					(errmsg("removing past two-phase state from memory for transaction %llu",
+							(unsigned long long) xid)));
 			PrepareRedoRemove(xid, true);
 		}
 		return NULL;
 	}
+#endif
 
 	/* Already processed? */
 	if (TransactionIdDidCommit(xid) || TransactionIdDidAbort(xid))
@@ -2281,15 +2263,15 @@ ProcessTwoPhaseBuffer(FullTransactionId fxid,
 		if (fromdisk)
 		{
 			ereport(WARNING,
-					(errmsg("removing stale two-phase state file for transaction %u",
-							xid)));
+					(errmsg("removing stale two-phase state file for transaction %llu",
+							(unsigned long long) xid)));
 			RemoveTwoPhaseFile(fxid, true);
 		}
 		else
 		{
 			ereport(WARNING,
-					(errmsg("removing stale two-phase state from memory for transaction %u",
-							xid)));
+					(errmsg("removing stale two-phase state from memory for transaction %llu",
+							(unsigned long long) xid)));
 			PrepareRedoRemove(xid, true);
 		}
 		return NULL;
