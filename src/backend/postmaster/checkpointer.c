@@ -1321,42 +1321,76 @@ CompactCheckpointerRequestQueue(void)
 void
 AbsorbSyncRequests(void)
 {
-	CheckpointerRequest *requests = NULL;
-	CheckpointerRequest *request;
-	int			n;
+	CheckpointerRequest	   *requests = NULL;
+	int						num_requests,
+							max_requests;
 
 	if (!AmCheckpointerProcess())
 		return;
 
 	LWLockAcquire(CheckpointerCommLock, LW_EXCLUSIVE);
-
+	num_requests = CheckpointerShmem->num_requests;
 	/*
-	 * We try to avoid holding the lock for a long time by copying the request
-	 * array, and processing the requests after releasing the lock.
-	 *
-	 * Once we have cleared the requests from shared memory, we have to PANIC
-	 * if we then fail to absorb them (eg, because our hashtable runs out of
-	 * memory).  This is because the system cannot run safely if we are unable
-	 * to fsync what we have been told to fsync.  Fortunately, the hashtable
-	 * is so small that the problem is quite unlikely to arise in practice.
+	 * Note: this can be chosen arbitrarily, stick for 1Gb for now.
 	 */
-	n = CheckpointerShmem->num_requests;
-	if (n > 0)
+	max_requests = MaxAllocSize / sizeof(CheckpointerRequest);
+
+	for (int i = 0; i < num_requests; i += max_requests)
 	{
-		requests = (CheckpointerRequest *) palloc(n * sizeof(CheckpointerRequest));
-		memcpy(requests, CheckpointerShmem->requests, n * sizeof(CheckpointerRequest));
+		Size	n = (num_requests - i >= max_requests) ? max_requests :
+														 num_requests - i;
+
+		if (!requests)
+			requests = palloc(n * sizeof(CheckpointerRequest));
+
+		memcpy(requests, CheckpointerShmem->requests + i,
+			   n * sizeof(CheckpointerRequest));
+
+		LWLockRelease(CheckpointerCommLock);
+
+		START_CRIT_SECTION();
+
+		/*
+		 * We try to avoid holding the lock for a long time by copying the
+		 * request array, and processing the requests after releasing the lock.
+		 *
+		 * Once we have cleared the requests from shared memory, we have to
+		 * PANIC if we then fail to absorb them (eg, because our hashtable runs
+		 * out of memory).  This is because the system cannot run safely if we
+		 * are unable to fsync what we have been told to fsync.  Fortunately,
+		 * the hashtable is so small that the problem is quite unlikely to arise
+		 * in practice.
+		 */
+		for (int j = 0; j < n; j++)
+			RememberSyncRequest(&requests[j].ftag, requests[j].type);
+
+		END_CRIT_SECTION();
+
+		LWLockAcquire(CheckpointerCommLock, LW_EXCLUSIVE);
 	}
 
-	START_CRIT_SECTION();
+	if (CheckpointerShmem->num_requests >= num_requests)
+	{
+		/*
+		 * All the requests that were added to the queue between the release and
+		 * the lock acquisition must be processed.
+		*/
+		Size	n = CheckpointerShmem->num_requests - num_requests;
 
-	CheckpointerShmem->num_requests = 0;
+		memmove(CheckpointerShmem->requests,
+				CheckpointerShmem->requests + num_requests,
+				n * sizeof(CheckpointerRequest));
+		CheckpointerShmem->num_requests = n;
+	}
+	else
+	{
+		/*
+		 * CompactCheckpointerRequestQueue was called, found some duplicates and
+		 * remove them.
+		 */
+	}
 
 	LWLockRelease(CheckpointerCommLock);
-
-	for (request = requests; n > 0; request++, n--)
-		RememberSyncRequest(&request->ftag, request->type);
-
-	END_CRIT_SECTION();
 
 	if (requests)
 		pfree(requests);
