@@ -1324,39 +1324,56 @@ AbsorbSyncRequests(void)
 	CheckpointerRequest *requests = NULL;
 	CheckpointerRequest *request;
 	int			n;
+	bool		loop;
 
 	if (!AmCheckpointerProcess())
 		return;
 
-	LWLockAcquire(CheckpointerCommLock, LW_EXCLUSIVE);
-
-	/*
-	 * We try to avoid holding the lock for a long time by copying the request
-	 * array, and processing the requests after releasing the lock.
-	 *
-	 * Once we have cleared the requests from shared memory, we have to PANIC
-	 * if we then fail to absorb them (eg, because our hashtable runs out of
-	 * memory).  This is because the system cannot run safely if we are unable
-	 * to fsync what we have been told to fsync.  Fortunately, the hashtable
-	 * is so small that the problem is quite unlikely to arise in practice.
-	 */
-	n = CheckpointerShmem->num_requests;
-	if (n > 0)
+	do
 	{
-		requests = (CheckpointerRequest *) palloc(n * sizeof(CheckpointerRequest));
-		memcpy(requests, CheckpointerShmem->requests, n * sizeof(CheckpointerRequest));
-	}
+		LWLockAcquire(CheckpointerCommLock, LW_EXCLUSIVE);
 
-	START_CRIT_SECTION();
+		/*
+		 * We try to avoid holding the lock for a long time by copying the
+		 * request array, and processing the requests after releasing the lock.
+		 *
+		 * Once we have cleared the requests from shared memory, we have to
+		 * PANIC if we then fail to absorb them (eg, because our hashtable runs
+		 * out of memory).  This is because the system cannot run safely if we
+		 * are unable to fsync what we have been told to fsync.  Fortunately,
+		 * the hashtable is so small that the problem is quite unlikely to arise
+		 * in practice.
+		 *
+		 * Note: we could not palloc more than 1Gb of memory, thus make sure
+		 * that the maximum number of elements will fit in the requests buffer.
+		 */
+		n = Min(CheckpointerShmem->num_requests,
+				MaxAllocSize / sizeof(CheckpointerRequest));
+		if (n > 0)
+		{
+			if (!requests)
+				requests = (CheckpointerRequest *) palloc(n * sizeof(CheckpointerRequest));
+			memcpy(requests, CheckpointerShmem->requests, n * sizeof(CheckpointerRequest));
 
-	CheckpointerShmem->num_requests = 0;
+			CheckpointerShmem->num_requests -= n;
 
-	LWLockRelease(CheckpointerCommLock);
+			memmove(CheckpointerShmem->requests,
+					CheckpointerShmem->requests + n,
+					CheckpointerShmem->num_requests * sizeof(CheckpointerRequest));
+		}
 
-	for (request = requests; n > 0; request++, n--)
-		RememberSyncRequest(&request->ftag, request->type);
+		START_CRIT_SECTION();
 
-	END_CRIT_SECTION();
+		/* Are there any requests in the queue? If so, keep going. */
+		loop = CheckpointerShmem->num_requests != 0;
+
+		LWLockRelease(CheckpointerCommLock);
+
+		for (request = requests; n > 0; request++, n--)
+			RememberSyncRequest(&request->ftag, request->type);
+
+		END_CRIT_SECTION();
+	} while (loop);
 
 	if (requests)
 		pfree(requests);
