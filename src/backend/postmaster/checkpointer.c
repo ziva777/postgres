@@ -1339,8 +1339,12 @@ AbsorbSyncRequests(void)
 	 * memory).  This is because the system cannot run safely if we are unable
 	 * to fsync what we have been told to fsync.  Fortunately, the hashtable
 	 * is so small that the problem is quite unlikely to arise in practice.
+	 *
+	 * Note: we could not palloc more than 1Gb of memory, thus make sure that
+	 * the maximum number of elements will fit in the requests buffer.
 	 */
-	n = CheckpointerShmem->num_requests;
+	n = Min(CheckpointerShmem->num_requests,
+			MaxAllocSize / sizeof(CheckpointerRequest));
 	if (n > 0)
 	{
 		requests = (CheckpointerRequest *) palloc(n * sizeof(CheckpointerRequest));
@@ -1349,7 +1353,11 @@ AbsorbSyncRequests(void)
 
 	START_CRIT_SECTION();
 
-	CheckpointerShmem->num_requests = 0;
+	CheckpointerShmem->num_requests -= n;
+
+	memmove(CheckpointerShmem->requests,
+			CheckpointerShmem->requests + n,
+			CheckpointerShmem->num_requests * sizeof(CheckpointerRequest));
 
 	LWLockRelease(CheckpointerCommLock);
 
