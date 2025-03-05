@@ -460,8 +460,7 @@ convert_multixact_members(const char *old_subdir, const char *new_subdir,
 						newmember;
 	char			   *newflag = newbuf;
 	TransactionId	   *newxid;
-	int					oldidx,
-						newidx;
+	int					oldidx;
 
 	prep_status("Converting old %s to new format", old_subdir);
 
@@ -486,7 +485,6 @@ convert_multixact_members(const char *old_subdir, const char *new_subdir,
 
 	/* Initialize new starting position (skip invalid zero offset) */
 	newgroup = 0;
-	newidx = 1;
 	newmember = 1;
 	newflag++;
 	newxid++;
@@ -530,7 +528,6 @@ convert_multixact_members(const char *old_subdir, const char *new_subdir,
 				*newflag++ = *oldflag++;
 				*newxid++ = (TransactionId) * oldxid++;
 
-				newidx++;
 				oldidx++;
 				mxoff++;
 
@@ -543,7 +540,6 @@ convert_multixact_members(const char *old_subdir, const char *new_subdir,
 					{
 						/* Write current page and start new */
 						newgroup = 0;
-						newidx = 0;
 						write_new_segment_page(&newseg, newbuf, false);
 						memset(newbuf, 0, BLCKSZ);
 					}
