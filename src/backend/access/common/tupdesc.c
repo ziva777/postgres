@@ -91,7 +91,7 @@ populate_compact_attribute_internal(Form_pg_attribute src,
 			dst->attalignby = ALIGNOF_SHORT;
 			break;
 		case TYPALIGN_XID:
-			dst->attalignby = sizeof(TransactionId);
+			dst->attalignby = ALIGNOF_DOUBLE;
 			break;
 		default:
 			dst->attalignby = 0;
