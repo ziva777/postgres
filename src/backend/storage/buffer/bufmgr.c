@@ -248,11 +248,6 @@ const ResourceOwnerDesc buffer_pin_resowner_desc =
 };
 
 /*
- * XXX: big dirty hack.
- */
-Relation	last_rel;
-
-/*
  * Ensure that the PrivateRefCountArray has sufficient space to store one more
  * entry. This has to be called before using NewPrivateRefCountEntry() to fill
  * a new entry - but it's perfectly fine to not use a reserved entry.
@@ -1248,9 +1243,6 @@ ReadBuffer_common(Relation rel, SMgrRelation smgr, char smgr_persistence,
 	operation.forknum = forkNum;
 	operation.strategy = strategy;
 
-	/* XXX: big dirty hack */
-	last_rel = rel;
-
 	if (StartReadBuffer(&operation,
 						&buffer,
 						blockNum,
@@ -1939,6 +1931,9 @@ AsyncReadBuffers(ReadBuffersOperation *operation, int *nblocks_progress)
 
 		/* provide the list of buffers to the completion callbacks */
 		pgaio_io_set_handle_data_32(ioh, (uint32 *) io_buffers, io_buffers_len);
+
+		/* provide the relation */
+		pgaio_io_set_handle_pointer(ioh, operation->rel);
 
 		pgaio_io_register_callbacks(ioh,
 									persistence == RELPERSISTENCE_TEMP ?
@@ -6933,7 +6928,8 @@ buffer_readv_complete_one(PgAioTargetData *td, uint8 buf_off, Buffer buffer,
 						  bool *buffer_invalid,
 						  bool *failed_checksum,
 						  bool *ignored_checksum,
-						  bool *zeroed_buffer)
+						  bool *zeroed_buffer,
+						  Relation relation)
 {
 	BufferDesc *buf_hdr = is_temp ?
 		GetLocalBufferDescriptor(-buffer - 1)
@@ -7063,7 +7059,7 @@ buffer_readv_complete_one(PgAioTargetData *td, uint8 buf_off, Buffer buffer,
 		{
 			Buffer buf = BufferDescriptorGetBuffer(buf_hdr);
 
-			convert_page(last_rel, bufdata, buf, blocknum);
+			convert_page(relation, bufdata, buf, blocknum);
 		}
 
 		LWLockRelease(BufferDescriptorGetContentLock(buf_hdr));
@@ -7113,6 +7109,7 @@ buffer_readv_complete(PgAioHandle *ioh, PgAioResult prior_result,
 	uint8		checkfail_count = 0;
 	uint64	   *io_data;
 	uint8		handle_data_len;
+	Relation	relation;
 
 	if (is_temp)
 	{
@@ -7127,6 +7124,7 @@ buffer_readv_complete(PgAioHandle *ioh, PgAioResult prior_result,
 	 * per-buffer completion function for each buffer.
 	 */
 	io_data = pgaio_io_get_handle_data(ioh, &handle_data_len);
+	relation = pgaio_io_get_handle_pointer(ioh);
 	for (uint8 buf_off = 0; buf_off < handle_data_len; buf_off++)
 	{
 		Buffer		buf = io_data[buf_off];
@@ -7151,7 +7149,8 @@ buffer_readv_complete(PgAioHandle *ioh, PgAioResult prior_result,
 								  &failed_verification,
 								  &failed_checksum,
 								  &ignored_checksum,
-								  &zeroed_buffer);
+								  &zeroed_buffer,
+								  relation);
 
 		/*
 		 * Track information about the number of different kinds of error
