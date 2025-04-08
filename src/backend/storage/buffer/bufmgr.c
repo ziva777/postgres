@@ -7056,7 +7056,6 @@ buffer_readv_complete_one(PgAioTargetData *td, uint8 buf_off, Buffer buffer,
 						forknum, blocknum, path.str)));
 		}
 
-
 		LWLockAcquire(BufferDescriptorGetContentLock(buf_hdr), LW_EXCLUSIVE);
 
 		/* Check for no concurrent changes */
