@@ -48,19 +48,24 @@ LANGUAGE C STRICT PARALLEL SAFE;
 --
 -- get_raw_page()
 --
+--
+-- Functions that fetch relation pages must be PARALLEL RESTRICTED,
+-- not PARALLEL SAFE, otherwise they will fail when run on a
+-- temporary table in a parallel worker process.
+--
 DROP FUNCTION get_raw_page(text, int8);
 DROP FUNCTION IF EXISTS get_raw_page(text, int4);
 CREATE FUNCTION get_raw_page(text, int8)
 RETURNS bytea
 AS 'MODULE_PATHNAME', 'get_raw_page_1_9'
-LANGUAGE C STRICT PARALLEL SAFE;
+LANGUAGE C STRICT PARALLEL RESTRICTED;
 
 DROP FUNCTION get_raw_page(text, text, int8);
 DROP FUNCTION IF EXISTS get_raw_page(text, text, int4);
 CREATE FUNCTION get_raw_page(text, text, int8)
 RETURNS bytea
 AS 'MODULE_PATHNAME', 'get_raw_page_fork_1_9'
-LANGUAGE C STRICT PARALLEL SAFE;
+LANGUAGE C STRICT PARALLEL RESTRICTED;
 
 --
 -- page_checksum()
@@ -87,7 +92,7 @@ CREATE FUNCTION bt_metap(IN relname text,
     OUT last_cleanup_num_tuples float8,
     OUT allequalimage boolean)
 AS 'MODULE_PATHNAME', 'bt_metap'
-LANGUAGE C STRICT PARALLEL SAFE;
+LANGUAGE C STRICT PARALLEL RESTRICTED;
 
 --
 -- bt_page_stats()
@@ -107,7 +112,7 @@ CREATE FUNCTION bt_page_stats(IN relname text, IN blkno int8,
     OUT btpo_level int8,
     OUT btpo_flags int4)
 AS 'MODULE_PATHNAME', 'bt_page_stats_1_9'
-LANGUAGE C STRICT PARALLEL SAFE;
+LANGUAGE C STRICT PARALLEL RESTRICTED;
 
 --
 -- bt_page_items()
@@ -126,7 +131,7 @@ CREATE FUNCTION bt_page_items(IN relname text, IN blkno int8,
     OUT tids tid[])
 RETURNS SETOF record
 AS 'MODULE_PATHNAME', 'bt_page_items_1_9'
-LANGUAGE C STRICT PARALLEL SAFE;
+LANGUAGE C STRICT PARALLEL RESTRICTED;
 
 --
 -- brin_page_items()
@@ -143,4 +148,4 @@ CREATE FUNCTION brin_page_items(IN page bytea, IN index_oid regclass,
     OUT value text)
 RETURNS SETOF record
 AS 'MODULE_PATHNAME', 'brin_page_items'
-LANGUAGE C STRICT PARALLEL SAFE;
+LANGUAGE C STRICT PARALLEL RESTRICTED;
