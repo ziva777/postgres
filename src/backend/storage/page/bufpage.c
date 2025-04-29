@@ -578,9 +578,13 @@ heap_page_add_special_area(ItemIdCompact itemidbase, int nitems, Page page,
 		new_htup->t_choice.t_heap.t_xmin = FrozenTransactionId;
 		xmax = HeapTupleHeaderGetDoubleXmax(old_htup);
 		if (!(new_htup->t_infomask & HEAP_XMAX_IS_MULTI))
-			new_htup->t_choice.t_heap.t_xmax = NormalTransactionIdToShort(xid_base, xmax);
+			new_htup->t_choice.t_heap.t_xmax = NormalTransactionIdToShort(xid_base,
+																		  xmax,
+																		  false);
 		else
-			new_htup->t_choice.t_heap.t_xmax = NormalTransactionIdToShort(multi_base, xmax);
+			new_htup->t_choice.t_heap.t_xmax = NormalTransactionIdToShort(multi_base,
+																		  xmax,
+																		  true);
 	}
 
 	new_phdr->pd_upper = upper;

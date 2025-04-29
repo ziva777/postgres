@@ -14,6 +14,7 @@
 #ifndef BUFPAGE_H
 #define BUFPAGE_H
 
+#include "access/multixact.h"
 #include "access/transam.h"
 #include "access/xlogdefs.h"
 #include "storage/block.h"
@@ -568,15 +569,24 @@ ShortTransactionIdToNormal(TransactionId base, ShortTransactionId xid)
 }
 
 static inline ShortTransactionId
-NormalTransactionIdToShort(TransactionId base, TransactionId xid)
+NormalTransactionIdToShort(TransactionId base, TransactionId xid, bool multi)
 {
 	if (!TransactionIdIsNormal(xid))
 		return (ShortTransactionId) xid;
 
-#ifndef FRONTEND
-	/* xid should fit ShortTransactionId */
-	Assert(xid >= base + FirstNormalTransactionId &&
-		   xid <= base + MaxShortTransactionId);
+#ifdef FRONTEND
+	Assert(xid >= base + (!multi ? FirstNormalTransactionId :
+								   FirstMultiXactId));
+	Assert(xid <= base + MaxShortTransactionId);
+#else
+	if (xid < base + (!multi ? FirstNormalTransactionId : FirstMultiXactId) ||
+		xid > base + MaxShortTransactionId)
+		ereport(PANIC,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+						errbacktrace(),
+						errmsg("xid %llu does not fit into valid range for base %llu",
+							   (unsigned long long) xid,
+							   (unsigned long long) base)));
 #endif
 
 	return (ShortTransactionId) (xid - base);
@@ -589,22 +599,23 @@ static inline void
 HeapPageSetPruneXid(Page page, TransactionId xid, bool is_toast)
 {
 	TransactionId	base;
+	PageHeader		pagehdr = (PageHeader) page;
 
 	if (HeapPageIsDoubleXmax(page))
 		return;
 
 	if (!TransactionIdIsNormal(xid))
 	{
-		((PageHeader) (page))->pd_prune_xid = xid;
+		pagehdr->pd_prune_xid = xid;
 		return;
 	}
 
 	base = is_toast ? ToastPageGetSpecial(page)->pd_xid_base :
 					  HeapPageGetSpecial(page)->pd_xid_base;
 
-	((PageHeader) (page))->pd_prune_xid = NormalTransactionIdToShort(base, xid);
+	pagehdr->pd_prune_xid = NormalTransactionIdToShort(base, xid, false);
 
-	Assert(((PageHeader) (page))->pd_prune_xid <= MaxShortTransactionId);
+	Assert(pagehdr->pd_prune_xid <= MaxShortTransactionId);
 }
 
 /*

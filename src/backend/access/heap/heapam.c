@@ -9616,7 +9616,8 @@ heap_page_xid_min_max(Page page, bool multi,
 				update_xid = MultiXactIdGetUpdateXid(HeapTupleHeaderGetRawXmax(page, htup),
 													 htup->t_infomask);
 				xid = NormalTransactionIdToShort(HeapPageGetSpecial(page)->pd_xid_base,
-												 update_xid);
+												 update_xid,
+												 false);
 
 				xid_min_max(min, max, xid, &found);
 			}

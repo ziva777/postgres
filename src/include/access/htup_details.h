@@ -380,7 +380,7 @@ HeapTupleHeaderStoreXmin(Page page, HeapTupleData *tup, bool is_toast)
 
 	base = is_toast ? ToastPageGetSpecial(page)->pd_xid_base :
 					  HeapPageGetSpecial((page))->pd_xid_base;
-	xmin = NormalTransactionIdToShort(base, tup->t_xmin);
+	xmin = NormalTransactionIdToShort(base, tup->t_xmin, false);
 	tup->t_data->t_choice.t_heap.t_xmin = xmin;
 }
 
@@ -491,12 +491,19 @@ HeapTupleHeaderStoreXmax(Page page, const HeapTupleData *tup, bool is_toast)
 	}
 
 	if (is_toast)
+	{
 		base = ToastPageGetSpecial(page)->pd_xid_base;
+		xmax = NormalTransactionIdToShort(base, tup->t_xmax, false);
+	}
 	else
+	{
+		bool is_multi = (tup->t_data->t_infomask & HEAP_XMAX_IS_MULTI) != 0;
+
 		base = (tup->t_data->t_infomask & HEAP_XMAX_IS_MULTI) != 0 ?
 					HeapPageGetSpecial(page)->pd_multi_base :
 					HeapPageGetSpecial(page)->pd_xid_base;
-	xmax = NormalTransactionIdToShort(base, tup->t_xmax);
+		xmax = NormalTransactionIdToShort(base, tup->t_xmax, is_multi);
+	}
 	tup->t_data->t_choice.t_heap.t_xmax = xmax;
 }
 
