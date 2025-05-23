@@ -5629,8 +5629,8 @@ l5:
 				 * TransactionIdIsInProgress() should have returned false.  We
 				 * assume it's no longer locked in this case.
 				 */
-				elog(WARNING, "LOCK_ONLY found for Xid in progress %llu",
-					 (unsigned long long) xmax);
+				elog(WARNING, "LOCK_ONLY found for Xid in progress %" PRIu64,
+					 xmax);
 				old_infomask |= HEAP_XMAX_INVALID;
 				old_infomask &= ~HEAP_XMAX_LOCK_ONLY;
 				goto l5;
@@ -6887,9 +6887,8 @@ FreezeMultiXactId(MultiXactId multi, uint16 t_infomask,
 	else if (MultiXactIdPrecedes(multi, cutoffs->relminmxid))
 		ereport(ERROR,
 				(errcode(ERRCODE_DATA_CORRUPTED),
-				 errmsg_internal("found multixact %llu from before relminmxid %llu",
-								 (unsigned long long) multi,
-								 (unsigned long long) cutoffs->relminmxid)));
+				 errmsg_internal("found multixact %" PRIu64 " from before relminmxid %" PRIu64,
+								 multi, cutoffs->relminmxid)));
 	else if (MultiXactIdIsValid(multi) &&
 			 (t_infomask & HEAP_XMAX_INVALID))
 	{
@@ -6912,9 +6911,8 @@ FreezeMultiXactId(MultiXactId multi, uint16 t_infomask,
 								 HEAP_XMAX_IS_LOCKED_ONLY(t_infomask)))
 			ereport(ERROR,
 					(errcode(ERRCODE_DATA_CORRUPTED),
-					 errmsg_internal("multixact %llu from before cutoff %llu found to be still running",
-									 (unsigned long long) multi,
-									 (unsigned long long) cutoffs->OldestMxact)));
+					 errmsg_internal("multixact %" PRIu64 " from before cutoff %" PRIu64 " found to be still running",
+									 multi, cutoffs->OldestMxact)));
 
 		if (HEAP_XMAX_IS_LOCKED_ONLY(t_infomask))
 		{
@@ -6928,10 +6926,9 @@ FreezeMultiXactId(MultiXactId multi, uint16 t_infomask,
 		if (TransactionIdPrecedes(update_xact, cutoffs->relfrozenxid))
 			ereport(ERROR,
 					(errcode(ERRCODE_DATA_CORRUPTED),
-					 errmsg_internal("multixact %llu contains update XID %llu from before relfrozenxid %llu",
-									 (unsigned long long) multi,
-									 (unsigned long long) update_xact,
-									 (unsigned long long) cutoffs->relfrozenxid)));
+					 errmsg_internal("multixact %" PRIu64 " contains update XID %" PRIu64 " from before relfrozenxid %" PRIu64,
+									 multi, update_xact,
+									 cutoffs->relfrozenxid)));
 		else if (TransactionIdPrecedes(update_xact, cutoffs->OldestXmin))
 		{
 			/*
@@ -6942,10 +6939,9 @@ FreezeMultiXactId(MultiXactId multi, uint16 t_infomask,
 			if (!TransactionIdDidAbort(update_xact))
 				ereport(ERROR,
 						(errcode(ERRCODE_DATA_CORRUPTED),
-						 errmsg_internal("multixact %llu contains non-aborted update XID %llu from before removable cutoff %llu",
-										 (unsigned long long) multi,
-										 (unsigned long long) update_xact,
-										 (unsigned long long) cutoffs->OldestXmin)));
+						 errmsg_internal("multixact %" PRIu64 " contains non-aborted update XID %" PRIu64 " from before removable cutoff %" PRIu64,
+										 multi, update_xact,
+										 cutoffs->OldestXmin)));
 			*flags |= FRM_INVALIDATE_XMAX;
 			pagefrz->freeze_required = true;
 			return InvalidTransactionId;
@@ -7064,10 +7060,8 @@ FreezeMultiXactId(MultiXactId multi, uint16 t_infomask,
 				if (TransactionIdPrecedes(xid, cutoffs->OldestXmin))
 					ereport(ERROR,
 							(errcode(ERRCODE_DATA_CORRUPTED),
-							 errmsg_internal("multixact %llu contains running locker XID %llu from before removable cutoff %llu",
-											 (unsigned long long) multi,
-											 (unsigned long long) xid,
-											 (unsigned long long) cutoffs->OldestXmin)));
+							 errmsg_internal("multixact %" PRIu64 " contains running locker XID %" PRIu64 " from before removable cutoff %" PRIu64,
+											 multi, xid, cutoffs->OldestXmin)));
 				newmembers[nnewmembers++] = members[i];
 				has_lockers = true;
 			}
@@ -7089,11 +7083,10 @@ FreezeMultiXactId(MultiXactId multi, uint16 t_infomask,
 		if (TransactionIdIsValid(update_xid))
 			ereport(ERROR,
 					(errcode(ERRCODE_DATA_CORRUPTED),
-					 errmsg_internal("multixact %llu has two or more updating members",
-									 (unsigned long long) multi),
-					 errdetail_internal("First updater XID=%llu second updater XID=%llu.",
-										(unsigned long long) update_xid,
-										(unsigned long long) xid)));
+					 errmsg_internal("multixact %" PRIu64 " has two or more updating members",
+									 multi),
+					 errdetail_internal("First updater XID=%" PRIu64 " second updater XID=%" PRIu64 ".",
+										update_xid, xid)));
 
 		/*
 		 * As with all tuple visibility routines, it's critical to test
@@ -7129,10 +7122,8 @@ FreezeMultiXactId(MultiXactId multi, uint16 t_infomask,
 		if (TransactionIdPrecedes(xid, cutoffs->OldestXmin))
 			ereport(ERROR,
 					(errcode(ERRCODE_DATA_CORRUPTED),
-					 errmsg_internal("multixact %llu contains committed update XID %llu from before removable cutoff %llu",
-									 (unsigned long long) multi,
-									 (unsigned long long) xid,
-									 (unsigned long long) cutoffs->OldestXmin)));
+					 errmsg_internal("multixact %" PRIu64 " contains committed update XID %" PRIu64 " from before removable cutoff %" PRIu64,
+									 multi, xid, cutoffs->OldestXmin)));
 		newmembers[nnewmembers++] = members[i];
 	}
 
@@ -7256,9 +7247,8 @@ heap_prepare_freeze_tuple(HeapTuple htup,
 		if (TransactionIdPrecedes(xid, cutoffs->relfrozenxid))
 			ereport(ERROR,
 					(errcode(ERRCODE_DATA_CORRUPTED),
-					 errmsg_internal("found xmin %llu from before relfrozenxid %llu",
-									 (unsigned long long) xid,
-									 (unsigned long long) cutoffs->relfrozenxid)));
+					 errmsg_internal("found xmin %" PRIu64 " from before relfrozenxid %" PRIu64,
+									 xid, cutoffs->relfrozenxid)));
 
 		/* Will set freeze_xmin flags in freeze plan below */
 		freeze_xmin = TransactionIdPrecedes(xid, cutoffs->OldestXmin);
@@ -7405,9 +7395,8 @@ heap_prepare_freeze_tuple(HeapTuple htup,
 		if (TransactionIdPrecedes(xid, cutoffs->relfrozenxid))
 			ereport(ERROR,
 					(errcode(ERRCODE_DATA_CORRUPTED),
-					 errmsg_internal("found xmax %llu from before relfrozenxid %llu",
-									 (unsigned long long) xid,
-									 (unsigned long long) cutoffs->relfrozenxid)));
+					 errmsg_internal("found xmax %" PRIu64 " from before relfrozenxid %" PRIu64,
+									 xid, cutoffs->relfrozenxid)));
 
 		/* Will set freeze_xmax flags in freeze plan below */
 		freeze_xmax = TransactionIdPrecedes(xid, cutoffs->OldestXmin);
@@ -7429,8 +7418,8 @@ heap_prepare_freeze_tuple(HeapTuple htup,
 	else
 		ereport(ERROR,
 				(errcode(ERRCODE_DATA_CORRUPTED),
-				 errmsg_internal("found raw xmax %llu (infomask 0x%04x) not invalid and not multi",
-								 (unsigned long long) xid, tuple->t_infomask)));
+				 errmsg_internal("found raw xmax %" PRIu64 " (infomask 0x%04x) not invalid and not multi",
+								 xid, tuple->t_infomask)));
 
 	if (freeze_xmin)
 	{
@@ -7533,8 +7522,8 @@ heap_pre_freeze_checks(Relation rel, Buffer buffer,
 			if (unlikely(!TransactionIdDidCommit(xmin)))
 				ereport(ERROR,
 						(errcode(ERRCODE_DATA_CORRUPTED),
-						 errmsg_internal("uncommitted xmin %llu needs to be frozen",
-										 (unsigned long long) xmin)));
+						 errmsg_internal("uncommitted xmin %" PRIu64 " needs to be frozen",
+										 xmin)));
 		}
 		if (frz->checkflags & HEAP_FREEZE_CHECK_XMAX_ABORTED)
 		{
@@ -7544,8 +7533,8 @@ heap_pre_freeze_checks(Relation rel, Buffer buffer,
 			if (unlikely(!TransactionIdDidAbort(xmax)))
 				ereport(ERROR,
 						(errcode(ERRCODE_DATA_CORRUPTED),
-						 errmsg_internal("cannot freeze non-aborted xmax %llu",
-										 (unsigned long long) xmax)));
+						 errmsg_internal("cannot freeze non-aborted xmax %" PRIu64,
+										 xmax)));
 		}
 	}
 }
@@ -9882,17 +9871,14 @@ heap_page_check_delta(Buffer buffer,
 						  buf->tag.forkNum);
 
 	if (freeDelta == NULL)
-		elog(FATAL, "Fatal xid base calculation error: xid = %llu, base = %llu, min = %u, max = %u, delta = %lld (rel=%s, blockNum=%u)",
-					(unsigned long long) xid, (unsigned long long) base,
-					min, max,
-					(long long) delta,
-					path.str, buf->tag.blockNum);
+		elog(FATAL, "fatal xid base calculation error: xid = %" PRIu64 ", base = %" PRIu64 ", "
+					"min = %u, max = %u, delta = %" PRId64 " (rel=%s, blockNum=%u)",
+					xid, base,min, max, delta, path.str, buf->tag.blockNum);
 
-	elog(FATAL, "Fatal xid base calculation error: xid = %llu, base = %llu, min = %u, max = %u, freeDelta = %lld, requiredDelta = %lld, delta = %lld (rel=%s, blockNum=%u)",
-				(unsigned long long) xid, (unsigned long long) base,
-				min, max,
-				(long long) *freeDelta, (long long) *requiredDelta,
-				(long long) delta,
+	elog(FATAL, "fatal xid base calculation error: xid = %" PRIu64 ", base = %" PRIu64 ", "
+				"min = %u, max = %u, freeDelta = %" PRId64 ", requiredDelta = %" PRId64 ", "
+				"delta = %" PRId64 " (rel=%s, blockNum=%u)",
+				xid, base, min, max, *freeDelta, *requiredDelta, delta,
 				path.str, buf->tag.blockNum);
 }
 

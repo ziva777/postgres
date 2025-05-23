@@ -3550,10 +3550,9 @@ dumpDatabase(Archive *fout)
 	{
 		appendPQExpBufferStr(creaQry, "\n-- For binary upgrade, set datfrozenxid and datminmxid.\n");
 		appendPQExpBuffer(creaQry, "UPDATE pg_catalog.pg_database\n"
-						  "SET datfrozenxid = '%llu', datminmxid = '%llu'\n"
+						  "SET datfrozenxid = '%" PRIu64 "', datminmxid = '%" PRIu64 "'\n"
 						  "WHERE datname = ",
-						  (unsigned long long) frozenxid,
-						  (unsigned long long) minmxid);
+						  frozenxid, minmxid);
 		appendStringLiteralAH(creaQry, datname, fout);
 		appendPQExpBufferStr(creaQry, ";\n");
 	}
@@ -3612,16 +3611,12 @@ dumpDatabase(Archive *fout)
 			RelFileNumber relfilenumber;
 
 			appendPQExpBuffer(loHorizonQry, "UPDATE pg_catalog.pg_class\n"
-							  "SET relfrozenxid = '%llu', relminmxid = '%llu'\n"
+							  "SET relfrozenxid = '%" PRIu64 "', relminmxid = '%" PRIu64 "'\n"
 							  "WHERE oid = %u;\n",
-							  (unsigned long long) strtou64(PQgetvalue(lo_res,
-																	   i,
-																	   ii_relfrozenxid),
-															NULL, 0),
-							  (unsigned long long) strtou64(PQgetvalue(lo_res,
-																	   i,
-																	   ii_relminmxid),
-															NULL, 0),
+							   strtou64(PQgetvalue(lo_res, i, ii_relfrozenxid),
+										NULL, 0),
+							   strtou64(PQgetvalue(lo_res, i, ii_relminmxid),
+										NULL, 0),
 							  atooid(PQgetvalue(lo_res, i, ii_oid)));
 
 			oid = atooid(PQgetvalue(lo_res, i, ii_oid));
@@ -17469,10 +17464,9 @@ dumpTableSchema(Archive *fout, const TableInfo *tbinfo)
 		{
 			appendPQExpBufferStr(q, "\n-- For binary upgrade, set heap's relfrozenxid and relminmxid\n");
 			appendPQExpBuffer(q, "UPDATE pg_catalog.pg_class\n"
-							  "SET relfrozenxid = '%llu', relminmxid = '%llu'\n"
+							  "SET relfrozenxid = '%" PRIu64 "', relminmxid = '%" PRIu64 "'\n"
 							  "WHERE oid = ",
-							  (unsigned long long) tbinfo->frozenxid,
-							  (unsigned long long) tbinfo->minmxid);
+							  tbinfo->frozenxid, tbinfo->minmxid);
 			appendStringLiteralAH(q, qualrelname, fout);
 			appendPQExpBufferStr(q, "::pg_catalog.regclass;\n");
 
@@ -17484,11 +17478,10 @@ dumpTableSchema(Archive *fout, const TableInfo *tbinfo)
 				 */
 				appendPQExpBufferStr(q, "\n-- For binary upgrade, set toast's relfrozenxid and relminmxid\n");
 				appendPQExpBuffer(q, "UPDATE pg_catalog.pg_class\n"
-								  "SET relfrozenxid = '%llu', relminmxid = '%llu'\n"
+								  "SET relfrozenxid = '%" PRIu64 "', relminmxid = '%" PRIu64 "'\n"
 								  "WHERE oid = '%u';\n",
-								  (unsigned long long) tbinfo->toast_frozenxid,
-								  (unsigned long long) tbinfo->toast_minmxid,
-								  tbinfo->toast_oid);
+								  tbinfo->toast_frozenxid,
+								  tbinfo->toast_minmxid, tbinfo->toast_oid);
 			}
 		}
 
