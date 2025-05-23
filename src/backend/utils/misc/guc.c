@@ -1501,10 +1501,8 @@ check_GUC_init(struct config_generic *gconf)
 
 				if (*conf->variable != 0 && *conf->variable != conf->boot_val)
 				{
-					elog(LOG, "GUC (PGC_INT64) %s, boot_val=%lld, C-var=%lld",
-						 conf->gen.name,
-						 (long long) conf->boot_val,
-						 (long long) *conf->variable);
+					elog(LOG, "GUC (PGC_INT64) %s, boot_val=%" PRId64 ", C-var=%" PRId64,
+						 conf->gen.name, conf->boot_val, *conf->variable);
 					return false;
 				}
 				break;
@@ -1749,8 +1747,8 @@ InitializeOneGUCOption(struct config_generic *gconf)
 				Assert(newval <= conf->max);
 				if (!call_int64_check_hook(conf, &newval, &extra,
 										   PGC_S_DEFAULT, LOG))
-					elog(FATAL, "failed to initialize %s to %lld",
-						 conf->gen.name, (long long) newval);
+					elog(FATAL, "failed to initialize %s to %" PRId64,
+						 conf->gen.name, newval);
 				if (conf->assign_hook)
 					(*conf->assign_hook) (newval, extra);
 				*conf->variable = conf->reset_val = newval;
@@ -3375,9 +3373,9 @@ parse_and_validate_value(struct config_generic *record,
 				{
 					ereport(elevel,
 							(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-							 errmsg("%lld is outside the valid range for parameter \"%s\" (%lld .. %lld)",
-									(long long) newval->int64val, conf->gen.name,
-									(long long) conf->min, (long long) conf->max)));
+							 errmsg("%" PRId64 " is outside the valid range for parameter \"%s\" (%" PRId64 " .. %" PRId64 ")",
+									newval->int64val, conf->gen.name, conf->min,
+									conf->max)));
 					return false;
 				}
 
@@ -4663,8 +4661,8 @@ GetConfigOption(const char *name, bool missing_ok, bool restrict_privileged)
 			return buffer;
 
 		case PGC_INT64:
-			snprintf(buffer, sizeof(buffer), "%lld",
-					 (long long) *((struct config_int64 *) record)->variable);
+			snprintf(buffer, sizeof(buffer), "%" PRId64,
+					 *((struct config_int64 *) record)->variable);
 			return buffer;
 
 		case PGC_REAL:
@@ -4716,8 +4714,8 @@ GetConfigOptionResetString(const char *name)
 			return buffer;
 
 		case PGC_INT64:
-			snprintf(buffer, sizeof(buffer), "%lld",
-					 (long long) ((struct config_int64 *) record)->reset_val);
+			snprintf(buffer, sizeof(buffer), "%" PRId64,
+					 ((struct config_int64 *) record)->reset_val);
 			return buffer;
 
 		case PGC_REAL:
@@ -5836,8 +5834,8 @@ ShowGUCOption(struct config_generic *record, bool use_units)
 					val = (*conf->show_hook) ();
 				else
 				{
-					snprintf(buffer, sizeof(buffer), "%lld",
-							 (long long) *conf->variable);
+					snprintf(buffer, sizeof(buffer), "%" PRId64,
+							 *conf->variable);
 					val = buffer;
 				}
 			}
@@ -5949,7 +5947,7 @@ write_one_nondefault_variable(FILE *fp, struct config_generic *gconf)
 			{
 				struct config_int64 *conf = (struct config_int64 *) gconf;
 
-				fprintf(fp, "%lld", (long long) *conf->variable);
+				fprintf(fp, "%" PRId64, *conf->variable);
 			}
 			break;
 
@@ -6413,7 +6411,7 @@ serialize_variable(char **destptr, Size *maxbytes,
 			{
 				struct config_int64 *conf = (struct config_int64 *) gconf;
 
-				do_serialize(destptr, maxbytes, "%lld", (long long) *conf->variable);
+				do_serialize(destptr, maxbytes, "%" PRId64, *conf->variable);
 			}
 			break;
 
@@ -7264,8 +7262,8 @@ call_int64_check_hook(struct config_int64 *conf, int64 *newval, void **extra,
 				(errcode(GUC_check_errcode_value),
 				 GUC_check_errmsg_string ?
 				 errmsg_internal("%s", GUC_check_errmsg_string) :
-				 errmsg("invalid value for parameter \"%s\": %lld",
-						conf->gen.name, (long long) *newval),
+				 errmsg("invalid value for parameter \"%s\": %" PRId64,
+						conf->gen.name, *newval),
 				 GUC_check_errdetail_string ?
 				 errdetail_internal("%s", GUC_check_errdetail_string) : 0,
 				 GUC_check_errhint_string ?
