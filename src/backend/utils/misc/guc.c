@@ -4499,8 +4499,8 @@ GetConfigOption(const char *name, bool missing_ok, bool restrict_privileged)
 			return buffer;
 
 		case PGC_INT64:
-			snprintf(buffer, sizeof(buffer), "%lld",
-					 (long long) *((struct config_int64 *) record)->variable);
+			snprintf(buffer, sizeof(buffer), "%" PRId64,
+					 *((struct config_int64 *) record)->variable);
 			return buffer;
 
 		case PGC_REAL:
@@ -4552,8 +4552,8 @@ GetConfigOptionResetString(const char *name)
 			return buffer;
 
 		case PGC_INT64:
-			snprintf(buffer, sizeof(buffer), "%lld",
-					 (long long) ((struct config_int64 *) record)->reset_val);
+			snprintf(buffer, sizeof(buffer), "%" PRId64,
+					 ((struct config_int64 *) record)->reset_val);
 			return buffer;
 
 		case PGC_REAL:
@@ -5787,7 +5787,7 @@ write_one_nondefault_variable(FILE *fp, struct config_generic *gconf)
 			{
 				struct config_int64 *conf = &gconf->_int64;
 
-				fprintf(fp, "%lld", (long long) *conf->variable);
+				fprintf(fp, "%" PRId64, *conf->variable);
 			}
 			break;
 
@@ -6251,7 +6251,7 @@ serialize_variable(char **destptr, Size *maxbytes,
 			{
 				struct config_int64 *conf = &gconf->_int64;
 
-				do_serialize(destptr, maxbytes, "%lld", (long long) *conf->variable);
+				do_serialize(destptr, maxbytes, "%" PRId64, *conf->variable);
 			}
 			break;
 
