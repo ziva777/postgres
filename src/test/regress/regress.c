@@ -1051,7 +1051,7 @@ CheckNewPage(char *msg, Page page)
 	else if (HeapPageIsDoubleXmax(page))
 		elog(INFO, "%s: page is converted into double xmax format", msg);
 	else
-		elog(ERROR, "%s: converted page has pageSpecial size %u, expected %" PRIu64,
+		elog(ERROR, "%s: converted page has pageSpecial size %u, expected %zu",
 			 msg, size, MAXALIGN(sizeof(HeapPageSpecialData)));
 }
 
