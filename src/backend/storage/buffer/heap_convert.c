@@ -21,7 +21,58 @@
 #include "storage/checksum.h"
 
 static void repack_heap_tuples(Relation rel, Page page, Buffer buf,
-							   BlockNumber blkno, bool double_xmax);
+							   BlockNumber blkno, bool double_xmax,
+							   bool *need_xlog);
+
+/*
+ * Convert heap/toast page into 64-xid format.
+ *
+ * Return value:
+ * true - means that the full-page image should be written for converted page.
+ */
+static bool
+convert_page_internal(Relation rel, Page page, Buffer buf, BlockNumber blkno)
+{
+	PageHeader	hdr = (PageHeader) page;
+	bool		try_double_xmax,
+				need_xlog = false;
+
+	switch (rel->rd_rel->relkind)
+	{
+		case RELKIND_TOASTVALUE:
+			try_double_xmax = hdr->pd_upper - hdr->pd_lower <
+									MAXALIGN(sizeof(ToastPageSpecialData));
+			repack_heap_tuples(rel, page, buf, blkno, try_double_xmax,
+							   &need_xlog);
+			break;
+		case RELKIND_RELATION:
+		case RELKIND_PARTITIONED_TABLE:
+		case RELKIND_MATVIEW:
+			try_double_xmax = hdr->pd_upper - hdr->pd_lower <
+									MAXALIGN(sizeof(HeapPageSpecialData));
+			repack_heap_tuples(rel, page, buf, blkno, try_double_xmax,
+							   &need_xlog);
+			break;
+		case RELKIND_INDEX:
+			/* no need to convert index */
+		case RELKIND_SEQUENCE:
+			/* no real need to convert sequences */
+			break;
+		default:
+			ereport(ERROR,
+					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					 errmsg("conversion for blkno %u, relation \"%s\" cannot be done",
+							blkno, RelationGetRelationName(rel)),
+					 errdetail_relkind_not_supported(rel->rd_rel->relkind)));
+	}
+
+	hdr->pd_checksum = pg_checksum_page((char *) page, blkno);
+
+	PageSetPageSizeAndVersion(page, PageGetPageSize(page),
+							  PG_PAGE_LAYOUT_VERSION);
+
+	return need_xlog;
+}
 
 /*
  * itemoffcompare
@@ -36,97 +87,71 @@ itemoffcompare(const void *item1, const void *item2)
 }
 
 /*
- * Lazy page conversion from 32-bit to 64-bit XID at first read.
+ * Verify the checksums. There is no point in trying to convert invalid data,
+ * thus bails out with ERROR on failure.
  */
-void
-convert_page(Relation rel, Page page, Buffer buf, BlockNumber blkno)
+static void
+verify_checksum(Page page, BlockNumber blkno)
 {
-	static unsigned		logcnt = 0;
-	bool				logit;
-	PageHeader			hdr = (PageHeader) page;
-	GenericXLogState   *state = NULL;
-	uint16				checksum;
-	bool				try_double_xmax;
+	PageHeader hdr = (PageHeader) page;
 
-	/* Not during XLog replaying */
-	Assert(rel != NULL);
-
-	/* Verify checksum */
 	if (hdr->pd_checksum)
 	{
-		checksum = pg_checksum_page((char *) page, blkno);
+		uint16 checksum = pg_checksum_page((char *) page, blkno);
+
 		if (checksum != hdr->pd_checksum)
 			ereport(ERROR,
 					(errcode(ERRCODE_INDEX_CORRUPTED),
 					 errmsg("page verification failed, calculated checksum %u but expected %u",
 							checksum, hdr->pd_checksum)));
 	}
+}
+
+/*
+ * Lazy page conversion from 32-bit to 64-bit XID at first read.
+ */
+void
+convert_page(Relation rel, Page page, Buffer buf, BlockNumber blkno)
+{
+	GenericXLogState   *state = NULL;
+	bool				fpw,
+						fpw_need;
+
+	/* Not during XLog replaying */
+	Assert(rel != NULL);
+
+	verify_checksum(page, blkno);
 
 	/*
-	 * We occasionally force logging of page conversion, so never-changed
-	 * pages are converted in the end. FORCE_LOG_EVERY is chosen arbitrarily
-	 * to log neither too much nor too little.
+	 * It is time to decide whether we may need FPW or not.
 	 */
-#define FORCE_LOG_EVERY 128
-	logit = !RecoveryInProgress() && XLogIsNeeded() && RelationNeedsWAL(rel);
-	logit = logit && (++logcnt % FORCE_LOG_EVERY) == 0;
-	if (logit)
+	fpw = !RecoveryInProgress() && XLogIsNeeded() && RelationNeedsWAL(rel);
+	if (fpw)
 	{
-		state = GenericXLogStart(rel);
-		page = GenericXLogRegisterBuffer(state, buf,
-										 GENERIC_XLOG_FULL_IMAGE);
-		hdr = (PageHeader) page;
-	}
-#ifdef USE_ASSERT_CHECKING
-	else
-	{
-		/* Not already converted */
+		/* Not on a converted page. */
 		Assert(PageGetPageLayoutVersion(page) != PG_PAGE_LAYOUT_VERSION);
-		/* Page in 32-bit xid format should not have PageSpecial. */
 		Assert(PageGetSpecialSize(page) == 0);
-	}
-#endif
 
-	switch (rel->rd_rel->relkind)
-	{
-		case 't':
-			try_double_xmax = hdr->pd_upper - hdr->pd_lower <
-									MAXALIGN(sizeof(ToastPageSpecialData));
-			repack_heap_tuples(rel, page, buf, blkno, try_double_xmax);
-			break;
-		case 'r':
-		case 'p':
-		case 'm':
-			try_double_xmax = hdr->pd_upper - hdr->pd_lower <
-									MAXALIGN(sizeof(HeapPageSpecialData));
-			repack_heap_tuples(rel, page, buf, blkno, try_double_xmax);
-			break;
-		case 'i':
-			/* no need to convert index */
-		case 'S':
-			/* no real need to convert sequences */
-			break;
-		default:
-			ereport(ERROR,
-					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-					 errmsg("conversion for relation \"%s\" cannot be done",
-							RelationGetRelationName(rel)),
-					 errdetail_relkind_not_supported(rel->rd_rel->relkind)));
+		state = GenericXLogStart(rel);
+		page = GenericXLogRegisterBuffer(state, buf, GENERIC_XLOG_FULL_IMAGE);
 	}
 
-	hdr->pd_checksum = pg_checksum_page((char *) page, blkno);
+	fpw_need = convert_page_internal(rel, page, buf, blkno);
 
-	PageSetPageSizeAndVersion(page, PageGetPageSize(page),
-							  PG_PAGE_LAYOUT_VERSION);
-
-	if (logit)
+	if (fpw && fpw_need)
 	{
 		/*
 		 * Finish logging buffer conversion and mark buffer as dirty.
 		 */
-		Assert(state != NULL);
 		MarkBufferDirty(buf);
 		GenericXLogFinish(state);
+	}
+	else if (fpw)
+	{
+		/*
+		 * Nothing to log, just abort.
+		 */
+		GenericXLogAbort(state);
 	}
 	else
 	{
@@ -374,7 +399,7 @@ heap_page_set_base(Page page,
  */
 static void
 repack_heap_tuples(Relation rel, Page page, Buffer buf, BlockNumber blkno,
-				   bool try_double_xmax)
+				   bool try_double_xmax, bool *need_xlog)
 {
 	ItemIdCompactData	items[MaxHeapTuplesPerPage];
 	ItemIdCompact		itemPtr = items;
@@ -396,6 +421,9 @@ repack_heap_tuples(Relation rel, Page page, Buffer buf, BlockNumber blkno,
 	TransactionId		xid_base = rel->rd_rel->relfrozenxid,
 						xid_min = MaxTransactionId,
 						xid_max = InvalidTransactionId;
+
+	if (try_double_xmax)
+		*need_xlog = true;
 
 	toast = IsToastRelation(rel);
 
@@ -505,7 +533,7 @@ repack_heap_tuples(Relation rel, Page page, Buffer buf, BlockNumber blkno,
 		}
 		else
 		{
-			repack_heap_tuples(rel, page, buf, blkno, true);
+			repack_heap_tuples(rel, page, buf, blkno, true, need_xlog);
 			return;
 		}
 	}
