@@ -1276,7 +1276,6 @@ GetMultiXactIdMembers(MultiXactId multi, MultiXactMember **members,
 	int			slotno;
 	MultiXactOffset offset;
 	int			length;
-	int			truelength;
 	MultiXactId oldestMXact;
 	MultiXactId nextMXact;
 	MultiXactId tmpMXact;
@@ -1375,15 +1374,6 @@ GetMultiXactIdMembers(MultiXactId multi, MultiXactMember **members,
 	 * we have just for this; the process in charge will signal the CV as soon
 	 * as it has finished writing the multixact offset.
 	 *
-	 * 3. Because GetNewMultiXactId increments offset zero to offset one to
-	 * handle case #2, there is an ambiguity near the point of offset
-	 * wraparound.  If we see next multixact's offset is one, is that our
-	 * multixact's actual endpoint, or did it end at zero with a subsequent
-	 * increment?  We handle this using the knowledge that if the zero'th
-	 * member slot wasn't filled, it'll contain zero, and zero isn't a valid
-	 * transaction ID so it can't be a multixact member.  Therefore, if we
-	 * read a zero from the members array, just ignore it.
-	 *
 	 * This is all pretty messy, but the mess occurs only in infrequent corner
 	 * cases, so it seems better than holding the MultiXactGenLock for a long
 	 * time on every multixact creation.
@@ -1467,6 +1457,9 @@ retry:
 	LWLockRelease(lock);
 	lock = NULL;
 
+	/* A multixid with zero members should not happen */
+	Assert(length > 0);
+
 	/*
 	 * If we slept above, clean up state; it's no longer needed.
 	 */
@@ -1475,7 +1468,6 @@ retry:
 
 	ptr = (MultiXactMember *) palloc(length * sizeof(MultiXactMember));
 
-	truelength = 0;
 	prev_pageno = -1;
 	for (int i = 0; i < length; i++, offset++)
 	{
@@ -1513,36 +1505,27 @@ retry:
 		xactptr = (TransactionId *)
 			(MultiXactMemberCtl->shared->page_buffer[slotno] + memberoff);
 
-		if (!TransactionIdIsValid(*xactptr))
-		{
-			/* Corner case 3: we must be looking at unused slot zero */
-			Assert(offset == 0);
-			continue;
-		}
+		Assert(TransactionIdIsValid(*xactptr));
 
 		flagsoff = MXOffsetToFlagsOffset(offset);
 		bshift = MXOffsetToFlagsBitShift(offset);
 		flagsptr = (uint32 *) (MultiXactMemberCtl->shared->page_buffer[slotno] + flagsoff);
 
-		ptr[truelength].xid = *xactptr;
-		ptr[truelength].status = (*flagsptr >> bshift) & MXACT_MEMBER_XACT_BITMASK;
-		truelength++;
+		ptr[i].xid = *xactptr;
+		ptr[i].status = (*flagsptr >> bshift) & MXACT_MEMBER_XACT_BITMASK;
 	}
 
 	LWLockRelease(lock);
 
-	/* A multixid with zero members should not happen */
-	Assert(truelength > 0);
-
 	/*
 	 * Copy the result into the local cache.
 	 */
-	mXactCachePut(multi, truelength, ptr);
+	mXactCachePut(multi, length, ptr);
 
 	debug_elog3(DEBUG2, "GetMembers: no cache for %s",
-				mxid_to_string(multi, truelength, ptr));
+				mxid_to_string(multi, length, ptr));
 	*members = ptr;
-	return truelength;
+	return length;
 }
 
 /*

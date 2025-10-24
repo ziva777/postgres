@@ -49,6 +49,8 @@
 #include "common/restricted_token.h"
 #include "fe_utils/string_utils.h"
 #include "pg_upgrade.h"
+#include "multixact_old.h"
+#include "multixact_new.h"
 
 /*
  * Maximum number of pg_restore actions (TOC entries) to process within one
@@ -769,6 +771,82 @@ copy_subdir_files(const char *old_subdir, const char *new_subdir)
 	check_ok();
 }
 
+/*
+ * Convert pg_multixact/offset and /members to new format with 64-bit offsets.
+ */
+static void
+convert_multixacts(MultiXactId *new_nxtmulti, MultiXactOffset *new_nxtmxoff)
+{
+	MultiXactId			oldest_multi,
+						next_multi;
+	OldMultiXactReader *old_reader;
+	MultiXactWriter	   *new_writer;
+
+	old_reader = AllocOldMultiXactRead(old_cluster.pgdata,
+									   old_cluster.controldata.chkpnt_nxtmulti,
+									   old_cluster.controldata.chkpnt_nxtmxoff);
+	new_writer = AllocMultiXactWrite(new_cluster.pgdata,
+									 old_cluster.controldata.chkpnt_oldstMulti,
+									 1 /* see below */);
+
+	oldest_multi = old_cluster.controldata.chkpnt_oldstMulti;
+	next_multi = old_cluster.controldata.chkpnt_nxtmulti;
+
+	/* handle wraparound */
+	if (next_multi < FirstMultiXactId)
+		next_multi = FirstMultiXactId;
+
+	/*
+	 * Read multixids from old files one by one, and write them back in the new
+	 * format.
+	 *
+	 * The locking-only XIDs that may be part of multi-xids don't matter after
+	 * upgrade, as there can be no transactions running across upgrade.  So as
+	 * a little optimization, we only read one member from each multixid: the
+	 * one updating one, or if there was no update, arbitrarily the first
+	 * locking xid.
+	 */
+	for (MultiXactId multi = oldest_multi; multi != next_multi;)
+	{
+		TransactionId		xid;
+		MultiXactStatus		status;
+		MultiXactMember		member;
+		MultiXactId			new_multi PG_USED_FOR_ASSERTS_ONLY;
+		MultiXactOffset		offset;
+
+		/* Read the old multixid */
+		GetOldMultiXactIdSingleMember(old_reader, multi, &xid, &status);
+
+		/* Write it out in new format */
+		member.xid = xid;
+		member.status = status;
+		new_multi = GetNewMultiXactId(new_writer, 1, &offset);
+
+		Assert(new_multi == multi);
+
+		RecordNewMultiXact(new_writer, offset, multi, 1, &member);
+
+		multi++;
+		/* handle wraparound */
+		if (multi < FirstMultiXactId)
+			multi = FirstMultiXactId;
+	}
+
+	/*
+	 * Update the nextMXact/Offset values in the control file to match what we
+	 * wrote.  The nextMXact should be unchanged, but because we ignored the
+	 * locking XIDs members, the nextOffset will be different.
+	 */
+	Assert(new_writer->nextMXact == next_multi);
+
+	*new_nxtmulti = next_multi;
+	*new_nxtmxoff = new_writer->nextOffset;
+
+	/* Release resources */
+	FreeMultiXactWrite(new_writer);
+	FreeOldMultiXactReader(old_reader);
+}
+
 static void
 copy_xact_xlog_xid(void)
 {
@@ -816,8 +894,28 @@ copy_xact_xlog_xid(void)
 	if (old_cluster.controldata.cat_ver >= MULTIXACT_FORMATCHANGE_CAT_VER &&
 		new_cluster.controldata.cat_ver >= MULTIXACT_FORMATCHANGE_CAT_VER)
 	{
-		copy_subdir_files("pg_multixact/offsets", "pg_multixact/offsets");
-		copy_subdir_files("pg_multixact/members", "pg_multixact/members");
+		MultiXactId		new_nxtmulti = old_cluster.controldata.chkpnt_nxtmulti;
+		MultiXactOffset new_nxtmxoff = old_cluster.controldata.chkpnt_nxtmxoff;
+
+		/*
+		 * If the old server is before the MULTIXACTOFFSET_FORMATCHANGE_CAT_VER
+		 * it must have 32-bit multixid offsets, thus it should be converted.
+		 */
+		if (old_cluster.controldata.cat_ver < MULTIXACTOFFSET_FORMATCHANGE_CAT_VER &&
+			new_cluster.controldata.cat_ver >= MULTIXACTOFFSET_FORMATCHANGE_CAT_VER)
+		{
+			remove_new_subdir("pg_multixact/members", false);
+			remove_new_subdir("pg_multixact/offsets", false);
+
+			prep_status("Converting pg_multixact/offsets to 64-bit");
+			convert_multixacts(&new_nxtmulti, &new_nxtmxoff);
+			check_ok();
+		}
+		else
+		{
+			copy_subdir_files("pg_multixact/offsets", "pg_multixact/offsets");
+			copy_subdir_files("pg_multixact/members", "pg_multixact/members");
+		}
 
 		prep_status("Setting next multixact ID and offset for new cluster");
 
@@ -826,10 +924,8 @@ copy_xact_xlog_xid(void)
 		 * counters here and the oldest multi present on system.
 		 */
 		exec_prog(UTILITY_LOG_FILE, NULL, true, true,
-				  "\"%s/pg_resetwal\" -O %u -m %u,%u \"%s\"",
-				  new_cluster.bindir,
-				  old_cluster.controldata.chkpnt_nxtmxoff,
-				  old_cluster.controldata.chkpnt_nxtmulti,
+				  "\"%s/pg_resetwal\" -O %" PRIu64 " -m %u,%u \"%s\"",
+				  new_cluster.bindir, new_nxtmxoff, new_nxtmulti,
 				  old_cluster.controldata.chkpnt_oldstMulti,
 				  new_cluster.pgdata);
 		check_ok();
