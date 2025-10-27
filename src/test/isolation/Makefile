@@ -5,6 +5,8 @@
 PGFILEDESC = "pg_isolation_regress/isolationtester - multi-client test driver"
 PGAPPICON = win32
 
+EXTRA_INSTALL=contrib/btree_gin contrib/btree_gist
+
 subdir = src/test/isolation
 top_builddir = ../../..
 include $(top_builddir)/src/Makefile.global
