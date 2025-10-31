@@ -777,10 +777,10 @@ copy_subdir_files(const char *old_subdir, const char *new_subdir)
 static void
 convert_multixacts(MultiXactId *new_nxtmulti, MultiXactOffset *new_nxtmxoff)
 {
-	MultiXactId			oldest_multi,
-						next_multi;
 	OldMultiXactReader *old_reader;
 	MultiXactWriter	   *new_writer;
+	MultiXactId			oldest_multi,
+						next_multi;
 
 	old_reader = AllocOldMultiXactRead(old_cluster.pgdata,
 									   old_cluster.controldata.chkpnt_nxtmulti,
@@ -833,11 +833,23 @@ convert_multixacts(MultiXactId *new_nxtmulti, MultiXactOffset *new_nxtmxoff)
 	}
 
 	/*
+	 * Handle wraparound of the nextMXact counter.
+	 *
+	 * NOTE: handle wraparound here because GetNewMultiXactId does so prior to
+	 * assigning a new value, thus new_writer->nextMXact may be in the
+	 * wraparound state.
+	 */
+	if (new_writer->nextMXact < FirstMultiXactId)
+		new_writer->nextMXact = FirstMultiXactId;
+
+	/* Make sure all mxacts are processed. */
+	Assert(new_writer->nextMXact == next_multi);
+
+	/*
 	 * Update the nextMXact/Offset values in the control file to match what we
 	 * wrote.  The nextMXact should be unchanged, but because we ignored the
 	 * locking XIDs members, the nextOffset will be different.
 	 */
-	Assert(new_writer->nextMXact == next_multi);
 
 	*new_nxtmulti = next_multi;
 	*new_nxtmxoff = new_writer->nextOffset;
@@ -908,11 +920,16 @@ copy_xact_xlog_xid(void)
 			remove_new_subdir("pg_multixact/offsets", false);
 
 			prep_status("Converting pg_multixact/offsets to 64-bit");
+			/* convert_multixacts handles new_nxtmulti wraparound */
 			convert_multixacts(&new_nxtmulti, &new_nxtmxoff);
 			check_ok();
 		}
 		else
 		{
+			/* handle wraparound */
+			if (new_nxtmulti < FirstMultiXactId)
+				new_nxtmulti = FirstMultiXactId;
+
 			copy_subdir_files("pg_multixact/offsets", "pg_multixact/offsets");
 			copy_subdir_files("pg_multixact/members", "pg_multixact/members");
 		}
