@@ -16,7 +16,8 @@ use Test::More;
 
 unless (defined($ENV{oldinstall}))
 {
-	plan skip_all => 'to run test set oldinstall environment variable to the pre 64-bit mxoff cluster';
+	plan skip_all =>
+		'to run test set oldinstall environment variable to the pre 64-bit mxoff cluster';
 }
 
 # Temp dir for a dumps.
@@ -37,20 +38,20 @@ sub next_mxoff
 	my ($stdout, $stderr) = run_command([ $pg_controldata_path,
 											$node->data_dir ]);
 	my @control_data = split("\n", $stdout);
-	my $next_mxoff = undef;
+	my $next = undef;
 
 	foreach (@control_data)
 	{
 		if ($_ =~ /^Latest checkpoint's NextMultiOffset:\s*(.*)$/mg)
 		{
-			$next_mxoff = $1;
+			$next = $1;
 			last;
 		}
 	}
 	die "NextMultiOffset not found in control file\n"
-		unless defined($next_mxoff);
+		unless defined($next);
 
-	return $next_mxoff;
+	return $next;
 }
 
 # Consume around 10k of mxoffsets.
@@ -68,7 +69,6 @@ sub mxact_eater
 		"       WITH (AUTOVACUUM_ENABLED=FALSE);" .
 		"INSERT INTO ${tbl} SELECT G, 0 FROM GENERATE_SERIES(1, 50) G;");
 
-	# consume around 10k mxoff
 	my $nclients = 10;
 	my $update_every = 75;
 	my @connections = ();
@@ -128,7 +128,6 @@ sub mxact_huge_eater
 		"       WITH (AUTOVACUUM_ENABLED=FALSE);" .
 		"INSERT INTO ${tbl} SELECT G, 0 FROM GENERATE_SERIES(1, 50) G;");
 
-	# consume around 1M mxoff
 	my $nclients = 10;
 	my $update_every = 95;
 	my @connections = ();
@@ -147,7 +146,7 @@ sub mxact_huge_eater
 	my $n_steps = 200_000;
 	my $step = int($n_steps / 10);
 
-	diag "\nstart to consume mxoffsets ...\n";
+	diag "start to consume mxoffsets ...\n";
 	for (my $i = 0; $i < $n_steps; $i++)
 	{
 		my $conn = $connections[$i % $nclients];
@@ -190,35 +189,72 @@ sub mxact_huge_eater
 	return $mxoff1, $mxoff2;
 }
 
-# Set oldest multixact-offset
+# Handy pg_resetwal wrapper
 sub reset_mxoff
 {
-	my $node = shift;
-	my $offset = shift;
+	my %args = @_;
 
-	my $pg_resetwal_path = $node->install_path . '/bin/pg_resetwal';
+	my $node = $args{node};
+	my $offset = $args{offset};
+	my $multi = $args{multi};
 
-	# Get block size
-	my $out = (run_command([ $pg_resetwal_path, '--dry-run',
-							 $node->data_dir ]))[0];
+	my $pre_64mxoff = defined($node->install_path);
+	my $pg_resetwal_path = $pre_64mxoff ?
+							$node->install_path . '/bin/pg_resetwal' :
+							'pg_resetwal';
+	my $blcksz = sub # Get block size
+	{
+		my $out = (run_command([ $pg_resetwal_path, '--dry-run',
+								 $node->data_dir ]))[0];
 		$out =~ /^Database block size: *(\d+)$/m or die;
-	my $blcksz = $1;
+		return $1;
+	}->();
 
-	# Reset to new offset
-	my @cmd = ($pg_resetwal_path, '--pgdata' => $node->data_dir);
-	push @cmd, '--multixact-offset' => $offset;
-	command_ok(\@cmd, 'set oldest multixact-offset');
+	my @cmd;
 
-	# Fill empty pg_multixact/members segment
-	my $mult = 32 * int($blcksz / 20) * 4;
-	my $segname = sprintf "%04X", $offset / $mult;
+	# Reset cluster
+	@cmd = ($pg_resetwal_path, '--pgdata' => $node->data_dir);
+	if (defined($offset))
+	{
+		push @cmd, '--multixact-offset' => $offset;
+	}
+	if (defined($multi))
+	{
+		push @cmd, "--multixact-ids=$multi,$multi";
+	}
+	command_ok(\@cmd, 'reset multi/offset');
 
-	my @dd = ('dd');
-	push @dd, "if=/dev/zero";
-	push @dd, "of=" . $node->data_dir . "/pg_multixact/members/" . $segname;
-	push @dd, "bs=$blcksz";
-	push @dd, "count=32";
-	command_ok(\@dd, 'fill empty multixact-members');
+	my $n_items;
+	my $segname;
+
+	# Fill empty pg_multixact segments
+	if (defined($offset))
+	{
+		$n_items = 32 * int($blcksz / 20) * 4;
+		$segname = sprintf $pre_64mxoff ? "%04X" : "%015X", ($offset / $n_items);
+		$segname = $node->data_dir . "/pg_multixact/members/" . $segname;
+
+		@cmd = ('dd');
+		push @cmd, "if=/dev/zero";
+		push @cmd, "of=" . $segname;
+		push @cmd, "bs=$blcksz";
+		push @cmd, "count=32";
+		command_ok(\@cmd, 'fill empty multixact-members');
+	}
+
+	if (defined($multi))
+	{
+		$n_items = 32 * int($blcksz / ($pre_64mxoff ? 4 : 8));
+		$segname = sprintf "%04X", $multi / $n_items;
+		$segname = $node->data_dir . "/pg_multixact/offsets/" . $segname;
+
+		@cmd = ('dd');
+		push @cmd, "if=/dev/zero";
+		push @cmd, "of=" . $segname;
+		push @cmd, "bs=$blcksz";
+		push @cmd, "count=32";
+		command_ok(\@cmd, 'fill empty multixact-offsets');
+	}
 }
 
 sub get_dump_for_comparison
@@ -248,7 +284,7 @@ sub get_dump_for_comparison
 
 # Main test workhorse routine.
 # Make pg_upgrade, dump data and compare it.
-sub run_test
+sub run_test_core
 {
 	my $tag = shift;
 	my $oldnode = shift;
@@ -296,20 +332,91 @@ sub to_hex
 	return $arg;
 }
 
-# case #1: start old node from defaults
+#
+# Per BUG #18863 and BUG #18865
+#
+sub test_in_wraparound_state
 {
-	my $tag = 1;
+	my $tag = shift;
+	my $old = shift;
+	my $new = shift;
+
+	my $pre_64mxoff_cluster = defined($old->install_path);
+
+	$old->init(extra => ['-k']);
+
+	reset_mxoff(node => $old, multi => 4294967295, offset => 429496729);
+
+	# Create multi transactions
+	$old->start;
+	$old->safe_psql('postgres',
+	qq(
+		CREATE TABLE test_table (id integer NOT NULL PRIMARY KEY, val text);
+		INSERT INTO test_table VALUES (1, 'a');
+	));
+
+	my $conn1 = $old->background_psql('postgres');
+	my $conn2 = $old->background_psql('postgres');
+
+	$conn1->query_safe(qq(
+		BEGIN;
+		SELECT * FROM test_table WHERE id = 1 FOR SHARE;
+	));
+	$conn2->query_safe(qq(
+		BEGIN;
+		SELECT * FROM test_table WHERE id = 1 FOR SHARE;
+	));
+
+	$conn1->query_safe(qq(COMMIT;));
+	$conn2->query_safe(qq(COMMIT;));
+
+	$conn1->quit;
+	$conn2->quit;
+
+	$old->stop;
+
+	$new->init;
+
+	run_test_core($tag, $old, $new);
+}
+
+#
+# case #0: old cluster in wraparound state
+#
+test_in_wraparound_state(1,
+	PostgreSQL::Test::Cluster->new("oldnode_in_wraparound_1"),
+	PostgreSQL::Test::Cluster->new("newnode_in_wraparound_1"));
+
+test_in_wraparound_state(2,
+	PostgreSQL::Test::Cluster->new("oldnode_in_wraparound_2",
+								   install_path => $ENV{oldinstall}),
+	PostgreSQL::Test::Cluster->new("newnode_in_wraparound_2"));
+
+sub test
+{
+	my %args = @_;
+
+	my $tag = $args{tag};
+	my $mxoff = $args{offset};
+	my $eater = defined($args{func}) ? $args{func} : \&mxact_eater;
+
 	my $old =
 		PostgreSQL::Test::Cluster->new("oldnode${tag}",
 									   install_path => $ENV{oldinstall});
+
 	$old->init(extra => ['-k']);
 
-	my ($start_mxoff, $finish_mxoff) = mxact_eater($old);
+	if (defined($mxoff))
+	{
+		reset_mxoff(node => $old, offset => $mxoff);
+	}
+
+	my ($start_mxoff, $finish_mxoff) = $eater->($old);
 
 	my $new = PostgreSQL::Test::Cluster->new("newnode${tag}");
 	$new->init;
 
-	run_test($tag, $old, $new);
+	run_test_core($tag, $old, $new);
 
 	$start_mxoff = to_hex($start_mxoff);
 	$finish_mxoff = to_hex($finish_mxoff);
@@ -321,141 +428,24 @@ sub to_hex
 		 " newnode mxoff ${next_mxoff}\n";
 }
 
-# case #2: start old node from before 32-bit wraparound
-{
-	my $tag = 2;
-	my $old =
-		PostgreSQL::Test::Cluster->new("oldnode${tag}",
-									   install_path => $ENV{oldinstall});
+#
+# Tests for a single segment
+#
+test(tag => 1);
+test(tag => 2, offset => 0xFFFF0000);
+test(tag => 3, offset => 0xFFFFEC77);
 
-	$old->init(extra => ['-k']);
-	reset_mxoff($old, 0xFFFF0000);
+#
+# Test for a multiple segments
+# mxact_huge_eater will comsume >2M offsets
+#
+diag "\ntest #4 for multiple mxoff segments";
+test(tag => 4, func => \&mxact_huge_eater);
 
-	my ($start_mxoff, $finish_mxoff) = mxact_eater($old);
+diag "\ntest #5 for multiple mxoff segments";
+test(tag => 5, func => \&mxact_huge_eater, offset => 0xFFFF0000);
 
-	my $new = PostgreSQL::Test::Cluster->new("newnode${tag}");
-	$new->init;
-
-	run_test($tag, $old, $new);
-
-	$start_mxoff = to_hex($start_mxoff);
-	$finish_mxoff = to_hex($finish_mxoff);
-
-	my $next_mxoff = to_hex(next_mxoff($new));
-
-	note ">>> case #${tag}\n" .
-		 " oldnode mxoff from ${start_mxoff} to ${finish_mxoff}\n" .
-		 " newnode mxoff ${next_mxoff}\n";
-}
-
-# case #3: start old node near 32-bit wraparound and reach wraparound state.
-{
-	my $tag = 3;
-	my $old =
-		PostgreSQL::Test::Cluster->new("oldnode${tag}",
-									   install_path => $ENV{oldinstall});
-
-	$old->init(extra => ['-k']);
-
-	reset_mxoff($old, 0xFFFFEC77);
-	my ($start_mxoff, $finish_mxoff) = mxact_eater($old);
-
-	my $new = PostgreSQL::Test::Cluster->new("newnode${tag}");
-	$new->init;
-
-	run_test($tag, $old, $new);
-
-	$start_mxoff = to_hex($start_mxoff);
-	$finish_mxoff = to_hex($finish_mxoff);
-
-	my $next_mxoff = to_hex(next_mxoff($new));
-
-	note ">>> case #${tag}\n" .
-		 " oldnode mxoff from ${start_mxoff} to ${finish_mxoff}\n" .
-		 " newnode mxoff ${next_mxoff}\n";
-}
-
-# case #4: start old node from defaults
-{
-	my $tag = 4;
-	my $old =
-		PostgreSQL::Test::Cluster->new("oldnode${tag}",
-									   install_path => $ENV{oldinstall});
-
-	$old->init(extra => ['-k']);
-
-	diag "test #${tag} for multiple mxoff segments";
-	my ($start_mxoff, $finish_mxoff) = mxact_huge_eater($old);
-
-	my $new = PostgreSQL::Test::Cluster->new("newnode${tag}");
-	$new->init;
-
-	run_test($tag, $old, $new);
-
-	$start_mxoff = to_hex($start_mxoff);
-	$finish_mxoff = to_hex($finish_mxoff);
-
-	my $next_mxoff = to_hex(next_mxoff($new));
-
-	note ">>> case #${tag}\n" .
-		 " oldnode mxoff from ${start_mxoff} to ${finish_mxoff}\n" .
-		 " newnode mxoff ${next_mxoff}\n";
-}
-
-# case #5: start old node from before 32-bit wraparound
-{
-	my $tag = 5;
-	my $old =
-		PostgreSQL::Test::Cluster->new("oldnode${tag}",
-									   install_path => $ENV{oldinstall});
-
-	$old->init(extra => ['-k']);
-	reset_mxoff($old, 0xFFFF0000);
-
-	diag "test #${tag} for multiple mxoff segments";
-	my ($start_mxoff, $finish_mxoff) = mxact_huge_eater($old);
-
-	my $new = PostgreSQL::Test::Cluster->new("newnode${tag}");
-	$new->init;
-
-	run_test($tag, $old, $new);
-
-	$start_mxoff = to_hex($start_mxoff);
-	$finish_mxoff = to_hex($finish_mxoff);
-
-	my $next_mxoff = to_hex(next_mxoff($new));
-
-	note ">>> case #${tag}\n" .
-		 " oldnode mxoff from ${start_mxoff} to ${finish_mxoff}\n" .
-		 " newnode mxoff ${next_mxoff}\n";
-}
-
-# case #6: start old node near 32-bit wraparound and reach wraparound state.
-{
-	my $tag = 6;
-	my $old =
-		PostgreSQL::Test::Cluster->new("oldnode${tag}",
-									   install_path => $ENV{oldinstall});
-
-	$old->init(extra => ['-k']);
-
-	reset_mxoff($old, 0xFFFFFFFF - 1_000_000);
-	my ($start_mxoff, $finish_mxoff) = mxact_huge_eater($old);
-
-	diag "test #${tag} for multiple mxoff segments";
-	my $new = PostgreSQL::Test::Cluster->new("newnode${tag}");
-	$new->init;
-
-	run_test($tag, $old, $new);
-
-	$start_mxoff = to_hex($start_mxoff);
-	$finish_mxoff = to_hex($finish_mxoff);
-
-	my $next_mxoff = to_hex(next_mxoff($new));
-
-	note ">>> case #${tag}\n" .
-		 " oldnode mxoff from ${start_mxoff} to ${finish_mxoff}\n" .
-		 " newnode mxoff ${next_mxoff}\n";
-}
+diag "\ntest #r65 for multiple mxoff segments";
+test(tag => 6, func => \&mxact_huge_eater, offset => 0xFFFFFFFF - 1_000_000);
 
 done_testing();
