@@ -908,11 +908,16 @@ copy_xact_xlog_xid(void)
 			remove_new_subdir("pg_multixact/offsets", false);
 
 			prep_status("Converting pg_multixact/offsets to 64-bit");
+			/* convert_multixacts handles new_nxtmulti wraparound */
 			convert_multixacts(&new_nxtmulti, &new_nxtmxoff);
 			check_ok();
 		}
 		else
 		{
+			/* handle wraparound */
+			if (new_nxtmulti < FirstMultiXactId)
+				new_nxtmulti = FirstMultiXactId;
+
 			copy_subdir_files("pg_multixact/offsets", "pg_multixact/offsets");
 			copy_subdir_files("pg_multixact/members", "pg_multixact/members");
 		}
