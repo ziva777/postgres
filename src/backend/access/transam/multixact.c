@@ -1034,7 +1034,7 @@ GetNewMultiXactId(int nmembers, MultiXactOffset *offset)
 	if (nextOffset + nmembers < nextOffset)
 		ereport(ERROR,
 				(errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
-				 "MultiXact members would wrap around"));
+				 errmsg("MultiXact members would wrap around")));
 	*offset = nextOffset;
 
 	ExtendMultiXactMember(nextOffset, nmembers);
