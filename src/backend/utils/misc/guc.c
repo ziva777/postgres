@@ -795,8 +795,7 @@ set_stack_value(struct config_generic *gconf, config_var_value *val)
 			val->val.intval = *gconf->_int.variable;
 			break;
 		case PGC_INT64:
-			val->val.int64val =
-				*((struct config_int64 *) gconf)->variable;
+			val->val.int64val = *gconf->_int64.variable;
 			break;
 		case PGC_REAL:
 			val->val.realval = *gconf->_real.variable;
@@ -5655,6 +5654,32 @@ ShowGUCOption(const struct config_generic *record, bool use_units)
 
 		case PGC_INT64:
 			{
+				const struct config_int *conf = &record->_int;
+
+				if (conf->show_hook)
+					val = conf->show_hook();
+				else
+				{
+					/*
+					 * Use int64 arithmetic to avoid overflows in units
+					 * conversion.
+					 */
+					int64		result = *conf->variable;
+					const char *unit;
+
+					if (use_units && result > 0 && (record->flags & GUC_UNIT))
+						convert_int_from_base_unit(result,
+												   record->flags & GUC_UNIT,
+												   &result, &unit);
+					else
+						unit = "";
+
+					snprintf(buffer, sizeof(buffer), INT64_FORMAT "%s",
+							 result, unit);
+					val = buffer;
+				}
+			}
+			/*{
 				struct config_int64 *conf = (struct config_int64 *) record;
 
 				if (conf->show_hook)
@@ -5665,7 +5690,7 @@ ShowGUCOption(const struct config_generic *record, bool use_units)
 							 *conf->variable);
 					val = buffer;
 				}
-			}
+			}*/
 			break;
 
 		case PGC_REAL:
