@@ -699,7 +699,7 @@ GetConfigOptionValues(const struct config_generic *conf, const char **values)
 			}
 			break;
 
-		case PGC_INT64:
+		case PGC_INT_64:
 			{
 				struct config_int64 *lconf = (struct config_int64 *) conf;
 
