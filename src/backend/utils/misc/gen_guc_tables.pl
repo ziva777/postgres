@@ -130,7 +130,7 @@ sub print_table
 		printf $ofh "\t\t._%s = {\n", $entry->{type};
 		printf $ofh "\t\t\t.variable = &%s,\n", $entry->{variable};
 
-		if ($entry->{type} eq 'int64')
+		if ($entry->{type} eq 'int_64')
 		{
 			printf $ofh "\t\t\t.boot_val = INT64CONST(%s),\n", $entry->{boot_val};
 			printf $ofh "\t\t\t.min = INT64CONST(%s),\n", $entry->{min};

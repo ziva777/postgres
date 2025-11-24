@@ -90,11 +90,11 @@ printMixedStruct(const struct config_generic *structToPrint)
 				   structToPrint->_int.min,
 				   structToPrint->_int.max);
 			break;
-		case PGC_INT64:
+		case PGC_INT_64:
 			printf("INTEGER64\t%" PRIi64 "\t%" PRIi64 "\t%" PRIi64 "\t",
-				   structToPrint->_int64.reset_val,
-				   structToPrint->_int64.min,
-				   structToPrint->_int64.max);
+				   structToPrint->_int_64.reset_val,
+				   structToPrint->_int_64.min,
+				   structToPrint->_int_64.max);
 			break;
 		case PGC_REAL:
 			printf("REAL\t%g\t%g\t%g\t",

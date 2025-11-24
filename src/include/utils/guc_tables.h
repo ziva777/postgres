@@ -24,7 +24,7 @@ enum config_type
 {
 	PGC_BOOL,
 	PGC_INT,
-	PGC_INT64,
+	PGC_INT_64,
 	PGC_REAL,
 	PGC_STRING,
 	PGC_ENUM,
@@ -300,7 +300,7 @@ struct config_generic
 	{
 		struct config_bool _bool;
 		struct config_int _int;
-		struct config_int64 _int64;
+		struct config_int64 _int_64;	/* MSVC bail out on _int64 */
 		struct config_real _real;
 		struct config_string _string;
 		struct config_enum _enum;

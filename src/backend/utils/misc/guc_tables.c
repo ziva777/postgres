@@ -759,7 +759,7 @@ const char *const config_type_names[] =
 {
 	[PGC_BOOL] = "bool",
 	[PGC_INT] = "integer",
-	[PGC_INT64] = "int64",
+	[PGC_INT_64] = "int64",
 	[PGC_REAL] = "real",
 	[PGC_STRING] = "string",
 	[PGC_ENUM] = "enum",
