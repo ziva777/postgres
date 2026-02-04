@@ -1082,6 +1082,10 @@ heapam_scan_analyze_next_tuple(TableScanDesc scan, TransactionId OldestXmin,
 		targtuple->t_tableOid = RelationGetRelid(scan->rs_rd);
 		targtuple->t_data = (HeapTupleHeader) PageGetItem(targpage, itemid);
 		targtuple->t_len = ItemIdGetLength(itemid);
+		/*
+		 * Do not need HeapTupleCopyXidsFromPage here, it is inside
+		 * HeapTupleSatisfiesVacuum.
+		 */
 
 		switch (HeapTupleSatisfiesVacuum(targtuple, OldestXmin,
 										 hscan->rs_cbuf))
@@ -2167,6 +2171,8 @@ heapam_scan_bitmap_next_tuple(TableScanDesc scan,
 	hscan->rs_ctup.t_data = (HeapTupleHeader) PageGetItem(page, lp);
 	hscan->rs_ctup.t_len = ItemIdGetLength(lp);
 	hscan->rs_ctup.t_tableOid = scan->rs_rd->rd_id;
+	hscan->rs_ctup.t_xmin = hscan->rs_xmin[hscan->rs_cindex];
+	hscan->rs_ctup.t_xmax = hscan->rs_xmax[hscan->rs_cindex];
 	ItemPointerSet(&hscan->rs_ctup.t_self, hscan->rs_cblock, targoffset);
 
 	pgstat_count_heap_fetch(scan->rs_rd);
@@ -2325,6 +2331,13 @@ heapam_scan_sample_next_tuple(TableScanDesc scan, SampleScanState *scanstate,
 			tuple->t_len = ItemIdGetLength(itemid);
 			ItemPointerSet(&(tuple->t_self), blockno, tupoffset);
 
+			if (pagemode)
+			{
+				tuple->t_xmin = InvalidTransactionId;
+				tuple->t_xmax = InvalidTransactionId;
+			}
+			else
+				HeapTupleCopyXidsFromPage(tuple, page);
 
 			if (all_visible)
 				visible = true;
@@ -2590,12 +2603,16 @@ BitmapHeapScanNextBlock(TableScanDesc scan,
 			loctup.t_len = ItemIdGetLength(lp);
 			loctup.t_tableOid = scan->rs_rd->rd_id;
 			ItemPointerSet(&loctup.t_self, block, offnum);
+			/*
+			 * Do not need HeapTupleCopyXidsFromPage here, it is inside
+			 * HeapTupleSatisfiesVisibility.
+			 */
 			valid = HeapTupleSatisfiesVisibility(&loctup, snapshot, buffer);
 			if (valid)
 			{
 				hscan->rs_vistuples[ntup++] = offnum;
 				PredicateLockTID(scan->rs_rd, &loctup.t_self, snapshot,
-								 HeapTupleHeaderGetXmin(loctup.t_data));
+								 HeapTupleGetXmin(&loctup));
 			}
 			HeapCheckForSerializableConflictOut(valid, scan->rs_rd, &loctup,
 												buffer, snapshot);

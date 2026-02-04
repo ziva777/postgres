@@ -314,6 +314,7 @@ extern void BufferGetTag(Buffer buffer, RelFileLocator *rlocator,
 
 extern void MarkBufferDirtyHint(Buffer buffer, bool buffer_std);
 
+extern bool IsBufferLockHeldByMe(Buffer buffer, bool exclusive);
 extern void UnlockBuffers(void);
 extern void UnlockBuffer(Buffer buffer);
 extern void LockBufferInternal(Buffer buffer, BufferLockMode mode);

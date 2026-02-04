@@ -54,6 +54,12 @@ typedef MinimalTupleData *MinimalTuple;
  *	 this can't be told apart from case #1 by inspection; code setting up
  *	 or destroying this representation has to know what it's doing.
  *
+ * For each heap page, we store two "base" variables, xid_base and multi_base,
+ * which are common to all tuples on the page.  To obtain the actual tuple
+ * xmin/xmax, we must add the on-disk xmin/xmax values from the
+ * HeapTupleHeaderData to the matching base value.  Thus, the HeapTupleData's
+ * t_xmin/t_xmax fields must contain actual values.
+ *
  * t_len should always be valid, except in the pointer-to-nothing case.
  * t_self and t_tableOid should be valid if the HeapTupleData points to
  * a disk buffer, or if it represents a copy of a tuple on disk.  They
@@ -61,10 +67,12 @@ typedef MinimalTupleData *MinimalTuple;
  */
 typedef struct HeapTupleData
 {
+	TransactionId t_xmin;		/* calculated tuple xmin */
+	TransactionId t_xmax;		/* calculated tuple xmax */
 	uint32		t_len;			/* length of *t_data */
 	ItemPointerData t_self;		/* SelfItemPointer */
 	Oid			t_tableOid;		/* table the tuple came from */
-#define FIELDNO_HEAPTUPLEDATA_DATA 3
+#define FIELDNO_HEAPTUPLEDATA_DATA 5
 	HeapTupleHeader t_data;		/* -> tuple header and data */
 } HeapTupleData;
 

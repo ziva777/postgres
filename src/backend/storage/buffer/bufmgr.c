@@ -6409,6 +6409,30 @@ BufferLockHeldByMe(BufferDesc *buf_hdr)
 }
 
 /*
+ * Is buffer locked?
+ */
+bool
+IsBufferLockHeldByMe(Buffer buffer, bool exclusive)
+{
+	PrivateRefCountEntry *entry;
+
+	if (buffer == InvalidBuffer)
+		return true;
+
+	if (BufferIsLocal(buffer))
+		return true;		/* local buffers need no lock */
+
+	entry = GetPrivateRefCountEntry(buffer, false);
+
+	if (!entry)
+		return false;
+	else if (exclusive)
+		return entry->data.lockmode == BUFFER_LOCK_EXCLUSIVE;
+	else
+		return entry->data.lockmode != BUFFER_LOCK_UNLOCK;
+}
+
+/*
  * Release the content lock for the buffer.
  */
 void

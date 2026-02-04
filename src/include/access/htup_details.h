@@ -390,6 +390,83 @@ HeapTupleHeaderSetXmax(HeapTupleHeaderData *tup, TransactionId xid)
 	tup->t_choice.t_heap.t_xmax = xid;
 }
 
+/*
+ * HeapTupleHeader accessor functions
+ */
+
+static inline TransactionId
+HeapTupleGetXmin(const HeapTupleData *tup)
+{
+	return HeapTupleHeaderXminFrozen(tup->t_data) ?
+		FrozenTransactionId : tup->t_xmin;
+}
+
+static inline TransactionId
+HeapTupleGetRawXmin(const HeapTupleData *tup)
+{
+	return tup->t_xmin;
+}
+
+static inline TransactionId
+HeapTupleGetXmax(const HeapTupleData *tup)
+{
+	return tup->t_xmax;
+}
+
+static inline bool
+HeapTupleXminFrozen(const HeapTupleData *tup)
+{
+	return HeapTupleHeaderXminFrozen(tup->t_data);
+}
+
+static inline bool
+HeapTupleXminInvalid(const HeapTupleData *tup)
+{
+	return (tup->t_data->t_infomask & (HEAP_XMIN_COMMITTED | HEAP_XMIN_INVALID)) ==
+		HEAP_XMIN_INVALID;
+}
+
+/*
+ * Calculate in-memory tuple t_xmin and t_xmax.  Should be called each time
+ * tuple is read from the page.
+ *
+ * NOTE: we expect the buffer corresponding to the page to be locked here.
+ */
+static inline void
+HeapTupleCopyXidsFromPage(HeapTupleData *tup, Page page)
+{
+	PageHeader		pageheader = (PageHeader) page;
+	Offset			pd_special = pageheader->pd_special;
+	TransactionId	xmin = HeapTupleHeaderGetRawXmin(tup->t_data),
+					xmax = HeapTupleHeaderGetRawXmax(tup->t_data);
+
+	/* check for a garbage data */
+	if (unlikely(pd_special != HeapPageSpecialOffset &&
+				 pd_special != ToastPageSpecialOffset))
+		ereport(PANIC,
+				(errcode(ERRCODE_DATA_CORRUPTED),
+				 errmsg_internal("unknown heap special size %d",
+								 (int) pd_special)));
+
+	/* calc t_xmin */
+	if (HeapTupleHeaderXminFrozen(tup->t_data))
+		tup->t_xmin = FrozenTransactionId;
+	else if (TransactionIdIsNormal(xmin))
+		tup->t_xmin = xmin + (pd_special == HeapPageSpecialOffset ?
+								PageGetHeapSpecial(page)->xid_base :
+								PageGetToastSpecial(page)->xid_base);
+	else
+		tup->t_xmin = xmin;		/* special transaction ID values */
+
+	/* calc t_xmax */
+	if (tup->t_data->t_infomask & HEAP_XMAX_IS_MULTI)
+		tup->t_xmax = xmax + PageGetHeapSpecial(page)->multi_base;
+	else
+		tup->t_xmax = xmax + (pd_special == HeapPageSpecialOffset ?
+								PageGetHeapSpecial(page)->xid_base :
+								PageGetToastSpecial(page)->xid_base);
+}
+
 #ifndef FRONTEND
 /*
  * HeapTupleHeaderGetRawXmax gets you the raw Xmax field.  To find out the Xid

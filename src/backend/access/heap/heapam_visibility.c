@@ -440,19 +440,23 @@ TM_Result
 HeapTupleSatisfiesUpdate(HeapTuple htup, CommandId curcid,
 						 Buffer buffer)
 {
+	Page			page = BufferGetPage(buffer);
 	HeapTupleHeader tuple = htup->t_data;
 
+	Assert(PageGetSpecialSize(page) != 0);
 	Assert(ItemPointerIsValid(&htup->t_self));
 	Assert(htup->t_tableOid != InvalidOid);
 
+	HeapTupleCopyXidsFromPage(htup, page);
+
 	if (!HeapTupleHeaderXminCommitted(tuple))
 	{
-		if (HeapTupleHeaderXminInvalid(tuple))
+		if (HeapTupleXminInvalid(htup))
 			return TM_Invisible;
 
 		else if (!HeapTupleCleanMoved(tuple, buffer))
 			return TM_Invisible;
-		else if (TransactionIdIsCurrentTransactionId(HeapTupleHeaderGetRawXmin(tuple)))
+		else if (TransactionIdIsCurrentTransactionId(HeapTupleGetRawXmin(htup)))
 		{
 			if (HeapTupleHeaderGetCmin(tuple) >= curcid)
 				return TM_Invisible;	/* inserted after scan started */
@@ -1654,6 +1658,13 @@ HeapTupleSatisfiesMVCCBatch(Snapshot snapshot, Buffer buffer,
 bool
 HeapTupleSatisfiesVisibility(HeapTuple htup, Snapshot snapshot, Buffer buffer)
 {
+	Page page = BufferGetPage(buffer);
+
+	Assert(IsBufferLockHeldByMe(buffer, false));
+	Assert(PageGetSpecialSize(page) != 0);
+
+	HeapTupleCopyXidsFromPage(htup, page);
+
 	switch (snapshot->snapshot_type)
 	{
 		case SNAPSHOT_MVCC:
