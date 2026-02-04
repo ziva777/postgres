@@ -2262,10 +2262,14 @@ heap_insert(Relation relation, HeapTuple tup, CommandId cid,
 		{
 			xlrec.flags |= XLH_INSERT_CONTAINS_NEW_TUPLE;
 			bufflags |= REGBUF_KEEP_DATA;
-
-			if (IsToastRelation(relation))
-				xlrec.flags |= XLH_INSERT_ON_TOAST_RELATION;
 		}
+
+		/*
+		 * During the replay we need to know whether it was a toast or a heap
+		 * page.
+		 */
+		if (IsToastRelation(relation))
+			xlrec.flags |= XLH_INSERT_ON_TOAST_RELATION;
 
 		XLogBeginInsert();
 		XLogRegisterData(&xlrec, SizeOfHeapInsert);

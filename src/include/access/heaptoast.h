@@ -21,7 +21,7 @@
  * Find the maximum size of a tuple if there are to be N tuples per page.
  */
 #define MaximumBytesPerTuple(tuplesPerPage) \
-	MAXALIGN_DOWN((BLCKSZ - \
+	MAXALIGN_DOWN((BLCKSZ - SizeOfToastPageSpecial - \
 				   MAXALIGN(SizeOfPageHeaderData + (tuplesPerPage) * sizeof(ItemIdData))) \
 				  / (tuplesPerPage))
 

@@ -669,10 +669,14 @@ raw_heap_insert(RewriteState state, HeapTuple tup)
 
 	if (!page)
 	{
+		Size	size;
+
 		/* Initialize a new empty page */
 		state->rs_buffer = smgr_bulk_get_buf(state->rs_bulkstate);
 		page = (Page) state->rs_buffer;
-		PageInit(page, BLCKSZ, 0);
+		size = IsToastRelation(state->rs_new_rel) ? SizeOfToastPageSpecial :
+													SizeOfHeapPageSpecial;
+		PageInit(page, BLCKSZ, size);
 	}
 
 	/* And now we can insert the tuple into the page */

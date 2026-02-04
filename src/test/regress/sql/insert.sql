@@ -55,7 +55,7 @@ INSERT INTO large_tuple_test (select 3, NULL);
 
 -- now this tuple won't fit on the second page, but the insert should
 -- still succeed by extending the relation
-INSERT INTO large_tuple_test (select 4, repeat('a', 8126));
+INSERT INTO large_tuple_test (select 4, repeat('a', 8126-16));
 
 DROP TABLE large_tuple_test;
 

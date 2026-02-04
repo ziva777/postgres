@@ -51,6 +51,7 @@ SELECT bt_page_items(get_raw_page('test1_b_gist', 0));
 SELECT bt_page_items('aaa'::bytea);
 -- invalid special area size
 CREATE INDEX test1_a_brin ON test1 USING brin(a);
+-- XXX: false positive due to equal sizes of BTPageOpaque and HeapPageSpecialData
 SELECT bt_page_items(get_raw_page('test1', 0));
 SELECT bt_page_items(get_raw_page('test1_a_brin', 0));
 \set VERBOSITY default

@@ -604,15 +604,16 @@ BITMAPLEN(int NATTS)
 /*
  * MaxHeapTupleSize is the maximum allowed size of a heap tuple, including
  * header and MAXALIGN alignment padding.  Basically it's BLCKSZ minus the
- * other stuff that has to be on a disk page.  Since heap pages use no
- * "special space", there's no deduction for that.
+ * other stuff that has to be on a disk page.
  *
  * NOTE: we allow for the ItemId that must point to the tuple, ensuring that
  * an otherwise-empty page can indeed hold a tuple of this size.  Because
  * ItemIds and tuples have different alignment requirements, don't assume that
  * you can, say, fit 2 tuples of size MaxHeapTupleSize/2 on the same page.
  */
-#define MaxHeapTupleSize  (BLCKSZ - MAXALIGN(SizeOfPageHeaderData + sizeof(ItemIdData)))
+#define MaxHeapTupleSize	\
+	(BLCKSZ - SizeOfHeapPageSpecial - \
+	 MAXALIGN(SizeOfPageHeaderData + sizeof(ItemIdData)))
 #define MinHeapTupleSize  MAXALIGN(SizeofHeapTupleHeader)
 
 /*

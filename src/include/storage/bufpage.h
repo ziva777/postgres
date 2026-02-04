@@ -14,6 +14,8 @@
 #ifndef BUFPAGE_H
 #define BUFPAGE_H
 
+#include "access/multixact.h"
+#include "access/transam.h"
 #include "access/xlogdefs.h"
 #include "storage/block.h"
 #include "storage/off.h"
@@ -173,6 +175,31 @@ typedef struct PageHeaderData
 typedef PageHeaderData *PageHeader;
 
 /*
+ * HeapPageSpecialData -- data that stored at the end of each heap page.
+ *
+ * The xid_base and multi_base are base values for calculation of XIDs from
+ * t_xmin and t_xmax in each heap tuple header on the page.
+ */
+typedef struct HeapPageSpecialData
+{
+	uint64		xid_base;	/* base value for transaction IDs on page */
+	uint64		multi_base;	/* base value for multixact IDs on page */
+} HeapPageSpecialData;
+
+typedef HeapPageSpecialData *HeapPageSpecial;
+#define SizeOfHeapPageSpecial MAXALIGN(sizeof(HeapPageSpecialData))
+#define HeapPageSpecialOffset (BLCKSZ - SizeOfHeapPageSpecial)
+
+typedef struct ToastPageSpecialData
+{
+	uint64		xid_base;	/* base value for transaction IDs on page */
+} ToastPageSpecialData;
+
+typedef ToastPageSpecialData *ToastPageSpecial;
+#define SizeOfToastPageSpecial MAXALIGN(sizeof(ToastPageSpecialData))
+#define ToastPageSpecialOffset (BLCKSZ - SizeOfToastPageSpecial)
+
+/*
  * pd_flags contains the following flag bits.  Undefined bits are initialized
  * to zero and may be used in the future.
  *
@@ -199,11 +226,12 @@ typedef PageHeaderData *PageHeader;
  * Release 8.3 uses 4; it changed the HeapTupleHeader layout again, and
  *		added the pd_flags field (by stealing some bits from pd_tli),
  *		as well as adding the pd_prune_xid field (which enlarges the header).
+ * Release XX uses 5; special spaces for heap pages added.
  *
  * As of Release 9.3, the checksum version must also be considered when
  * handling pages.
  */
-#define PG_PAGE_LAYOUT_VERSION		4
+#define PG_PAGE_LAYOUT_VERSION		5
 #define PG_DATA_CHECKSUM_VERSION	1
 
 /* ----------------------------------------------------------------
@@ -341,6 +369,36 @@ PageValidateSpecialPointer(const PageData *page)
 	PageValidateSpecialPointer(page), \
 	((page) + ((PageHeader) (page))->pd_special) \
 )
+
+/*
+ * PageGetHeapSpecial
+ *		Retrieves a heap special from the given page.
+ */
+static inline HeapPageSpecial
+PageGetHeapSpecial(const PageData *page)
+{
+	PageHeader	pageheader = (PageHeader) page;
+	Offset		pd_special = pageheader->pd_special;
+
+	Assert(pd_special == HeapPageSpecialOffset);
+
+	return (HeapPageSpecial) (page + pd_special);
+}
+
+/*
+ * ToastPageSpecial
+ *		Retrieves a toast heap special from the given page.
+ */
+static inline ToastPageSpecial
+PageGetToastSpecial(const PageData *page)
+{
+	PageHeader	pageheader = (PageHeader) page;
+	Offset		pd_special = pageheader->pd_special;
+
+	Assert(pd_special == ToastPageSpecialOffset);
+
+	return (ToastPageSpecial) (page + pd_special);
+}
 
 /*
  * PageGetItem

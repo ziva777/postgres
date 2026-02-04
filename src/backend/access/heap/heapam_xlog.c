@@ -542,7 +542,12 @@ heap_xlog_insert(XLogReaderState *record)
 	{
 		buffer = XLogInitBufferForRedo(record, 0);
 		page = BufferGetPage(buffer);
-		PageInit(page, BufferGetPageSize(buffer), 0);
+
+		if (xlrec->flags & XLH_INSERT_ON_TOAST_RELATION)
+			PageInit(page, BufferGetPageSize(buffer), SizeOfToastPageSpecial);
+		else
+			PageInit(page, BufferGetPageSize(buffer), SizeOfHeapPageSpecial);
+
 		action = BLK_NEEDS_REDO;
 	}
 	else
@@ -662,7 +667,12 @@ heap_xlog_multi_insert(XLogReaderState *record)
 	{
 		buffer = XLogInitBufferForRedo(record, 0);
 		page = BufferGetPage(buffer);
-		PageInit(page, BufferGetPageSize(buffer), 0);
+
+		if (xlrec->flags & XLH_INSERT_ON_TOAST_RELATION)
+			PageInit(page, BufferGetPageSize(buffer), SizeOfToastPageSpecial);
+		else
+			PageInit(page, BufferGetPageSize(buffer), SizeOfHeapPageSpecial);
+
 		action = BLK_NEEDS_REDO;
 	}
 	else

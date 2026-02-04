@@ -358,7 +358,11 @@ RelationAddBlocks(Relation relation, BulkInsertState bistate,
 			 first_block,
 			 RelationGetRelationName(relation));
 
-	PageInit(page, BufferGetPageSize(buffer), 0);
+	if (IsToastRelation(relation))
+		PageInit(page, BufferGetPageSize(buffer), SizeOfToastPageSpecial);
+	else
+		PageInit(page, BufferGetPageSize(buffer), SizeOfHeapPageSpecial);
+
 	MarkBufferDirty(buffer);
 
 	/*
@@ -392,6 +396,9 @@ RelationAddBlocks(Relation relation, BulkInsertState bistate,
 		{
 			Size		freespace = BufferGetPageSize(victim_buffers[i]) -
 				SizeOfPageHeaderData;
+
+			freespace -= IsToastRelation(relation) ? SizeOfToastPageSpecial :
+													 SizeOfHeapPageSpecial;
 
 			RecordPageWithFreeSpace(relation, curBlock, freespace);
 		}
@@ -693,7 +700,13 @@ loop:
 		 */
 		if (PageIsNew(page))
 		{
-			PageInit(page, BufferGetPageSize(buffer), 0);
+			if (IsToastRelation(relation))
+				PageInit(page, BufferGetPageSize(buffer),
+						 SizeOfToastPageSpecial);
+			else
+				PageInit(page, BufferGetPageSize(buffer),
+						 SizeOfHeapPageSpecial);
+
 			MarkBufferDirty(buffer);
 		}
 
