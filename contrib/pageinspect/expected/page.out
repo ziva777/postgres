@@ -52,6 +52,27 @@ SELECT pagesize, version FROM page_header(get_raw_page('test1', 0));
      8192 |       5
 (1 row)
 
+SELECT xid_base, multi_base, toast FROM heap_page_special(get_raw_page('test1', 0));
+ xid_base | multi_base | toast 
+----------+------------+-------
+        0 |          0 | f
+(1 row)
+
+-- Should work for a TOASTed table
+CREATE TABLE toasted (id serial PRIMARY KEY, value TEXT STORAGE EXTERNAL);
+INSERT INTO toasted VALUES (1, repeat('A', 2048));
+WITH pg_toast_name AS (
+  SELECT 'pg_toast.pg_toast_' || c.oid AS toast_table_name
+  FROM pg_class c
+  WHERE c.relname = 'toasted'
+) SELECT xid_base, multi_base, toast
+FROM pg_toast_name, heap_page_special(get_raw_page(toast_table_name, 0));
+ xid_base | multi_base | toast 
+----------+------------+-------
+        0 |            | t
+(1 row)
+
+DROP TABLE toasted;
 SELECT page_checksum(get_raw_page('test1', 0), 0) IS NOT NULL AS silly_checksum_test;
  silly_checksum_test 
 ---------------------
@@ -255,6 +276,8 @@ SELECT page_checksum('bbb'::bytea, 0);
 ERROR:  invalid page size
 SELECT page_header('ccc'::bytea);
 ERROR:  invalid page size
+SELECT heap_page_special('ddd'::bytea);
+ERROR:  invalid page size
 \set VERBOSITY default
 -- Tests with all-zero pages.
 SHOW block_size \gset
@@ -270,6 +293,9 @@ SELECT page_header(decode(repeat('00', :block_size), 'hex'));
  (0/00000000,0,0,0,0,0,0,0,0)
 (1 row)
 
+SELECT heap_page_special(decode(repeat('00', :block_size), 'hex'));
+ERROR:  input page is not a valid heap page
+DETAIL:  Expected special size 8 or 16, got 0.
 SELECT page_checksum(decode(repeat('00', :block_size), 'hex'), 1);
  page_checksum 
 ---------------

@@ -377,3 +377,71 @@ page_checksum(PG_FUNCTION_ARGS)
 {
 	return page_checksum_internal(fcinfo, PAGEINSPECT_V1_8);
 }
+
+/*
+ * heap_page_special
+ *
+ * Allows inspection of heap page special fields of a raw page.
+ */
+PG_FUNCTION_INFO_V1(heap_page_special);
+
+Datum
+heap_page_special(PG_FUNCTION_ARGS)
+{
+	bytea	   *raw_page = PG_GETARG_BYTEA_P(0);
+	Page		page;
+	uint16		size;
+	Datum		result;
+	Datum		values[3];
+	bool		nulls[3] = {0};
+	TupleDesc	tupdesc;
+	HeapTuple	tuple;
+
+	if (!superuser())
+		ereport(ERROR,
+				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+				 errmsg("must be superuser to use raw page functions")));
+
+	page = get_page_from_raw(raw_page);
+	size = PageGetSpecialSize(page);
+	if (size != SizeOfToastPageSpecial &&
+		size != SizeOfHeapPageSpecial)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				 errmsg("input page is not a valid heap page"),
+				 errdetail("Expected special size %d or %d, got %d.",
+						   (int) SizeOfToastPageSpecial,
+						   (int) SizeOfHeapPageSpecial,
+						   (int) size)));
+
+	/* Build a tuple descriptor for our result type */
+	if (get_call_result_type(fcinfo, NULL, &tupdesc) != TYPEFUNC_COMPOSITE)
+		ereport(ERROR,
+				(errcode(ERRCODE_DATATYPE_MISMATCH),
+				 errmsg("return type must be a row type")));
+
+	if (size == SizeOfToastPageSpecial)
+	{
+		ToastPageSpecial special = PageGetToastSpecial(page);
+
+		values[0] = UInt64GetDatum(special->xid_base);
+		nulls[1] = true;		/* no multixacts for toast */
+		values[2] = true;		/* toast page */
+	}
+	else if (size == SizeOfHeapPageSpecial)
+	{
+		HeapPageSpecial special = PageGetHeapSpecial(page);
+
+		values[0] = UInt64GetDatum(special->xid_base);
+		values[1] = UInt64GetDatum(special->multi_base);
+		values[2] = false;		/* not a toast page */
+	}
+	else
+		pg_unreachable();
+
+	/* Build and return the tuple. */
+	tuple = heap_form_tuple(tupdesc, values, nulls);
+	result = HeapTupleGetDatum(tuple);
+
+	PG_RETURN_DATUM(result);
+}

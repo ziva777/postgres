@@ -25,6 +25,18 @@ SELECT octet_length(get_raw_page('test1', 'xxx', 0));
 SELECT get_raw_page('test1', 0) = get_raw_page('test1', 'main', 0);
 
 SELECT pagesize, version FROM page_header(get_raw_page('test1', 0));
+SELECT xid_base, multi_base, toast FROM heap_page_special(get_raw_page('test1', 0));
+
+-- Should work for a TOASTed table
+CREATE TABLE toasted (id serial PRIMARY KEY, value TEXT STORAGE EXTERNAL);
+INSERT INTO toasted VALUES (1, repeat('A', 2048));
+WITH pg_toast_name AS (
+  SELECT 'pg_toast.pg_toast_' || c.oid AS toast_table_name
+  FROM pg_class c
+  WHERE c.relname = 'toasted'
+) SELECT xid_base, multi_base, toast
+FROM pg_toast_name, heap_page_special(get_raw_page(toast_table_name, 0));
+DROP TABLE toasted;
 
 SELECT page_checksum(get_raw_page('test1', 0), 0) IS NOT NULL AS silly_checksum_test;
 SELECT page_checksum(get_raw_page('test1', 0), -1);
@@ -110,12 +122,14 @@ drop table test9v;
 SELECT fsm_page_contents('aaa'::bytea);
 SELECT page_checksum('bbb'::bytea, 0);
 SELECT page_header('ccc'::bytea);
+SELECT heap_page_special('ddd'::bytea);
 \set VERBOSITY default
 
 -- Tests with all-zero pages.
 SHOW block_size \gset
 SELECT fsm_page_contents(decode(repeat('00', :block_size), 'hex'));
 SELECT page_header(decode(repeat('00', :block_size), 'hex'));
+SELECT heap_page_special(decode(repeat('00', :block_size), 'hex'));
 SELECT page_checksum(decode(repeat('00', :block_size), 'hex'), 1);
 
 -- tests for sequences
