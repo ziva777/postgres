@@ -353,7 +353,6 @@ fill_seq_fork_with_data(Relation rel, HeapTuple tuple, ForkNumber forkNum)
 {
 	Buffer		buf;
 	Page		page;
-	sequence_magic *sm;
 	OffsetNumber offnum;
 
 	/* Initialize first page of relation with special magic number */
@@ -364,9 +363,8 @@ fill_seq_fork_with_data(Relation rel, HeapTuple tuple, ForkNumber forkNum)
 
 	page = BufferGetPage(buf);
 
-	PageInit(page, BufferGetPageSize(buf), sizeof(sequence_magic));
-	sm = (sequence_magic *) PageGetSpecialPointer(page);
-	sm->magic = SEQ_MAGIC;
+	/* no multi transactions for sequences, kinda like toast  */
+	PageInit(page, BufferGetPageSize(buf), SizeOfToastPageSpecial);
 
 	/* Now insert sequence tuple */
 
@@ -1192,18 +1190,12 @@ read_seq_tuple(Relation rel, Buffer *buf, HeapTuple seqdatatuple)
 {
 	Page		page;
 	ItemId		lp;
-	sequence_magic *sm;
 	Form_pg_sequence_data seq;
 
 	*buf = ReadBuffer(rel, 0);
 	LockBuffer(*buf, BUFFER_LOCK_EXCLUSIVE);
 
 	page = BufferGetPage(*buf);
-	sm = (sequence_magic *) PageGetSpecialPointer(page);
-
-	if (sm->magic != SEQ_MAGIC)
-		elog(ERROR, "bad magic number in sequence \"%s\": %08X",
-			 RelationGetRelationName(rel), sm->magic);
 
 	lp = PageGetItemId(page, FirstOffsetNumber);
 	Assert(ItemIdIsNormal(lp));

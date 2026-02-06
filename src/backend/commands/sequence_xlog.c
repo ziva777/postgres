@@ -30,7 +30,6 @@ seq_redo(XLogReaderState *record)
 	char	   *item;
 	Size		itemsz;
 	xl_seq_rec *xlrec = (xl_seq_rec *) XLogRecGetData(record);
-	sequence_magic *sm;
 
 	if (info != XLOG_SEQ_LOG)
 		elog(PANIC, "seq_redo: unknown op code %u", info);
@@ -49,9 +48,7 @@ seq_redo(XLogReaderState *record)
 	 */
 	localpage = (Page) palloc(BufferGetPageSize(buffer));
 
-	PageInit(localpage, BufferGetPageSize(buffer), sizeof(sequence_magic));
-	sm = (sequence_magic *) PageGetSpecialPointer(localpage);
-	sm->magic = SEQ_MAGIC;
+	PageInit(localpage, BufferGetPageSize(buffer), SizeOfHeapPageSpecial);
 
 	item = (char *) xlrec + sizeof(xl_seq_rec);
 	itemsz = XLogRecGetDataLen(record) - sizeof(xl_seq_rec);

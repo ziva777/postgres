@@ -20,16 +20,6 @@
 /* Record identifier */
 #define XLOG_SEQ_LOG			0x00
 
-/*
- * The "special area" of a sequence's buffer page looks like this.
- */
-#define SEQ_MAGIC		0x1717
-
-typedef struct sequence_magic
-{
-	uint32		magic;
-} sequence_magic;
-
 /* Sequence WAL record */
 typedef struct xl_seq_rec
 {

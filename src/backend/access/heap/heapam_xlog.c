@@ -937,7 +937,8 @@ heap_xlog_update(XLogReaderState *record, bool hot_update)
 	{
 		nbuffer = XLogInitBufferForRedo(record, 0);
 		page = BufferGetPage(nbuffer);
-		PageInit(page, BufferGetPageSize(nbuffer), 0);
+		/* no update for a toast, use heap special */
+		PageInit(page, BufferGetPageSize(nbuffer), SizeOfHeapPageSpecial);
 		newaction = BLK_NEEDS_REDO;
 	}
 	else
