@@ -59,6 +59,18 @@ $node_primary->init(has_archiving => 1, allows_streaming => 1);
 # of recovery_target_xid parsing.
 system_or_bail('pg_resetwal', '--epoch' => '1', $node_primary->data_dir);
 
+# pg_xact is not wraparound any more, create an empty pg_xact segment.
+my $out = (run_command([ 'pg_resetwal', '--dry-run',
+			$node_primary->data_dir ]))[0];
+$out =~ /^Database block size: *(\d+)$/m or die;
+my $blcksz = $1;
+
+open my $fh, '>', $node_primary->data_dir . "/pg_xact/000000000001000"
+  or die "$0: could not open file $!\n";
+print $fh "\0" x $blcksz
+  or die "$0: could not write file $!\n";
+close $fh;
+
 # Start it
 $node_primary->start;
 
