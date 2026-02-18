@@ -11,6 +11,7 @@
 #ifndef CLOG_H
 #define CLOG_H
 
+#include "access/transam.h"
 #include "access/xlogreader.h"
 #include "storage/sync.h"
 #include "lib/stringinfo.h"
@@ -46,7 +47,7 @@ extern void BootStrapCLOG(void);
 extern void StartupCLOG(void);
 extern void TrimCLOG(void);
 extern void CheckPointCLOG(void);
-extern void ExtendCLOG(TransactionId newestXact);
+extern void ExtendCLOG(FullTransactionId newestXact);
 extern void TruncateCLOG(TransactionId oldestXact, Oid oldestxid_datoid);
 
 extern int	clogsyncfiletag(const FileTag *ftag, char *path);

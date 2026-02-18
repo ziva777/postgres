@@ -961,9 +961,8 @@ CheckPointCLOG(void)
  * in shared memory.
  */
 void
-ExtendCLOG(TransactionId newestXact)
+ExtendCLOG(FullTransactionId newestXact)
 {
-	FullTransactionId newestFXact = AdjustToFullTransactionIdNoLock(newestXact);
 	int64		pageno;
 	LWLock	   *lock;
 
@@ -971,11 +970,11 @@ ExtendCLOG(TransactionId newestXact)
 	 * No work except at first XID of a page.  But beware: just after
 	 * wraparound, the first XID of page zero is FirstNormalTransactionId.
 	 */
-	if (FullTransactionIdToPgIndex(newestFXact) != 0 &&
-		!TransactionIdEquals(newestXact, FirstNormalTransactionId))
+	if (FullTransactionIdToPgIndex(newestXact) != 0 &&
+		!FullTransactionIdEquals(newestXact, FirstNormalFullTransactionId))
 		return;
 
-	pageno = FullTransactionIdToPage(newestFXact);
+	pageno = FullTransactionIdToPage(newestXact);
 	lock = SimpleLruGetBankLock(XactCtl, pageno);
 
 	LWLockAcquire(lock, LW_EXCLUSIVE);

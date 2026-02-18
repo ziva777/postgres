@@ -201,7 +201,7 @@ GetNewTransactionId(bool isSubXact)
 	 *
 	 * Extend pg_subtrans and pg_commit_ts too.
 	 */
-	ExtendCLOG(xid);
+	ExtendCLOG(full_xid);
 	ExtendCommitTs(xid);
 	ExtendSUBTRANS(xid);
 
