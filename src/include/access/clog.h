@@ -37,7 +37,7 @@ typedef struct xl_clog_truncate
 	Oid			oldestXactDb;
 } xl_clog_truncate;
 
-extern void TransactionIdSetTreeStatus(TransactionId xid, int nsubxids,
+extern void TransactionIdSetTreeStatus(FullTransactionId fxid, int nsubxids,
 									   TransactionId *subxids, XidStatus status, XLogRecPtr lsn);
 extern XidStatus TransactionIdGetStatus(TransactionId xid, XLogRecPtr *lsn);
 

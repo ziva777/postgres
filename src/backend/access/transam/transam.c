@@ -239,7 +239,10 @@ TransactionIdDidAbort(TransactionId transactionId)
 void
 TransactionIdCommitTree(TransactionId xid, int nxids, TransactionId *xids)
 {
-	TransactionIdSetTreeStatus(xid, nxids, xids,
+	FullTransactionId fxid =
+		FullTransactionIdFromAllowableAt(ReadNextFullTransactionId(), xid);
+
+	TransactionIdSetTreeStatus(fxid, nxids, xids,
 							   TRANSACTION_STATUS_COMMITTED,
 							   InvalidXLogRecPtr);
 }
@@ -252,7 +255,10 @@ void
 TransactionIdAsyncCommitTree(TransactionId xid, int nxids, TransactionId *xids,
 							 XLogRecPtr lsn)
 {
-	TransactionIdSetTreeStatus(xid, nxids, xids,
+	FullTransactionId fxid =
+		FullTransactionIdFromAllowableAt(ReadNextFullTransactionId(), xid);
+
+	TransactionIdSetTreeStatus(fxid, nxids, xids,
 							   TRANSACTION_STATUS_COMMITTED, lsn);
 }
 
@@ -269,7 +275,10 @@ TransactionIdAsyncCommitTree(TransactionId xid, int nxids, TransactionId *xids,
 void
 TransactionIdAbortTree(TransactionId xid, int nxids, TransactionId *xids)
 {
-	TransactionIdSetTreeStatus(xid, nxids, xids,
+	FullTransactionId fxid =
+		FullTransactionIdFromAllowableAt(ReadNextFullTransactionId(), xid);
+
+	TransactionIdSetTreeStatus(fxid, nxids, xids,
 							   TRANSACTION_STATUS_ABORTED, InvalidXLogRecPtr);
 }
 
