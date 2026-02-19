@@ -94,7 +94,7 @@ GetNewTransactionId(bool isSubXact)
 	{
 		Assert(!isSubXact);
 		MyProc->xid = BootstrapFullTransactionId;
-		ProcGlobal->xids[MyProc->pgxactoff] = BootstrapTransactionId;
+		ProcGlobal->xids[MyProc->pgxactoff] = BootstrapFullTransactionId;
 		return FullTransactionIdFromEpochAndXid(0, BootstrapTransactionId);
 	}
 
@@ -256,7 +256,7 @@ GetNewTransactionId(bool isSubXact)
 
 		/* LWLockRelease acts as barrier */
 		MyProc->xid = full_xid;
-		ProcGlobal->xids[MyProc->pgxactoff] = xid;
+		ProcGlobal->xids[MyProc->pgxactoff] = full_xid;
 	}
 	else
 	{

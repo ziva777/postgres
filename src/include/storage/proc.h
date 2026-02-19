@@ -404,7 +404,7 @@ typedef struct PROC_HDR
 	PGPROC	   *allProcs;
 
 	/* Array mirroring PGPROC.xid for each PGPROC currently in the procarray */
-	TransactionId *xids;
+	FullTransactionId *xids;
 
 	/*
 	 * Array mirroring PGPROC.subxidStatus for each PGPROC currently in the
