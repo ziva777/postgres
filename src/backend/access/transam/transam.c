@@ -53,6 +53,7 @@ TransactionLogFetch(TransactionId transactionId)
 {
 	XidStatus	xidstatus;
 	XLogRecPtr	xidlsn;
+	FullTransactionId fxid;
 
 	/*
 	 * Before going to the commit log manager, check our single item cache to
@@ -73,10 +74,13 @@ TransactionLogFetch(TransactionId transactionId)
 		return TRANSACTION_STATUS_ABORTED;
 	}
 
+	fxid = FullTransactionIdFromAllowableAt(ReadNextFullTransactionId(),
+											transactionId);
+
 	/*
 	 * Get the transaction status.
 	 */
-	xidstatus = TransactionIdGetStatus(transactionId, &xidlsn);
+	xidstatus = TransactionIdGetStatus(fxid, &xidlsn);
 
 	/*
 	 * Cache it, but DO NOT cache status for unfinished or sub-committed
@@ -327,6 +331,7 @@ XLogRecPtr
 TransactionIdGetCommitLSN(TransactionId xid)
 {
 	XLogRecPtr	result;
+	FullTransactionId fxid;
 
 	/*
 	 * Currently, all uses of this function are for xids that were just
@@ -341,10 +346,12 @@ TransactionIdGetCommitLSN(TransactionId xid)
 	if (!TransactionIdIsNormal(xid))
 		return InvalidXLogRecPtr;
 
+	fxid = FullTransactionIdFromAllowableAt(ReadNextFullTransactionId(), xid);
+
 	/*
 	 * Get the transaction status.
 	 */
-	(void) TransactionIdGetStatus(xid, &result);
+	(void) TransactionIdGetStatus(fxid, &result);
 
 	return result;
 }

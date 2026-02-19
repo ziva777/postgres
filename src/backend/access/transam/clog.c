@@ -107,10 +107,11 @@ FullTransactionIdToBIndex(FullTransactionId fxid)
 #define CLOG_LSNS_PER_PAGE	(CLOG_XACTS_PER_PAGE / CLOG_XACTS_PER_LSN_GROUP)
 
 static inline int
-GetLSNIndex(int slotno, TransactionId xid)
+GetLSNIndex(int slotno, FullTransactionId fxid)
 {
 	return (slotno * CLOG_LSNS_PER_PAGE + \
-		(xid % (TransactionId) CLOG_XACTS_PER_PAGE) / CLOG_XACTS_PER_LSN_GROUP);
+		(U64FromFullTransactionId(fxid) % (uint64) CLOG_XACTS_PER_PAGE) /
+			CLOG_XACTS_PER_LSN_GROUP);
 }
 
 static inline FullTransactionId
@@ -225,14 +226,18 @@ TransactionIdSetTreeStatus(FullTransactionId fxid, int nsubxids,
 	 * See how many subxids, if any, are on the same page as the parent, if
 	 * any.
 	 */
+	LWLockAcquire(XidGenLock, LW_SHARED);
+
 	for (i = 0; i < nsubxids; i++)
 	{
-		FullTransactionId subfxid = AdjustToFullTransactionId(subxids[i]);
+		FullTransactionId subfxid = AdjustToFullTransactionIdNoLock(subxids[i]);
 		int64		subxid_pageno = FullTransactionIdToPage(subfxid);
 
 		if (subxid_pageno != pageno)
 			break;
 	}
+
+	LWLockRelease(XidGenLock);
 
 	/*
 	 * Do all items fit on a single page?
@@ -758,8 +763,7 @@ TransactionIdSetStatusBit(FullTransactionId fxid, XidStatus status,
 	 */
 	if (XLogRecPtrIsValid(lsn))
 	{
-		int			lsnindex = GetLSNIndex(slotno,
-										   XidFromFullTransactionId(fxid));
+		int			lsnindex = GetLSNIndex(slotno, fxid);
 
 		if (XactCtl->shared->group_lsn[lsnindex] < lsn)
 			XactCtl->shared->group_lsn[lsnindex] = lsn;
@@ -782,9 +786,8 @@ TransactionIdSetStatusBit(FullTransactionId fxid, XidStatus status,
  * for most uses; TransactionLogFetch() in transam.c is the intended caller.
  */
 XidStatus
-TransactionIdGetStatus(TransactionId xid, XLogRecPtr *lsn)
+TransactionIdGetStatus(FullTransactionId fxid, XLogRecPtr *lsn)
 {
-	FullTransactionId fxid = AdjustToFullTransactionId(xid);
 	int64		pageno = FullTransactionIdToPage(fxid);
 	int			byteno = FullTransactionIdToByte(fxid);
 	int			bshift = FullTransactionIdToBIndex(fxid) * CLOG_BITS_PER_XACT;
@@ -795,12 +798,13 @@ TransactionIdGetStatus(TransactionId xid, XLogRecPtr *lsn)
 
 	/* lock is acquired by SimpleLruReadPage_ReadOnly */
 
-	slotno = SimpleLruReadPage_ReadOnly(XactCtl, pageno, xid);
+	slotno = SimpleLruReadPage_ReadOnly(XactCtl, pageno,
+										XidFromFullTransactionId(fxid));
 	byteptr = XactCtl->shared->page_buffer[slotno] + byteno;
 
 	status = (*byteptr >> bshift) & CLOG_XACT_BITMASK;
 
-	lsnindex = GetLSNIndex(slotno, xid);
+	lsnindex = GetLSNIndex(slotno, fxid);
 	*lsn = XactCtl->shared->group_lsn[lsnindex];
 
 	LWLockRelease(SimpleLruGetBankLock(XactCtl, pageno));
