@@ -511,7 +511,7 @@ InitProcess(void)
 
 	/* Initialize fields for group transaction status update. */
 	MyProc->clogGroupMember = false;
-	MyProc->clogGroupMemberXid = InvalidTransactionId;
+	MyProc->clogGroupMemberXid = InvalidFullTransactionId;
 	MyProc->clogGroupMemberXidStatus = TRANSACTION_STATUS_IN_PROGRESS;
 	MyProc->clogGroupMemberPage = -1;
 	MyProc->clogGroupMemberLsn = InvalidXLogRecPtr;

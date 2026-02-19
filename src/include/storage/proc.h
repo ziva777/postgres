@@ -314,7 +314,7 @@ struct PGPROC
 	/* Support for group transaction status update. */
 	bool		clogGroupMember;	/* true, if member of clog group */
 	pg_atomic_uint32 clogGroupNext; /* next clog group member */
-	TransactionId clogGroupMemberXid;	/* transaction id of clog group member */
+	FullTransactionId clogGroupMemberXid;	/* transaction id of clog group member */
 	XidStatus	clogGroupMemberXidStatus;	/* transaction status of clog
 											 * group member */
 	int64		clogGroupMemberPage;	/* clog page corresponding to

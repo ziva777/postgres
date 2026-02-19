@@ -509,7 +509,7 @@ TransactionGroupUpdateXidStatus(FullTransactionId fxid, XidStatus status,
 	 * status update.
 	 */
 	proc->clogGroupMember = true;
-	proc->clogGroupMemberXid = XidFromFullTransactionId(fxid);
+	proc->clogGroupMemberXid = fxid;
 	proc->clogGroupMemberXidStatus = status;
 	proc->clogGroupMemberPage = pageno;
 	proc->clogGroupMemberLsn = lsn;
@@ -662,7 +662,7 @@ TransactionGroupUpdateXidStatus(FullTransactionId fxid, XidStatus status,
 		 */
 		Assert(nextproc->subxidStatus.count <= THRESHOLD_SUBTRANS_CLOG_OPT);
 
-		TransactionIdSetPageStatusInternal(AdjustToFullTransactionId(nextproc->clogGroupMemberXid),
+		TransactionIdSetPageStatusInternal(nextproc->clogGroupMemberXid,
 										   nextproc->subxidStatus.count,
 										   nextproc->subxids.xids,
 										   nextproc->clogGroupMemberXidStatus,
