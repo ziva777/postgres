@@ -360,7 +360,7 @@ TransactionIdSetPageStatus(FullTransactionId fxid, int nsubxids,
 	 * sub-XIDs and all of the XIDs for which we're adjusting clog should be
 	 * on the same page.  Check those conditions, too.
 	 */
-	if (all_xact_same_page && XidFromFullTransactionId(fxid) == MyProc->xid &&
+	if (all_xact_same_page && FullTransactionIdEquals(fxid, MyProc->xid) &&
 		nsubxids <= THRESHOLD_SUBTRANS_CLOG_OPT &&
 		nsubxids == MyProc->subxidStatus.count &&
 		(nsubxids == 0 ||

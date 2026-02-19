@@ -461,7 +461,7 @@ InitProcess(void)
 	MyProc->waitStatus = PROC_WAIT_STATUS_OK;
 	MyProc->fpVXIDLock = false;
 	MyProc->fpLocalTransactionId = InvalidLocalTransactionId;
-	MyProc->xid = InvalidTransactionId;
+	MyProc->xid = InvalidFullTransactionId;
 	MyProc->xmin = InvalidTransactionId;
 	MyProc->pid = MyProcPid;
 	MyProc->vxid.procNumber = MyProcNumber;
@@ -662,7 +662,7 @@ InitAuxiliaryProcess(void)
 	MyProc->waitStatus = PROC_WAIT_STATUS_OK;
 	MyProc->fpVXIDLock = false;
 	MyProc->fpLocalTransactionId = InvalidLocalTransactionId;
-	MyProc->xid = InvalidTransactionId;
+	MyProc->xid = InvalidFullTransactionId;
 	MyProc->xmin = InvalidTransactionId;
 	MyProc->vxid.procNumber = INVALID_PROC_NUMBER;
 	MyProc->vxid.lxid = InvalidLocalTransactionId;

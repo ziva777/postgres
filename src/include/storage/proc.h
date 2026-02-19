@@ -193,9 +193,9 @@ struct PGPROC
 	Latch		procLatch;		/* generic latch for process */
 
 
-	TransactionId xid;			/* id of top-level transaction currently being
+	FullTransactionId xid;		/* id of top-level transaction currently being
 								 * executed by this proc, if running and XID
-								 * is assigned; else InvalidTransactionId.
+								 * is assigned; else InvalidFullTransactionId.
 								 * mirrored in ProcGlobal->xids[pgxactoff] */
 
 	TransactionId xmin;			/* minimal running XID as it was when we were
