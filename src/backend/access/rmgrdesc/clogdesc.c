@@ -35,8 +35,10 @@ clog_desc(StringInfo buf, XLogReaderState *record)
 		xl_clog_truncate xlrec;
 
 		memcpy(&xlrec, rec, sizeof(xl_clog_truncate));
-		appendStringInfo(buf, "page %" PRId64 "; oldestXact %u",
-						 xlrec.pageno, xlrec.oldestXact);
+		appendStringInfo(buf, "page %" PRId64 "; oldestXact %u%u",
+						 xlrec.pageno,
+						 EpochFromFullTransactionId(xlrec.oldestXact),
+						 XidFromFullTransactionId(xlrec.oldestXact));
 	}
 }
 

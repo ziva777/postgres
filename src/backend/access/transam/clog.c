@@ -143,7 +143,7 @@ static SlruCtlData XactCtlData;
 
 
 static bool CLOGPagePrecedes(int64 page1, int64 page2);
-static void WriteTruncateXlogRec(int64 pageno, TransactionId oldestXact,
+static void WriteTruncateXlogRec(int64 pageno, FullTransactionId oldestXact,
 								 Oid oldestXactDb);
 static void TransactionIdSetPageStatus(TransactionId xid, int nsubxids,
 									   TransactionId *subxids, XidStatus status,
@@ -1003,15 +1003,13 @@ ExtendCLOG(FullTransactionId newestXact)
  * the XLOG flush unless we have confirmed that there is a removable segment.
  */
 void
-TruncateCLOG(TransactionId oldestXact, Oid oldestxid_datoid)
+TruncateCLOG(FullTransactionId oldestXact, Oid oldestxid_datoid)
 {
-	FullTransactionId oldestFXact = AdjustToFullTransactionId(oldestXact);
-
 	/*
 	 * The cutoff point is the start of the segment containing oldestXact. We
 	 * pass the *page* containing oldestXact to SimpleLruTruncate.
 	 */
-	int64		cutoffPage = FullTransactionIdToPage(oldestFXact);
+	int64		cutoffPage = FullTransactionIdToPage(oldestXact);
 
 	/* Check to see if there's any files that could be removed */
 	if (!SlruScanDirectory(XactCtl, SlruScanDirCbReportPresence, &cutoffPage))
@@ -1024,7 +1022,7 @@ TruncateCLOG(TransactionId oldestXact, Oid oldestxid_datoid)
 	 * It's only necessary to do this if we will actually truncate away clog
 	 * pages.
 	 */
-	AdvanceOldestClogXid(oldestXact);
+	AdvanceOldestClogXid(XidFromFullTransactionId(oldestXact));
 
 	/*
 	 * Write XLOG record and flush XLOG to disk. We record the oldest xid
@@ -1056,7 +1054,8 @@ CLOGPagePrecedes(int64 page1, int64 page2)
  * in TruncateCLOG().
  */
 static void
-WriteTruncateXlogRec(int64 pageno, TransactionId oldestXact, Oid oldestXactDb)
+WriteTruncateXlogRec(int64 pageno, FullTransactionId oldestXact,
+					 Oid oldestXactDb)
 {
 	XLogRecPtr	recptr;
 	xl_clog_truncate xlrec;
@@ -1095,7 +1094,7 @@ clog_redo(XLogReaderState *record)
 
 		memcpy(&xlrec, XLogRecGetData(record), sizeof(xl_clog_truncate));
 
-		AdvanceOldestClogXid(xlrec.oldestXact);
+		AdvanceOldestClogXid(XidFromFullTransactionId(xlrec.oldestXact));
 
 		SimpleLruTruncate(XactCtl, xlrec.pageno);
 	}

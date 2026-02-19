@@ -33,7 +33,7 @@ typedef int XidStatus;
 typedef struct xl_clog_truncate
 {
 	int64		pageno;
-	TransactionId oldestXact;
+	FullTransactionId oldestXact;
 	Oid			oldestXactDb;
 } xl_clog_truncate;
 
@@ -48,7 +48,7 @@ extern void StartupCLOG(void);
 extern void TrimCLOG(void);
 extern void CheckPointCLOG(void);
 extern void ExtendCLOG(FullTransactionId newestXact);
-extern void TruncateCLOG(TransactionId oldestXact, Oid oldestxid_datoid);
+extern void TruncateCLOG(FullTransactionId oldestXact, Oid oldestxid_datoid);
 
 extern int	clogsyncfiletag(const FileTag *ftag, char *path);
 
