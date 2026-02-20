@@ -247,7 +247,7 @@ InitProcGlobal(void)
 	 * XXX: It might make sense to increase padding for these arrays, given
 	 * how hotly they are accessed.
 	 */
-	ProcGlobal->xids = (TransactionId *) ptr;
+	ProcGlobal->xids = (FullTransactionId *) ptr;
 	ptr = ptr + (TotalProcs * sizeof(*ProcGlobal->xids));
 
 	ProcGlobal->subxidStates = (XidCacheStatus *) ptr;
