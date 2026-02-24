@@ -2157,9 +2157,7 @@ get_xid_status(TransactionId xid, HeapCheckContext *ctx,
 
 	*status = XID_COMMITTED;
 	LWLockAcquire(XactTruncationLock, LW_SHARED);
-	clog_horizon =
-		FullTransactionIdFromXidAndCtx(TransamVariables->oldestClogXid,
-									   ctx);
+	clog_horizon = TransamVariables->oldestClogXid;
 	if (FullTransactionIdPrecedesOrEquals(clog_horizon, fxid))
 	{
 		if (TransactionIdIsCurrentTransactionId(xid))

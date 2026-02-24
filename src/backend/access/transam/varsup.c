@@ -354,11 +354,15 @@ AdvanceNextFullTransactionIdPastXid(TransactionId xid)
 void
 AdvanceOldestClogXid(TransactionId oldest_datfrozenxid)
 {
+	FullTransactionId oldest_datfrozenfxid =
+		FullTransactionIdFromAllowableAt(ReadNextFullTransactionId(),
+										 oldest_datfrozenxid);
+
 	LWLockAcquire(XactTruncationLock, LW_EXCLUSIVE);
-	if (TransactionIdPrecedes(TransamVariables->oldestClogXid,
-							  oldest_datfrozenxid))
+	if (FullTransactionIdPrecedes(TransamVariables->oldestClogXid,
+								  oldest_datfrozenfxid))
 	{
-		TransamVariables->oldestClogXid = oldest_datfrozenxid;
+		TransamVariables->oldestClogXid = oldest_datfrozenfxid;
 	}
 	LWLockRelease(XactTruncationLock);
 }
