@@ -121,13 +121,6 @@ AdjustToFullTransactionId(TransactionId xid)
 	return FullTransactionIdFromAllowableAt(ReadNextFullTransactionId(), xid);
 }
 
-static inline FullTransactionId
-AdjustToFullTransactionIdNoLock(TransactionId xid)
-{
-	Assert(TransactionIdIsValid(xid));
-	return FullTransactionIdFromAllowableAt(TransamVariables->nextXid, xid);
-}
-
 /*
  * The number of subtransactions below which we consider to apply clog group
  * update optimization.  Testing reveals that the number higher than this can
@@ -218,6 +211,7 @@ TransactionIdSetTreeStatus(FullTransactionId fxid, int nsubxids,
 {
 	int64		pageno = FullTransactionIdToPage(fxid);	/* get page of parent */
 	int			i;
+	FullTransactionId next;
 
 	Assert(status == TRANSACTION_STATUS_COMMITTED ||
 		   status == TRANSACTION_STATUS_ABORTED);
@@ -226,18 +220,16 @@ TransactionIdSetTreeStatus(FullTransactionId fxid, int nsubxids,
 	 * See how many subxids, if any, are on the same page as the parent, if
 	 * any.
 	 */
-	LWLockAcquire(XidGenLock, LW_SHARED);
-
+	next = ReadNextFullTransactionId();
 	for (i = 0; i < nsubxids; i++)
 	{
-		FullTransactionId subfxid = AdjustToFullTransactionIdNoLock(subxids[i]);
+		FullTransactionId subfxid = FullTransactionIdFromAllowableAt(next,
+																	 subxids[i]);
 		int64		subxid_pageno = FullTransactionIdToPage(subfxid);
 
 		if (subxid_pageno != pageno)
 			break;
 	}
-
-	LWLockRelease(XidGenLock);
 
 	/*
 	 * Do all items fit on a single page?
