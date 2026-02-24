@@ -435,15 +435,17 @@ TransactionIdSetPageStatusInternal(FullTransactionId fxid, int nsubxids,
 		/* Subtransactions first, if needed ... */
 		if (status == TRANSACTION_STATUS_COMMITTED)
 		{
+			FullTransactionId	next = ReadNextFullTransactionId();
+
 			for (i = 0; i < nsubxids; i++)
 			{
-				FullTransactionId subxid PG_USED_FOR_ASSERTS_ONLY;
-				int64		subxid_pageno PG_USED_FOR_ASSERTS_ONLY;
+				FullTransactionId subxid =
+					FullTransactionIdFromAllowableAt(next, subxids[i]);
+				int64	subxid_pageno PG_USED_FOR_ASSERTS_ONLY =
+					FullTransactionIdToPage(subxid);
 
-				subxid = AdjustToFullTransactionId(subxids[i]);
-				subxid_pageno = FullTransactionIdToPage(subxid);
 				Assert(XactCtl->shared->page_number[slotno] == subxid_pageno);
-				TransactionIdSetStatusBit(AdjustToFullTransactionId(subxids[i]),
+				TransactionIdSetStatusBit(subxid,
 										  TRANSACTION_STATUS_SUB_COMMITTED,
 										  lsn, slotno);
 			}
