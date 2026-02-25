@@ -166,10 +166,11 @@ typedef SlruCtlData *SlruCtl;
 static inline char *
 TransactionIdIoErrorMsg(const void *opaque_data)
 {
-	TransactionId xid = opaque_data ? (*(TransactionId *) opaque_data) :
-									  InvalidTransactionId;
+	if (opaque_data)
+		return psprintf("could not access status of transaction %u",
+						*(TransactionId *) opaque_data);
 
-	return psprintf("could not access status of transaction %u", xid);
+	return psprintf("could not access slru entry");	/* InvalidTransactionId */
 }
 
 /*
