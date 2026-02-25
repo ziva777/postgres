@@ -881,7 +881,8 @@ RecordNewMultiXact(MultiXactId multi, MultiXactOffset offset,
 				LWLockAcquire(lock, LW_EXCLUSIVE);
 				prevlock = lock;
 			}
-			slotno = SimpleLruReadPage(MultiXactMemberCtl, pageno, true, &multi);
+			slotno = SimpleLruReadPage(MultiXactMemberCtl, pageno, true,
+									   &offset);
 			prev_pageno = pageno;
 		}
 
@@ -1309,7 +1310,8 @@ GetMultiXactIdMembers(MultiXactId multi, MultiXactMember **members,
 				lock = newlock;
 			}
 
-			slotno = SimpleLruReadPage(MultiXactMemberCtl, pageno, true, &multi);
+			slotno = SimpleLruReadPage(MultiXactMemberCtl, pageno, true,
+									   &offset);
 			prev_pageno = pageno;
 		}
 
@@ -1720,6 +1722,20 @@ MultiXactShmemSize(void)
 	return size;
 }
 
+static inline char *
+MultiXactOffsetIoErrorMsg(const void *opaque_data)
+{
+	return psprintf("could not access status of multixact offset %u",
+					*(MultiXactId *) opaque_data);
+}
+
+static inline char *
+MultiXactMemberIoErrorMsg(const void *opaque_data)
+{
+	return psprintf("could not access status of multixact member %" PRIu64,
+					*(MultiXactOffset *) opaque_data);
+}
+
 void
 MultiXactShmemInit(void)
 {
@@ -1730,8 +1746,8 @@ MultiXactShmemInit(void)
 	MultiXactOffsetCtl->PagePrecedes = MultiXactOffsetPagePrecedes;
 	MultiXactMemberCtl->PagePrecedes = MultiXactMemberPagePrecedes;
 
-	MultiXactOffsetCtl->IoErrorMsg = TransactionIdIoErrorMsg;
-	MultiXactMemberCtl->IoErrorMsg = TransactionIdIoErrorMsg;
+	MultiXactOffsetCtl->IoErrorMsg = MultiXactOffsetIoErrorMsg;
+	MultiXactMemberCtl->IoErrorMsg = MultiXactMemberIoErrorMsg;
 
 	SimpleLruInit(MultiXactOffsetCtl,
 				  "multixact_offset", multixact_offset_buffers, 0,
