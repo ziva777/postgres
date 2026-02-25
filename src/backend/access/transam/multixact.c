@@ -277,6 +277,8 @@ static void mXactCachePut(MultiXactId multi, int nmembers,
 /* management of SLRU infrastructure */
 static bool MultiXactOffsetPagePrecedes(int64 page1, int64 page2);
 static bool MultiXactMemberPagePrecedes(int64 page1, int64 page2);
+static inline int MultiXactOffsetIoErrorMsg(const void *opaque_data);
+static inline int MultiXactMemberIoErrorMsg(const void *opaque_data);
 static void ExtendMultiXactOffset(MultiXactId multi);
 static void ExtendMultiXactMember(MultiXactOffset offset, int nmembers);
 static void SetOldestOffset(void);
@@ -881,7 +883,8 @@ RecordNewMultiXact(MultiXactId multi, MultiXactOffset offset,
 				LWLockAcquire(lock, LW_EXCLUSIVE);
 				prevlock = lock;
 			}
-			slotno = SimpleLruReadPage(MultiXactMemberCtl, pageno, true, &multi);
+			slotno = SimpleLruReadPage(MultiXactMemberCtl, pageno, true,
+									   &offset);
 			prev_pageno = pageno;
 		}
 
@@ -1309,7 +1312,8 @@ GetMultiXactIdMembers(MultiXactId multi, MultiXactMember **members,
 				lock = newlock;
 			}
 
-			slotno = SimpleLruReadPage(MultiXactMemberCtl, pageno, true, &multi);
+			slotno = SimpleLruReadPage(MultiXactMemberCtl, pageno, true,
+									   &offset);
 			prev_pageno = pageno;
 		}
 
@@ -1730,8 +1734,8 @@ MultiXactShmemInit(void)
 	MultiXactOffsetCtl->PagePrecedes = MultiXactOffsetPagePrecedes;
 	MultiXactMemberCtl->PagePrecedes = MultiXactMemberPagePrecedes;
 
-	MultiXactOffsetCtl->errmsg_for_io_error = xact_errmsg_for_io_error;
-	MultiXactMemberCtl->errmsg_for_io_error = xact_errmsg_for_io_error;
+	MultiXactOffsetCtl->errmsg_for_io_error = MultiXactOffsetIoErrorMsg;
+	MultiXactMemberCtl->errmsg_for_io_error = MultiXactMemberIoErrorMsg;
 
 	SimpleLruInit(MultiXactOffsetCtl,
 				  "multixact_offset", multixact_offset_buffers, 0,
@@ -2756,6 +2760,30 @@ static bool
 MultiXactMemberPagePrecedes(int64 page1, int64 page2)
 {
 	return page1 < page2;
+}
+
+/*
+ * Custom IO errmsg for MultiXactOffset.
+ */
+static inline int
+MultiXactOffsetIoErrorMsg(const void *opaque_data)
+{
+	Assert(opaque_data != NULL);
+
+	return errmsg("could not access status of multixact offset %u",
+				  *(MultiXactId *) opaque_data);
+}
+
+/*
+ * Custom IO errmsg for MultiXactMember.
+ */
+static inline int
+MultiXactMemberIoErrorMsg(const void *opaque_data)
+{
+	Assert(opaque_data != NULL);
+
+	return errmsg("could not access status of multixact member %" PRIu64,
+				  *(MultiXactOffset *) opaque_data);
 }
 
 /*
