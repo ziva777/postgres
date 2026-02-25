@@ -811,6 +811,7 @@ SerialInit(void)
 	 * Set up SLRU management of the pg_serial data.
 	 */
 	SerialSlruCtl->PagePrecedes = SerialPagePrecedesLogically;
+	SerialSlruCtl->errmsg_for_io_error = xact_errmsg_for_io_error;
 	SimpleLruInit(SerialSlruCtl, "serializable",
 				  serializable_buffers, 0, "pg_serial",
 				  LWTRANCHE_SERIAL_BUFFER, LWTRANCHE_SERIAL_SLRU,
@@ -930,7 +931,7 @@ SerialAdd(TransactionId xid, SerCommitSeqNo minConflictCommitSeqNo)
 	else
 	{
 		LWLockAcquire(lock, LW_EXCLUSIVE);
-		slotno = SimpleLruReadPage(SerialSlruCtl, targetPage, true, xid);
+		slotno = SimpleLruReadPage(SerialSlruCtl, targetPage, true, &xid);
 	}
 
 	SerialValue(slotno, xid) = minConflictCommitSeqNo;
@@ -974,7 +975,7 @@ SerialGetMinConflictCommitSeqNo(TransactionId xid)
 	 * but will return with that lock held, which must then be released.
 	 */
 	slotno = SimpleLruReadPage_ReadOnly(SerialSlruCtl,
-										SerialPage(xid), xid);
+										SerialPage(xid), &xid);
 	val = SerialValue(slotno, xid);
 	LWLockRelease(SimpleLruGetBankLock(SerialSlruCtl, SerialPage(xid)));
 	return val;

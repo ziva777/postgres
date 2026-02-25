@@ -13,6 +13,7 @@
 #ifndef SLRU_H
 #define SLRU_H
 
+#include "access/transam.h"
 #include "access/xlogdefs.h"
 #include "storage/lwlock.h"
 #include "storage/sync.h"
@@ -146,9 +147,30 @@ typedef struct SlruCtlData
 	 * it's always the same, it doesn't need to be in shared memory.
 	 */
 	char		Dir[64];
+
+	/*
+	 * Callback for creating an I/O error message.
+	 *
+	 * The opaque_data argument here is the same one that is passed to the
+	 * SimpleLruReadPage* calls.
+	 */
+	int			(*errmsg_for_io_error)(const void *opaque_data);
 } SlruCtlData;
 
 typedef SlruCtlData *SlruCtl;
+
+/*
+ * Historically, this module was designed for handling transaction IDs,
+ * therefore this is the most common use case. Thus, make it publicly available.
+ */
+static inline int
+xact_errmsg_for_io_error(const void *opaque_data)
+{
+	TransactionId xid = opaque_data ? (*(TransactionId *) opaque_data) :
+									  InvalidTransactionId;
+
+	return errmsg("could not access status of transaction %u", xid);
+}
 
 /*
  * Get the SLRU bank lock for given SlruCtl and the pageno.
@@ -174,9 +196,9 @@ extern void SimpleLruInit(SlruCtl ctl, const char *name, int nslots, int nlsns,
 extern int	SimpleLruZeroPage(SlruCtl ctl, int64 pageno);
 extern void SimpleLruZeroAndWritePage(SlruCtl ctl, int64 pageno);
 extern int	SimpleLruReadPage(SlruCtl ctl, int64 pageno, bool write_ok,
-							  TransactionId xid);
+							  const void *opaque_data);
 extern int	SimpleLruReadPage_ReadOnly(SlruCtl ctl, int64 pageno,
-									   TransactionId xid);
+									   const void *opaque_data);
 extern void SimpleLruWritePage(SlruCtl ctl, int slotno);
 extern void SimpleLruWriteAll(SlruCtl ctl, bool allow_redirtied);
 #ifdef USE_ASSERT_CHECKING

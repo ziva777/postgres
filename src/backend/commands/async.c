@@ -829,6 +829,7 @@ AsyncShmemInit(void)
 	 * names are used in order to avoid wraparound.
 	 */
 	NotifyCtl->PagePrecedes = asyncQueuePagePrecedes;
+	NotifyCtl->errmsg_for_io_error = xact_errmsg_for_io_error;
 	SimpleLruInit(NotifyCtl, "notify", notify_buffers, 0,
 				  "pg_notify", LWTRANCHE_NOTIFY_BUFFER, LWTRANCHE_NOTIFY_SLRU,
 				  SYNC_HANDLER_NONE, true);
@@ -2067,8 +2068,7 @@ asyncQueueAddEntries(ListCell *nextNotify)
 	if (QUEUE_POS_IS_ZERO(queue_head))
 		slotno = SimpleLruZeroPage(NotifyCtl, pageno);
 	else
-		slotno = SimpleLruReadPage(NotifyCtl, pageno, true,
-								   InvalidTransactionId);
+		slotno = SimpleLruReadPage(NotifyCtl, pageno, true, NULL);
 
 	/* Note we mark the page dirty before writing in it */
 	NotifyCtl->shared->page_dirty[slotno] = true;
@@ -2738,8 +2738,7 @@ asyncQueueProcessPageEntries(QueuePosition *current,
 	alignas(AsyncQueueEntry) char local_buf[QUEUE_PAGESIZE];
 	char	   *local_buf_end = local_buf;
 
-	slotno = SimpleLruReadPage_ReadOnly(NotifyCtl, curpage,
-										InvalidTransactionId);
+	slotno = SimpleLruReadPage_ReadOnly(NotifyCtl, curpage, NULL);
 	page_buffer = NotifyCtl->shared->page_buffer[slotno];
 
 	do
@@ -2997,8 +2996,7 @@ AsyncNotifyFreezeXids(TransactionId newFrozenXid)
 
 			lock = SimpleLruGetBankLock(NotifyCtl, pageno);
 			LWLockAcquire(lock, LW_EXCLUSIVE);
-			slotno = SimpleLruReadPage(NotifyCtl, pageno, true,
-									   InvalidTransactionId);
+			slotno = SimpleLruReadPage(NotifyCtl, pageno, true, NULL);
 			page_buffer = NotifyCtl->shared->page_buffer[slotno];
 			curpage = pageno;
 		}

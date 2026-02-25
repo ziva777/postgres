@@ -100,7 +100,7 @@ test_slru_page_read(PG_FUNCTION_ARGS)
 	/* find page in buffers, reading it if necessary */
 	LWLockAcquire(lock, LW_EXCLUSIVE);
 	slotno = SimpleLruReadPage(TestSlruCtl, pageno,
-							   write_ok, InvalidTransactionId);
+							   write_ok, NULL);
 	data = (char *) TestSlruCtl->shared->page_buffer[slotno];
 	LWLockRelease(lock);
 
@@ -118,7 +118,7 @@ test_slru_page_readonly(PG_FUNCTION_ARGS)
 	/* find page in buffers, reading it if necessary */
 	slotno = SimpleLruReadPage_ReadOnly(TestSlruCtl,
 										pageno,
-										InvalidTransactionId);
+										NULL);
 	Assert(LWLockHeldByMe(lock));
 	data = (char *) TestSlruCtl->shared->page_buffer[slotno];
 	LWLockRelease(lock);
@@ -245,6 +245,7 @@ test_slru_shmem_startup(void)
 	}
 
 	TestSlruCtl->PagePrecedes = test_slru_page_precedes_logically;
+	TestSlruCtl->errmsg_for_io_error = xact_errmsg_for_io_error;
 	SimpleLruInit(TestSlruCtl, "TestSLRU",
 				  NUM_TEST_BUFFERS, 0, slru_dir_name,
 				  test_buffer_tranche_id, test_tranche_id, SYNC_HANDLER_NONE,
