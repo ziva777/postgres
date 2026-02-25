@@ -227,7 +227,7 @@ SetXidCommitTsInPage(TransactionId xid, int nsubxids,
 
 	LWLockAcquire(lock, LW_EXCLUSIVE);
 
-	slotno = SimpleLruReadPage(CommitTsCtl, pageno, true, xid);
+	slotno = SimpleLruReadPage(CommitTsCtl, pageno, true, &xid);
 
 	TransactionIdSetCommitTs(xid, ts, nodeid, slotno);
 	for (i = 0; i < nsubxids; i++)
@@ -332,7 +332,7 @@ TransactionIdGetCommitTsData(TransactionId xid, TimestampTz *ts,
 	}
 
 	/* lock is acquired by SimpleLruReadPage_ReadOnly */
-	slotno = SimpleLruReadPage_ReadOnly(CommitTsCtl, pageno, xid);
+	slotno = SimpleLruReadPage_ReadOnly(CommitTsCtl, pageno, &xid);
 	memcpy(&entry,
 		   CommitTsCtl->shared->page_buffer[slotno] +
 		   SizeOfCommitTimestampEntry * entryno,
@@ -551,6 +551,7 @@ CommitTsShmemInit(void)
 	Assert(commit_timestamp_buffers != 0);
 
 	CommitTsCtl->PagePrecedes = CommitTsPagePrecedes;
+	CommitTsCtl->IoErrorMsg = TransactionIdIoErrorMsg;
 	SimpleLruInit(CommitTsCtl, "commit_timestamp", CommitTsShmemBuffers(), 0,
 				  "pg_commit_ts", LWTRANCHE_COMMITTS_BUFFER,
 				  LWTRANCHE_COMMITTS_SLRU,

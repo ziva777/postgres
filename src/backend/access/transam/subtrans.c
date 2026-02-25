@@ -95,7 +95,7 @@ SubTransSetParent(TransactionId xid, TransactionId parent)
 	lock = SimpleLruGetBankLock(SubTransCtl, pageno);
 	LWLockAcquire(lock, LW_EXCLUSIVE);
 
-	slotno = SimpleLruReadPage(SubTransCtl, pageno, true, xid);
+	slotno = SimpleLruReadPage(SubTransCtl, pageno, true, &xid);
 	ptr = (TransactionId *) SubTransCtl->shared->page_buffer[slotno];
 	ptr += entryno;
 
@@ -135,7 +135,7 @@ SubTransGetParent(TransactionId xid)
 
 	/* lock is acquired by SimpleLruReadPage_ReadOnly */
 
-	slotno = SimpleLruReadPage_ReadOnly(SubTransCtl, pageno, xid);
+	slotno = SimpleLruReadPage_ReadOnly(SubTransCtl, pageno, &xid);
 	ptr = (TransactionId *) SubTransCtl->shared->page_buffer[slotno];
 	ptr += entryno;
 
@@ -240,6 +240,7 @@ SUBTRANSShmemInit(void)
 	Assert(subtransaction_buffers != 0);
 
 	SubTransCtl->PagePrecedes = SubTransPagePrecedes;
+	SubTransCtl->IoErrorMsg = TransactionIdIoErrorMsg;
 	SimpleLruInit(SubTransCtl, "subtransaction", SUBTRANSShmemBuffers(), 0,
 				  "pg_subtrans", LWTRANCHE_SUBTRANS_BUFFER,
 				  LWTRANCHE_SUBTRANS_SLRU, SYNC_HANDLER_NONE, false);
