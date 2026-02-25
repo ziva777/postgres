@@ -166,10 +166,11 @@ typedef SlruCtlData *SlruCtl;
 static inline int
 xact_errmsg_for_io_error(const void *opaque_data)
 {
-	TransactionId xid = opaque_data ? (*(TransactionId *) opaque_data) :
-									  InvalidTransactionId;
+	if (opaque_data)
+		return errmsg("could not access status of transaction %u",
+					  *(TransactionId *) opaque_data);
 
-	return errmsg("could not access status of transaction %u", xid);
+	return errmsg("could not access slru entry");	/* InvalidTransactionId */
 }
 
 /*
