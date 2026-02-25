@@ -93,6 +93,7 @@ test_slru_page_read(PG_FUNCTION_ARGS)
 {
 	int64		pageno = PG_GETARG_INT64(0);
 	bool		write_ok = PG_GETARG_BOOL(1);
+	TransactionId xid = PG_GETARG_TRANSACTIONID(2);
 	char	   *data = NULL;
 	int			slotno;
 	LWLock	   *lock = SimpleLruGetBankLock(TestSlruCtl, pageno);
@@ -100,7 +101,7 @@ test_slru_page_read(PG_FUNCTION_ARGS)
 	/* find page in buffers, reading it if necessary */
 	LWLockAcquire(lock, LW_EXCLUSIVE);
 	slotno = SimpleLruReadPage(TestSlruCtl, pageno,
-							   write_ok, NULL);
+							   write_ok, PG_ARGISNULL(2) ? NULL : &xid);
 	data = (char *) TestSlruCtl->shared->page_buffer[slotno];
 	LWLockRelease(lock);
 
@@ -210,6 +211,16 @@ test_slru_page_precedes_logically(int64 page1, int64 page2)
 	return page1 < page2;
 }
 
+static inline char *
+test_io_error_msg(const void *opaque_data)
+{
+	if (opaque_data)
+		return psprintf("could not access test_slru entry %u",
+						*(TransactionId *) opaque_data);
+
+	return psprintf("could not access test_slru entry");
+}
+
 static void
 test_slru_shmem_startup(void)
 {
@@ -245,7 +256,7 @@ test_slru_shmem_startup(void)
 	}
 
 	TestSlruCtl->PagePrecedes = test_slru_page_precedes_logically;
-	TestSlruCtl->IoErrorMsg = TransactionIdIoErrorMsg;
+	TestSlruCtl->IoErrorMsg = test_io_error_msg;
 	SimpleLruInit(TestSlruCtl, "TestSLRU",
 				  NUM_TEST_BUFFERS, 0, slru_dir_name,
 				  test_buffer_tranche_id, test_tranche_id, SYNC_HANDLER_NONE,

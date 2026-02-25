@@ -5,6 +5,10 @@ SELECT test_slru_page_write(12345, 'Test SLRU');
 SELECT test_slru_page_read(12345);
 SELECT test_slru_page_exists(12345);
 
+-- should fail with custom error msg
+SELECT test_slru_page_read(54321);
+SELECT test_slru_page_read(54321, false, '123'::xid);
+
 -- 48 extra pages
 SELECT count(test_slru_page_write(a, 'Test SLRU'))
   FROM generate_series(12346, 12393, 1) as a;
