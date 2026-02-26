@@ -167,8 +167,16 @@ static inline int
 xact_errmsg_for_io_error(const void *opaque_data)
 {
 	if (opaque_data)
-		return errmsg("could not access status of transaction %u",
-					  *(TransactionId *) opaque_data);
+	{
+		FullTransactionId	fxid;
+
+		fxid = FullTransactionIdFromAllowableAt(ReadNextFullTransactionId(),
+												*(TransactionId *) opaque_data);
+
+		return errmsg("could not access status of transaction %u:%u",
+					  EpochFromFullTransactionId(fxid),
+					  XidFromFullTransactionId(fxid));
+	}
 
 	return errmsg("could not access slru entry");	/* InvalidTransactionId */
 }
