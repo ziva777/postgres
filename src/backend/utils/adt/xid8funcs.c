@@ -97,25 +97,18 @@ StaticAssertDecl(MAX_BACKENDS * 2 <= PG_SNAPSHOT_MAX_NXIP,
 static bool
 TransactionIdInRecentPast(FullTransactionId fxid, TransactionId *extracted_xid)
 {
-	TransactionId xid = XidFromFullTransactionId(fxid);
-	FullTransactionId now_fullxid;
-	TransactionId oldest_clog_xid;
-	FullTransactionId oldest_clog_fxid;
-
-	now_fullxid = ReadNextFullTransactionId();
-
 	if (extracted_xid != NULL)
-		*extracted_xid = xid;
+		*extracted_xid = XidFromFullTransactionId(fxid);
 
-	if (!TransactionIdIsValid(xid))
+	if (!FullTransactionIdIsValid(fxid))
 		return false;
 
 	/* For non-normal transaction IDs, we can ignore the epoch. */
-	if (!TransactionIdIsNormal(xid))
+	if (!FullTransactionIdIsNormal(fxid))
 		return true;
 
 	/* If the transaction ID is in the future, throw an error. */
-	if (!FullTransactionIdPrecedes(fxid, now_fullxid))
+	if (!FullTransactionIdPrecedes(fxid, ReadNextFullTransactionId()))
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 				 errmsg("transaction ID %" PRIu64 " is in the future",
@@ -141,10 +134,7 @@ TransactionIdInRecentPast(FullTransactionId fxid, TransactionId *extracted_xid)
 	 * advancement reinstated the usual oldestClogXid==oldestXid.  Whether or
 	 * not that happened, oldestClogXid is allowable relative to now_fullxid.
 	 */
-	oldest_clog_xid = TransamVariables->oldestClogXid;
-	oldest_clog_fxid =
-		FullTransactionIdFromAllowableAt(now_fullxid, oldest_clog_xid);
-	return !FullTransactionIdPrecedes(fxid, oldest_clog_fxid);
+	return !FullTransactionIdPrecedes(fxid, TransamVariables->oldestClogXid);
 }
 
 /*

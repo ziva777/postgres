@@ -250,7 +250,8 @@ typedef struct TransamVariablesData
 	/*
 	 * These fields are protected by XactTruncationLock
 	 */
-	TransactionId oldestClogXid;	/* oldest it's safe to look up in clog */
+	FullTransactionId oldestClogXid;		/* oldest it's safe to look up in
+											 * clog */
 
 } TransamVariablesData;
 
