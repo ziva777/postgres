@@ -84,16 +84,34 @@ TransactionIdToPage(TransactionId xid)
 	return xid / (int64) CLOG_XACTS_PER_PAGE;
 }
 
-#define TransactionIdToPgIndex(xid) ((xid) % (TransactionId) CLOG_XACTS_PER_PAGE)
-#define TransactionIdToByte(xid)	(TransactionIdToPgIndex(xid) / CLOG_XACTS_PER_BYTE)
-#define TransactionIdToBIndex(xid)	((xid) % (TransactionId) CLOG_XACTS_PER_BYTE)
+static inline int
+TransactionIdToPgIndex(TransactionId xid)
+{
+	return xid % (TransactionId) CLOG_XACTS_PER_PAGE;
+}
+
+static inline int
+TransactionIdToByte(TransactionId xid)
+{
+	return TransactionIdToPgIndex(xid) / CLOG_XACTS_PER_BYTE;
+}
+
+static inline int
+TransactionIdToBIndex(TransactionId xid)
+{
+	return xid % (TransactionId) CLOG_XACTS_PER_BYTE;
+}
 
 /* We store the latest async LSN for each group of transactions */
 #define CLOG_XACTS_PER_LSN_GROUP	32	/* keep this a power of 2 */
 #define CLOG_LSNS_PER_PAGE	(CLOG_XACTS_PER_PAGE / CLOG_XACTS_PER_LSN_GROUP)
 
-#define GetLSNIndex(slotno, xid)	((slotno) * CLOG_LSNS_PER_PAGE + \
-	((xid) % (TransactionId) CLOG_XACTS_PER_PAGE) / CLOG_XACTS_PER_LSN_GROUP)
+static inline int
+GetLSNIndex(int slotno, TransactionId xid)
+{
+	return slotno * CLOG_LSNS_PER_PAGE +
+			TransactionIdToPgIndex(xid) / CLOG_XACTS_PER_LSN_GROUP;
+}
 
 /*
  * The number of subtransactions below which we consider to apply clog group
