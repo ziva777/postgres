@@ -11,6 +11,7 @@
 #ifndef CLOG_H
 #define CLOG_H
 
+#include "access/transam.h"
 #include "access/xlogreader.h"
 #include "storage/sync.h"
 #include "lib/stringinfo.h"
@@ -32,13 +33,15 @@ typedef int XidStatus;
 typedef struct xl_clog_truncate
 {
 	int64		pageno;
-	TransactionId oldestXact;
+	FullTransactionId oldestXact;
 	Oid			oldestXactDb;
 } xl_clog_truncate;
 
-extern void TransactionIdSetTreeStatus(TransactionId xid, int nsubxids,
-									   TransactionId *subxids, XidStatus status, XLogRecPtr lsn);
-extern XidStatus TransactionIdGetStatus(TransactionId xid, XLogRecPtr *lsn);
+extern void TransactionIdSetTreeStatus(FullTransactionId fxid, int nsubxids,
+									   TransactionId *subxids, XidStatus status,
+									   XLogRecPtr lsn);
+extern XidStatus TransactionIdGetStatus(FullTransactionId fxid,
+										XLogRecPtr *lsn);
 
 extern Size CLOGShmemSize(void);
 extern void CLOGShmemInit(void);
@@ -46,8 +49,8 @@ extern void BootStrapCLOG(void);
 extern void StartupCLOG(void);
 extern void TrimCLOG(void);
 extern void CheckPointCLOG(void);
-extern void ExtendCLOG(TransactionId newestXact);
-extern void TruncateCLOG(TransactionId oldestXact, Oid oldestxid_datoid);
+extern void ExtendCLOG(FullTransactionId newestXact);
+extern void TruncateCLOG(FullTransactionId oldestXact, Oid oldestxid_datoid);
 
 extern int	clogsyncfiletag(const FileTag *ftag, char *path);
 

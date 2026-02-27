@@ -93,8 +93,8 @@ GetNewTransactionId(bool isSubXact)
 	if (IsBootstrapProcessingMode())
 	{
 		Assert(!isSubXact);
-		MyProc->xid = BootstrapTransactionId;
-		ProcGlobal->xids[MyProc->pgxactoff] = BootstrapTransactionId;
+		MyProc->xid = BootstrapFullTransactionId;
+		ProcGlobal->xids[MyProc->pgxactoff] = BootstrapFullTransactionId;
 		return FullTransactionIdFromEpochAndXid(0, BootstrapTransactionId);
 	}
 
@@ -201,7 +201,7 @@ GetNewTransactionId(bool isSubXact)
 	 *
 	 * Extend pg_subtrans and pg_commit_ts too.
 	 */
-	ExtendCLOG(xid);
+	ExtendCLOG(full_xid);
 	ExtendCommitTs(xid);
 	ExtendSUBTRANS(xid);
 
@@ -255,8 +255,8 @@ GetNewTransactionId(bool isSubXact)
 		Assert(!MyProc->subxidStatus.overflowed);
 
 		/* LWLockRelease acts as barrier */
-		MyProc->xid = xid;
-		ProcGlobal->xids[MyProc->pgxactoff] = xid;
+		MyProc->xid = full_xid;
+		ProcGlobal->xids[MyProc->pgxactoff] = full_xid;
 	}
 	else
 	{

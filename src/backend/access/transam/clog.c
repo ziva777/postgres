@@ -79,27 +79,27 @@
  * 0xFFFFFFFF/CLOG_XACTS_PER_PAGE.
  */
 static inline int64
-TransactionIdToPage(TransactionId xid)
+FullTransactionIdToPage(FullTransactionId fxid)
 {
-	return xid / (int64) CLOG_XACTS_PER_PAGE;
+	return U64FromFullTransactionId(fxid) / (int64) CLOG_XACTS_PER_PAGE;
 }
 
 static inline int
-TransactionIdToPgIndex(TransactionId xid)
+FullTransactionIdToPgIndex(FullTransactionId fxid)
 {
-	return xid % (TransactionId) CLOG_XACTS_PER_PAGE;
+	return U64FromFullTransactionId(fxid) % (uint64) CLOG_XACTS_PER_PAGE;
 }
 
 static inline int
-TransactionIdToByte(TransactionId xid)
+FullTransactionIdToByte(FullTransactionId fxid)
 {
-	return TransactionIdToPgIndex(xid) / CLOG_XACTS_PER_BYTE;
+	return FullTransactionIdToPgIndex(fxid) / CLOG_XACTS_PER_BYTE;
 }
 
 static inline int
-TransactionIdToBIndex(TransactionId xid)
+FullTransactionIdToBIndex(FullTransactionId fxid)
 {
-	return xid % (TransactionId) CLOG_XACTS_PER_BYTE;
+	return U64FromFullTransactionId(fxid) % (uint64) CLOG_XACTS_PER_BYTE;
 }
 
 /* We store the latest async LSN for each group of transactions */
@@ -107,10 +107,17 @@ TransactionIdToBIndex(TransactionId xid)
 #define CLOG_LSNS_PER_PAGE	(CLOG_XACTS_PER_PAGE / CLOG_XACTS_PER_LSN_GROUP)
 
 static inline int
-GetLSNIndex(int slotno, TransactionId xid)
+GetLSNIndex(int slotno, FullTransactionId fxid)
 {
 	return slotno * CLOG_LSNS_PER_PAGE +
-			TransactionIdToPgIndex(xid) / CLOG_XACTS_PER_LSN_GROUP;
+			FullTransactionIdToPgIndex(fxid) / CLOG_XACTS_PER_LSN_GROUP;
+}
+
+static inline FullTransactionId
+AdjustToFullTransactionId(TransactionId xid)
+{
+	Assert(TransactionIdIsValid(xid));
+	return FullTransactionIdFromAllowableAt(ReadNextFullTransactionId(), xid);
 }
 
 /*
@@ -129,20 +136,22 @@ static SlruCtlData XactCtlData;
 
 
 static bool CLOGPagePrecedes(int64 page1, int64 page2);
-static void WriteTruncateXlogRec(int64 pageno, TransactionId oldestXact,
+static void WriteTruncateXlogRec(int64 pageno, FullTransactionId oldestXact,
 								 Oid oldestXactDb);
-static void TransactionIdSetPageStatus(TransactionId xid, int nsubxids,
+static void TransactionIdSetPageStatus(FullTransactionId fxid, int nsubxids,
 									   TransactionId *subxids, XidStatus status,
 									   XLogRecPtr lsn, int64 pageno,
 									   bool all_xact_same_page);
-static void TransactionIdSetStatusBit(TransactionId xid, XidStatus status,
+static void TransactionIdSetStatusBit(FullTransactionId fxid, XidStatus status,
 									  XLogRecPtr lsn, int slotno);
 static void set_status_by_pages(int nsubxids, TransactionId *subxids,
 								XidStatus status, XLogRecPtr lsn);
-static bool TransactionGroupUpdateXidStatus(TransactionId xid,
+static bool TransactionGroupUpdateXidStatus(FullTransactionId fxid,
 											XidStatus status, XLogRecPtr lsn, int64 pageno);
-static void TransactionIdSetPageStatusInternal(TransactionId xid, int nsubxids,
-											   TransactionId *subxids, XidStatus status,
+static void TransactionIdSetPageStatusInternal(FullTransactionId fxid,
+											   int nsubxids,
+											   TransactionId *subxids,
+											   XidStatus status,
 											   XLogRecPtr lsn, int64 pageno);
 
 
@@ -196,11 +205,12 @@ static void TransactionIdSetPageStatusInternal(TransactionId xid, int nsubxids,
  * cache yet.
  */
 void
-TransactionIdSetTreeStatus(TransactionId xid, int nsubxids,
+TransactionIdSetTreeStatus(FullTransactionId fxid, int nsubxids,
 						   TransactionId *subxids, XidStatus status, XLogRecPtr lsn)
 {
-	int64		pageno = TransactionIdToPage(xid);	/* get page of parent */
+	int64		pageno = FullTransactionIdToPage(fxid);	/* get page of parent */
 	int			i;
+	FullTransactionId next;
 
 	Assert(status == TRANSACTION_STATUS_COMMITTED ||
 		   status == TRANSACTION_STATUS_ABORTED);
@@ -209,9 +219,14 @@ TransactionIdSetTreeStatus(TransactionId xid, int nsubxids,
 	 * See how many subxids, if any, are on the same page as the parent, if
 	 * any.
 	 */
+	next = ReadNextFullTransactionId();
 	for (i = 0; i < nsubxids; i++)
 	{
-		if (TransactionIdToPage(subxids[i]) != pageno)
+		FullTransactionId subfxid = FullTransactionIdFromAllowableAt(next,
+																	 subxids[i]);
+		int64		subxid_pageno = FullTransactionIdToPage(subfxid);
+
+		if (subxid_pageno != pageno)
 			break;
 	}
 
@@ -223,7 +238,7 @@ TransactionIdSetTreeStatus(TransactionId xid, int nsubxids,
 		/*
 		 * Set the parent and all subtransactions in a single call
 		 */
-		TransactionIdSetPageStatus(xid, nsubxids, subxids, status, lsn,
+		TransactionIdSetPageStatus(fxid, nsubxids, subxids, status, lsn,
 								   pageno, true);
 	}
 	else
@@ -249,9 +264,9 @@ TransactionIdSetTreeStatus(TransactionId xid, int nsubxids,
 		 * Now set the parent and subtransactions on same page as the parent,
 		 * if any
 		 */
-		pageno = TransactionIdToPage(xid);
-		TransactionIdSetPageStatus(xid, nsubxids_on_first_page, subxids, status,
-								   lsn, pageno, false);
+		pageno = FullTransactionIdToPage(fxid);
+		TransactionIdSetPageStatus(fxid, nsubxids_on_first_page, subxids,
+								   status, lsn, pageno, false);
 
 		/*
 		 * Now work through the rest of the subxids one clog page at a time,
@@ -273,7 +288,8 @@ static void
 set_status_by_pages(int nsubxids, TransactionId *subxids,
 					XidStatus status, XLogRecPtr lsn)
 {
-	int64		pageno = TransactionIdToPage(subxids[0]);
+	FullTransactionId fxid = AdjustToFullTransactionId(subxids[0]);
+	int64		pageno = FullTransactionIdToPage(fxid);
 	int			offset = 0;
 	int			i = 0;
 
@@ -286,14 +302,15 @@ set_status_by_pages(int nsubxids, TransactionId *subxids,
 
 		do
 		{
-			nextpageno = TransactionIdToPage(subxids[i]);
+			fxid = AdjustToFullTransactionId(subxids[i]);
+			nextpageno = FullTransactionIdToPage(fxid);
 			if (nextpageno != pageno)
 				break;
 			num_on_page++;
 			i++;
 		} while (i < nsubxids);
 
-		TransactionIdSetPageStatus(InvalidTransactionId,
+		TransactionIdSetPageStatus(InvalidFullTransactionId,
 								   num_on_page, subxids + offset,
 								   status, lsn, pageno, false);
 		offset = i;
@@ -306,7 +323,7 @@ set_status_by_pages(int nsubxids, TransactionId *subxids,
  * entries on a single page.  Atomic only on this page.
  */
 static void
-TransactionIdSetPageStatus(TransactionId xid, int nsubxids,
+TransactionIdSetPageStatus(FullTransactionId fxid, int nsubxids,
 						   TransactionId *subxids, XidStatus status,
 						   XLogRecPtr lsn, int64 pageno,
 						   bool all_xact_same_page)
@@ -334,7 +351,7 @@ TransactionIdSetPageStatus(TransactionId xid, int nsubxids,
 	 * sub-XIDs and all of the XIDs for which we're adjusting clog should be
 	 * on the same page.  Check those conditions, too.
 	 */
-	if (all_xact_same_page && xid == MyProc->xid &&
+	if (all_xact_same_page && FullTransactionIdEquals(fxid, MyProc->xid) &&
 		nsubxids <= THRESHOLD_SUBTRANS_CLOG_OPT &&
 		nsubxids == MyProc->subxidStatus.count &&
 		(nsubxids == 0 ||
@@ -350,12 +367,12 @@ TransactionIdSetPageStatus(TransactionId xid, int nsubxids,
 		if (LWLockConditionalAcquire(lock, LW_EXCLUSIVE))
 		{
 			/* Got the lock without waiting!  Do the update. */
-			TransactionIdSetPageStatusInternal(xid, nsubxids, subxids, status,
+			TransactionIdSetPageStatusInternal(fxid, nsubxids, subxids, status,
 											   lsn, pageno);
 			LWLockRelease(lock);
 			return;
 		}
-		else if (TransactionGroupUpdateXidStatus(xid, status, lsn, pageno))
+		else if (TransactionGroupUpdateXidStatus(fxid, status, lsn, pageno))
 		{
 			/* Group update mechanism has done the work. */
 			return;
@@ -366,7 +383,7 @@ TransactionIdSetPageStatus(TransactionId xid, int nsubxids,
 
 	/* Group update not applicable, or couldn't accept this page number. */
 	LWLockAcquire(lock, LW_EXCLUSIVE);
-	TransactionIdSetPageStatusInternal(xid, nsubxids, subxids, status,
+	TransactionIdSetPageStatusInternal(fxid, nsubxids, subxids, status,
 									   lsn, pageno);
 	LWLockRelease(lock);
 }
@@ -377,7 +394,7 @@ TransactionIdSetPageStatus(TransactionId xid, int nsubxids,
  * We don't do any locking here; caller must handle that.
  */
 static void
-TransactionIdSetPageStatusInternal(TransactionId xid, int nsubxids,
+TransactionIdSetPageStatusInternal(FullTransactionId fxid, int nsubxids,
 								   TransactionId *subxids, XidStatus status,
 								   XLogRecPtr lsn, int64 pageno)
 {
@@ -386,7 +403,8 @@ TransactionIdSetPageStatusInternal(TransactionId xid, int nsubxids,
 
 	Assert(status == TRANSACTION_STATUS_COMMITTED ||
 		   status == TRANSACTION_STATUS_ABORTED ||
-		   (status == TRANSACTION_STATUS_SUB_COMMITTED && !TransactionIdIsValid(xid)));
+		   (status == TRANSACTION_STATUS_SUB_COMMITTED &&
+			!FullTransactionIdIsValid(fxid)));
 	Assert(LWLockHeldByMeInMode(SimpleLruGetBankLock(XactCtl, pageno),
 								LW_EXCLUSIVE));
 
@@ -400,7 +418,7 @@ TransactionIdSetPageStatusInternal(TransactionId xid, int nsubxids,
 	 * we think.
 	 */
 	slotno = SimpleLruReadPage(XactCtl, pageno, !XLogRecPtrIsValid(lsn),
-							   xid);
+							   XidFromFullTransactionId(fxid));
 
 	/*
 	 * Set the main transaction id, if any.
@@ -411,29 +429,40 @@ TransactionIdSetPageStatusInternal(TransactionId xid, int nsubxids,
 	 * could break atomicity, so we subcommit the subxids first before we mark
 	 * the top-level commit.
 	 */
-	if (TransactionIdIsValid(xid))
+	if (FullTransactionIdIsValid(fxid))
 	{
 		/* Subtransactions first, if needed ... */
 		if (status == TRANSACTION_STATUS_COMMITTED)
 		{
+			FullTransactionId	next = ReadNextFullTransactionId();
+
 			for (i = 0; i < nsubxids; i++)
 			{
-				Assert(XactCtl->shared->page_number[slotno] == TransactionIdToPage(subxids[i]));
-				TransactionIdSetStatusBit(subxids[i],
+				FullTransactionId subxid =
+					FullTransactionIdFromAllowableAt(next, subxids[i]);
+				int64	subxid_pageno PG_USED_FOR_ASSERTS_ONLY =
+					FullTransactionIdToPage(subxid);
+
+				Assert(XactCtl->shared->page_number[slotno] == subxid_pageno);
+				TransactionIdSetStatusBit(subxid,
 										  TRANSACTION_STATUS_SUB_COMMITTED,
 										  lsn, slotno);
 			}
 		}
 
 		/* ... then the main transaction */
-		TransactionIdSetStatusBit(xid, status, lsn, slotno);
+		TransactionIdSetStatusBit(fxid, status, lsn, slotno);
 	}
 
 	/* Set the subtransactions */
 	for (i = 0; i < nsubxids; i++)
 	{
-		Assert(XactCtl->shared->page_number[slotno] == TransactionIdToPage(subxids[i]));
-		TransactionIdSetStatusBit(subxids[i], status, lsn, slotno);
+		FullTransactionId subfxid = AdjustToFullTransactionId(subxids[i]);
+		int64		subxid_pageno PG_USED_FOR_ASSERTS_ONLY;
+
+		subxid_pageno = FullTransactionIdToPage(subfxid);
+		Assert(XactCtl->shared->page_number[slotno] == subxid_pageno);
+		TransactionIdSetStatusBit(subfxid, status, lsn, slotno);
 	}
 
 	XactCtl->shared->page_dirty[slotno] = true;
@@ -455,7 +484,7 @@ TransactionIdSetPageStatusInternal(TransactionId xid, int nsubxids,
  * number we need to update differs from those processes already waiting.
  */
 static bool
-TransactionGroupUpdateXidStatus(TransactionId xid, XidStatus status,
+TransactionGroupUpdateXidStatus(FullTransactionId fxid, XidStatus status,
 								XLogRecPtr lsn, int64 pageno)
 {
 	volatile PROC_HDR *procglobal = ProcGlobal;
@@ -466,14 +495,14 @@ TransactionGroupUpdateXidStatus(TransactionId xid, XidStatus status,
 	LWLock	   *prevlock = NULL;
 
 	/* We should definitely have an XID whose status needs to be updated. */
-	Assert(TransactionIdIsValid(xid));
+	Assert(FullTransactionIdIsValid(fxid));
 
 	/*
 	 * Prepare to add ourselves to the list of processes needing a group XID
 	 * status update.
 	 */
 	proc->clogGroupMember = true;
-	proc->clogGroupMemberXid = xid;
+	proc->clogGroupMemberXid = fxid;
 	proc->clogGroupMemberXidStatus = status;
 	proc->clogGroupMemberPage = pageno;
 	proc->clogGroupMemberLsn = lsn;
@@ -675,15 +704,16 @@ TransactionGroupUpdateXidStatus(TransactionId xid, XidStatus status,
  * Caller must hold the corresponding SLRU bank lock, will be held at exit.
  */
 static void
-TransactionIdSetStatusBit(TransactionId xid, XidStatus status, XLogRecPtr lsn, int slotno)
+TransactionIdSetStatusBit(FullTransactionId fxid, XidStatus status,
+						  XLogRecPtr lsn, int slotno)
 {
-	int			byteno = TransactionIdToByte(xid);
-	int			bshift = TransactionIdToBIndex(xid) * CLOG_BITS_PER_XACT;
+	int			byteno = FullTransactionIdToByte(fxid);
+	int			bshift = FullTransactionIdToBIndex(fxid) * CLOG_BITS_PER_XACT;
 	char	   *byteptr;
 	char		byteval;
 	char		curval;
 
-	Assert(XactCtl->shared->page_number[slotno] == TransactionIdToPage(xid));
+	Assert(XactCtl->shared->page_number[slotno] == FullTransactionIdToPage(fxid));
 	Assert(LWLockHeldByMeInMode(SimpleLruGetBankLock(XactCtl,
 													 XactCtl->shared->page_number[slotno]),
 								LW_EXCLUSIVE));
@@ -726,7 +756,7 @@ TransactionIdSetStatusBit(TransactionId xid, XidStatus status, XLogRecPtr lsn, i
 	 */
 	if (XLogRecPtrIsValid(lsn))
 	{
-		int			lsnindex = GetLSNIndex(slotno, xid);
+		int			lsnindex = GetLSNIndex(slotno, fxid);
 
 		if (XactCtl->shared->group_lsn[lsnindex] < lsn)
 			XactCtl->shared->group_lsn[lsnindex] = lsn;
@@ -749,11 +779,11 @@ TransactionIdSetStatusBit(TransactionId xid, XidStatus status, XLogRecPtr lsn, i
  * for most uses; TransactionLogFetch() in transam.c is the intended caller.
  */
 XidStatus
-TransactionIdGetStatus(TransactionId xid, XLogRecPtr *lsn)
+TransactionIdGetStatus(FullTransactionId fxid, XLogRecPtr *lsn)
 {
-	int64		pageno = TransactionIdToPage(xid);
-	int			byteno = TransactionIdToByte(xid);
-	int			bshift = TransactionIdToBIndex(xid) * CLOG_BITS_PER_XACT;
+	int64		pageno = FullTransactionIdToPage(fxid);
+	int			byteno = FullTransactionIdToByte(fxid);
+	int			bshift = FullTransactionIdToBIndex(fxid) * CLOG_BITS_PER_XACT;
 	int			slotno;
 	int			lsnindex;
 	char	   *byteptr;
@@ -761,12 +791,13 @@ TransactionIdGetStatus(TransactionId xid, XLogRecPtr *lsn)
 
 	/* lock is acquired by SimpleLruReadPage_ReadOnly */
 
-	slotno = SimpleLruReadPage_ReadOnly(XactCtl, pageno, xid);
+	slotno = SimpleLruReadPage_ReadOnly(XactCtl, pageno,
+										XidFromFullTransactionId(fxid));
 	byteptr = XactCtl->shared->page_buffer[slotno] + byteno;
 
 	status = (*byteptr >> bshift) & CLOG_XACT_BITMASK;
 
-	lsnindex = GetLSNIndex(slotno, xid);
+	lsnindex = GetLSNIndex(slotno, fxid);
 	*lsn = XactCtl->shared->group_lsn[lsnindex];
 
 	LWLockRelease(SimpleLruGetBankLock(XactCtl, pageno));
@@ -827,8 +858,8 @@ CLOGShmemInit(void)
 	XactCtl->PagePrecedes = CLOGPagePrecedes;
 	SimpleLruInit(XactCtl, "transaction", CLOGShmemBuffers(), CLOG_LSNS_PER_PAGE,
 				  "pg_xact", LWTRANCHE_XACT_BUFFER,
-				  LWTRANCHE_XACT_SLRU, SYNC_HANDLER_CLOG, false);
-	SlruPagePrecedesUnitTests(XactCtl, CLOG_XACTS_PER_PAGE);
+				  LWTRANCHE_XACT_SLRU, SYNC_HANDLER_CLOG, true);
+	/* doesn't meet criteria for unit tests */
 }
 
 /*
@@ -860,8 +891,7 @@ BootStrapCLOG(void)
 void
 StartupCLOG(void)
 {
-	TransactionId xid = XidFromFullTransactionId(TransamVariables->nextXid);
-	int64		pageno = TransactionIdToPage(xid);
+	int64		pageno = FullTransactionIdToPage(TransamVariables->nextXid);
 
 	/*
 	 * Initialize our idea of the latest page number.
@@ -875,8 +905,9 @@ StartupCLOG(void)
 void
 TrimCLOG(void)
 {
-	TransactionId xid = XidFromFullTransactionId(TransamVariables->nextXid);
-	int64		pageno = TransactionIdToPage(xid);
+	FullTransactionId fxid = TransamVariables->nextXid;
+	TransactionId xid = XidFromFullTransactionId(fxid);
+	int64		pageno = FullTransactionIdToPage(fxid);
 	LWLock	   *lock = SimpleLruGetBankLock(XactCtl, pageno);
 
 	LWLockAcquire(lock, LW_EXCLUSIVE);
@@ -893,10 +924,10 @@ TrimCLOG(void)
 	 * nextXid is exactly at a page boundary; and it's likely that the
 	 * "current" page doesn't exist yet in that case.)
 	 */
-	if (TransactionIdToPgIndex(xid) != 0)
+	if (FullTransactionIdToPgIndex(fxid) != 0)
 	{
-		int			byteno = TransactionIdToByte(xid);
-		int			bshift = TransactionIdToBIndex(xid) * CLOG_BITS_PER_XACT;
+		int			byteno = FullTransactionIdToByte(fxid);
+		int			bshift = FullTransactionIdToBIndex(fxid) * CLOG_BITS_PER_XACT;
 		int			slotno;
 		char	   *byteptr;
 
@@ -940,7 +971,7 @@ CheckPointCLOG(void)
  * in shared memory.
  */
 void
-ExtendCLOG(TransactionId newestXact)
+ExtendCLOG(FullTransactionId newestXact)
 {
 	int64		pageno;
 	LWLock	   *lock;
@@ -949,11 +980,11 @@ ExtendCLOG(TransactionId newestXact)
 	 * No work except at first XID of a page.  But beware: just after
 	 * wraparound, the first XID of page zero is FirstNormalTransactionId.
 	 */
-	if (TransactionIdToPgIndex(newestXact) != 0 &&
-		!TransactionIdEquals(newestXact, FirstNormalTransactionId))
+	if (FullTransactionIdToPgIndex(newestXact) != 0 &&
+		!FullTransactionIdEquals(newestXact, FirstNormalFullTransactionId))
 		return;
 
-	pageno = TransactionIdToPage(newestXact);
+	pageno = FullTransactionIdToPage(newestXact);
 	lock = SimpleLruGetBankLock(XactCtl, pageno);
 
 	LWLockAcquire(lock, LW_EXCLUSIVE);
@@ -982,15 +1013,13 @@ ExtendCLOG(TransactionId newestXact)
  * the XLOG flush unless we have confirmed that there is a removable segment.
  */
 void
-TruncateCLOG(TransactionId oldestXact, Oid oldestxid_datoid)
+TruncateCLOG(FullTransactionId oldestXact, Oid oldestxid_datoid)
 {
-	int64		cutoffPage;
-
 	/*
 	 * The cutoff point is the start of the segment containing oldestXact. We
 	 * pass the *page* containing oldestXact to SimpleLruTruncate.
 	 */
-	cutoffPage = TransactionIdToPage(oldestXact);
+	int64		cutoffPage = FullTransactionIdToPage(oldestXact);
 
 	/* Check to see if there's any files that could be removed */
 	if (!SlruScanDirectory(XactCtl, SlruScanDirCbReportPresence, &cutoffPage))
@@ -1003,7 +1032,7 @@ TruncateCLOG(TransactionId oldestXact, Oid oldestxid_datoid)
 	 * It's only necessary to do this if we will actually truncate away clog
 	 * pages.
 	 */
-	AdvanceOldestClogXid(oldestXact);
+	AdvanceOldestClogXid(XidFromFullTransactionId(oldestXact));
 
 	/*
 	 * Write XLOG record and flush XLOG to disk. We record the oldest xid
@@ -1020,35 +1049,11 @@ TruncateCLOG(TransactionId oldestXact, Oid oldestxid_datoid)
 
 /*
  * Decide whether a CLOG page number is "older" for truncation purposes.
- *
- * We need to use comparison of TransactionIds here in order to do the right
- * thing with wraparound XID arithmetic.  However, TransactionIdPrecedes()
- * would get weird about permanent xact IDs.  So, offset both such that xid1,
- * xid2, and xid2 + CLOG_XACTS_PER_PAGE - 1 are all normal XIDs; this offset
- * is relevant to page 0 and to the page preceding page 0.
- *
- * The page containing oldestXact-2^31 is the important edge case.  The
- * portion of that page equaling or following oldestXact-2^31 is expendable,
- * but the portion preceding oldestXact-2^31 is not.  When oldestXact-2^31 is
- * the first XID of a page and segment, the entire page and segment is
- * expendable, and we could truncate the segment.  Recognizing that case would
- * require making oldestXact, not just the page containing oldestXact,
- * available to this callback.  The benefit would be rare and small, so we
- * don't optimize that edge case.
  */
 static bool
 CLOGPagePrecedes(int64 page1, int64 page2)
 {
-	TransactionId xid1;
-	TransactionId xid2;
-
-	xid1 = ((TransactionId) page1) * CLOG_XACTS_PER_PAGE;
-	xid1 += FirstNormalTransactionId + 1;
-	xid2 = ((TransactionId) page2) * CLOG_XACTS_PER_PAGE;
-	xid2 += FirstNormalTransactionId + 1;
-
-	return (TransactionIdPrecedes(xid1, xid2) &&
-			TransactionIdPrecedes(xid1, xid2 + CLOG_XACTS_PER_PAGE - 1));
+	return page1 < page2;
 }
 
 
@@ -1059,7 +1064,8 @@ CLOGPagePrecedes(int64 page1, int64 page2)
  * in TruncateCLOG().
  */
 static void
-WriteTruncateXlogRec(int64 pageno, TransactionId oldestXact, Oid oldestXactDb)
+WriteTruncateXlogRec(int64 pageno, FullTransactionId oldestXact,
+					 Oid oldestXactDb)
 {
 	XLogRecPtr	recptr;
 	xl_clog_truncate xlrec;
@@ -1098,7 +1104,7 @@ clog_redo(XLogReaderState *record)
 
 		memcpy(&xlrec, XLogRecGetData(record), sizeof(xl_clog_truncate));
 
-		AdvanceOldestClogXid(xlrec.oldestXact);
+		AdvanceOldestClogXid(XidFromFullTransactionId(xlrec.oldestXact));
 
 		SimpleLruTruncate(XactCtl, xlrec.pageno);
 	}

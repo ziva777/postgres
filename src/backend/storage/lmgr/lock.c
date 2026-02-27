@@ -4212,7 +4212,7 @@ GetRunningTransactionLocks(int *nlocks)
 		{
 			PGPROC	   *proc = proclock->tag.myProc;
 			LOCK	   *lock = proclock->tag.myLock;
-			TransactionId xid = proc->xid;
+			TransactionId xid = XidFromFullTransactionId(proc->xid);
 
 			/*
 			 * Don't record locks for transactions if we know they have
@@ -4832,7 +4832,7 @@ VirtualXactLock(VirtualTransactionId vxid, bool wait)
 	 * so we won't save an XID of a different VXID.  It doesn't matter whether
 	 * we save this before or after setting up the primary lock table entry.
 	 */
-	xid = proc->xid;
+	xid = XidFromFullTransactionId(proc->xid);
 
 	/* Done with proc->fpLockBits */
 	LWLockRelease(&proc->fpInfoLock);

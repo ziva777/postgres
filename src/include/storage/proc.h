@@ -232,7 +232,7 @@ typedef struct PGPROC
 									 * InvalidLocalTransactionId */
 	}			vxid;
 
-	TransactionId xid;			/* id of top-level transaction currently being
+	FullTransactionId xid;		/* id of top-level transaction currently being
 								 * executed by this proc, if running and XID
 								 * is assigned; else InvalidTransactionId.
 								 * mirrored in ProcGlobal->xids[pgxactoff] */
@@ -361,7 +361,7 @@ typedef struct PGPROC
 
 	bool		clogGroupMember;	/* true, if member of clog group */
 	pg_atomic_uint32 clogGroupNext; /* next clog group member */
-	TransactionId clogGroupMemberXid;	/* transaction id of clog group member */
+	FullTransactionId clogGroupMemberXid;	/* transaction id of clog group member */
 	XidStatus	clogGroupMemberXidStatus;	/* transaction status of clog
 											 * group member */
 	int64		clogGroupMemberPage;	/* clog page corresponding to
@@ -447,7 +447,7 @@ typedef struct PROC_HDR
 	PGPROC	   *allProcs;
 
 	/* Array mirroring PGPROC.xid for each PGPROC currently in the procarray */
-	TransactionId *xids;
+	FullTransactionId *xids;
 
 	/*
 	 * Array mirroring PGPROC.subxidStatus for each PGPROC currently in the

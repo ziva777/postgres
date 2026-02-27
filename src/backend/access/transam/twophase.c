@@ -438,7 +438,6 @@ MarkAsPreparingGuts(GlobalTransaction gxact, FullTransactionId fxid,
 {
 	PGPROC	   *proc;
 	int			i;
-	TransactionId xid = XidFromFullTransactionId(fxid);
 
 	Assert(LWLockHeldByMeInMode(TwoPhaseStateLock, LW_EXCLUSIVE));
 
@@ -458,10 +457,10 @@ MarkAsPreparingGuts(GlobalTransaction gxact, FullTransactionId fxid,
 	{
 		Assert(AmStartupProcess() || !IsPostmasterEnvironment);
 		/* GetLockConflicts() uses this to specify a wait on the XID */
-		proc->vxid.lxid = xid;
+		proc->vxid.lxid = XidFromFullTransactionId(fxid);
 		proc->vxid.procNumber = INVALID_PROC_NUMBER;
 	}
-	proc->xid = xid;
+	proc->xid = fxid;
 	Assert(proc->xmin == InvalidTransactionId);
 	proc->delayChkptFlags = 0;
 	proc->statusFlags = 0;
@@ -778,7 +777,8 @@ pg_prepared_xact(PG_FUNCTION_ARGS)
 		 * Form tuple with appropriate data.
 		 */
 
-		values[0] = TransactionIdGetDatum(proc->xid);
+		values[0] = TransactionIdGetDatum(XidFromFullTransactionId(proc->xid));
+		/* XXX: cosider adding epoch */
 		values[1] = CStringGetTextDatum(gxact->gid);
 		values[2] = TimestampTzGetDatum(gxact->prepared_at);
 		values[3] = ObjectIdGetDatum(gxact->owner);

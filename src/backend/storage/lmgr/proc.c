@@ -247,7 +247,7 @@ InitProcGlobal(void)
 	 * XXX: It might make sense to increase padding for these arrays, given
 	 * how hotly they are accessed.
 	 */
-	ProcGlobal->xids = (TransactionId *) ptr;
+	ProcGlobal->xids = (FullTransactionId *) ptr;
 	ptr = ptr + (TotalProcs * sizeof(*ProcGlobal->xids));
 
 	ProcGlobal->subxidStates = (XidCacheStatus *) ptr;
@@ -461,7 +461,7 @@ InitProcess(void)
 	MyProc->waitStatus = PROC_WAIT_STATUS_OK;
 	MyProc->fpVXIDLock = false;
 	MyProc->fpLocalTransactionId = InvalidLocalTransactionId;
-	MyProc->xid = InvalidTransactionId;
+	MyProc->xid = InvalidFullTransactionId;
 	MyProc->xmin = InvalidTransactionId;
 	MyProc->pid = MyProcPid;
 	MyProc->vxid.procNumber = MyProcNumber;
@@ -512,7 +512,7 @@ InitProcess(void)
 
 	/* Initialize fields for group transaction status update. */
 	MyProc->clogGroupMember = false;
-	MyProc->clogGroupMemberXid = InvalidTransactionId;
+	MyProc->clogGroupMemberXid = InvalidFullTransactionId;
 	MyProc->clogGroupMemberXidStatus = TRANSACTION_STATUS_IN_PROGRESS;
 	MyProc->clogGroupMemberPage = -1;
 	MyProc->clogGroupMemberLsn = InvalidXLogRecPtr;
@@ -663,7 +663,7 @@ InitAuxiliaryProcess(void)
 	MyProc->waitStatus = PROC_WAIT_STATUS_OK;
 	MyProc->fpVXIDLock = false;
 	MyProc->fpLocalTransactionId = InvalidLocalTransactionId;
-	MyProc->xid = InvalidTransactionId;
+	MyProc->xid = InvalidFullTransactionId;
 	MyProc->xmin = InvalidTransactionId;
 	MyProc->vxid.procNumber = INVALID_PROC_NUMBER;
 	MyProc->vxid.lxid = InvalidLocalTransactionId;

@@ -1962,9 +1962,15 @@ vac_truncate_clog(TransactionId frozenXID,
 	/*
 	 * Truncate CLOG, multixact and CommitTs to the oldest computed value.
 	 */
-	TruncateCLOG(frozenXID, oldestxid_datoid);
-	TruncateCommitTs(frozenXID);
-	TruncateMultiXact(minMulti, minmulti_datoid);
+	{
+		FullTransactionId frozen_fxid =
+			FullTransactionIdFromAllowableAt(ReadNextFullTransactionId(),
+											 frozenXID);
+
+		TruncateCLOG(frozen_fxid, oldestxid_datoid);
+		TruncateCommitTs(frozenXID);
+		TruncateMultiXact(minMulti, minmulti_datoid);
+	}
 
 	/*
 	 * Update the wrap limit for GetNewTransactionId and creation of new
