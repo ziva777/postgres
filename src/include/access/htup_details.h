@@ -122,12 +122,15 @@
 typedef struct HeapTupleFields
 {
 	TransactionId t_xmin;		/* inserting xact ID */
+	struct { uint32 a; } pad1;
 	TransactionId t_xmax;		/* deleting or locking xact ID */
+	struct { uint32 a; } pad2;
 
 	union
 	{
 		CommandId	t_cid;		/* inserting or deleting command ID, or both */
 		TransactionId t_xvac;	/* old-style VACUUM FULL xact ID */
+		struct { uint32 a; } pad;
 	}			t_field3;
 } HeapTupleFields;
 
