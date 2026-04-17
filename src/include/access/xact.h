@@ -250,7 +250,7 @@ typedef struct xl_xact_xinfo
 	 * Commit records can be large, so copying large portions isn't
 	 * attractive.
 	 */
-	uint32		xinfo;
+	uint64		xinfo;
 } xl_xact_xinfo;
 
 typedef struct xl_xact_dbinfo
@@ -309,8 +309,30 @@ typedef struct xl_xact_invals
 
 typedef struct xl_xact_twophase
 {
-	TransactionId xid;
+	/*
+	 * We read and write this struct as a raw memory image in WAL. Thus, xid
+	 * must be int aligned.
+	 */
+	uint32 xid_lo;
+	uint32 xid_hi;
 } xl_xact_twophase;
+
+static inline TransactionId
+xl_xact_twophase_xid(xl_xact_twophase *xl_twophase)
+{
+	TransactionId xid = xl_twophase->xid_hi;
+
+	xid <<= 32;
+	xid |= xl_twophase->xid_lo;
+	return xid;
+}
+
+static inline void
+xl_xact_twophase_set_xid(xl_xact_twophase *xl_twophase, TransactionId xid)
+{
+	xl_twophase->xid_lo = (uint32) (xid & 0xFFFFFFFF);
+	xl_twophase->xid_hi = (uint32) (xid >> 32);
+}
 
 typedef struct xl_xact_origin
 {

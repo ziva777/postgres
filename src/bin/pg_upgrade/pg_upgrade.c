@@ -827,7 +827,7 @@ copy_xact_xlog_xid(void)
 		 * counters here and the oldest multi present on system.
 		 */
 		exec_prog(UTILITY_LOG_FILE, NULL, true, true,
-				  "\"%s/pg_resetwal\" -O %" PRIu64 " -m %u,%u \"%s\"",
+				  "\"%s/pg_resetwal\" -O %" PRIu64 " -m %" PRIu64 ",%u \"%s\"",
 				  new_cluster.bindir, new_nxtmxoff, new_nxtmulti,
 				  old_cluster.controldata.chkpnt_oldstMulti,
 				  new_cluster.pgdata);
@@ -885,7 +885,7 @@ copy_xact_xlog_xid(void)
 
 		prep_status("Setting next multixact ID and offset for new cluster");
 		exec_prog(UTILITY_LOG_FILE, NULL, true, true,
-				  "\"%s/pg_resetwal\" -O %" PRIu64 " -m %u,%u \"%s\"",
+				  "\"%s/pg_resetwal\" -O %" PRIu64 " -m %" PRIu64 ",%" PRIu64 " \"%s\"",
 				  new_cluster.bindir,
 				  nxtmxoff, nxtmulti, oldstMulti,
 				  new_cluster.pgdata);

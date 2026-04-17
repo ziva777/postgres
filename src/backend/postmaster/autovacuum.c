@@ -1177,17 +1177,17 @@ do_start_worker(void)
 	 * particular tables, but not loosened.)
 	 */
 	recentXid = ReadNextTransactionId();
-	xidForceLimit = recentXid - autovacuum_freeze_max_age;
-	/* ensure it's a "normal" XID, else TransactionIdPrecedes misbehaves */
-	/* this can cause the limit to go backwards by 3, but that's OK */
-	if (xidForceLimit < FirstNormalTransactionId)
-		xidForceLimit -= FirstNormalTransactionId;
+	if (recentXid > FirstNormalTransactionId + autovacuum_freeze_max_age)
+		xidForceLimit = recentXid - autovacuum_freeze_max_age;
+	else
+		xidForceLimit = FirstNormalTransactionId;
 
 	/* Also determine the oldest datminmxid we will consider. */
 	recentMulti = ReadNextMultiXactId();
-	multiForceLimit = recentMulti - MultiXactMemberFreezeThreshold();
-	if (multiForceLimit < FirstMultiXactId)
-		multiForceLimit -= FirstMultiXactId;
+	if (recentMulti > FirstMultiXactId + autovacuum_multixact_freeze_max_age)
+		multiForceLimit = recentMulti - MultiXactMemberFreezeThreshold();
+	else
+		multiForceLimit = FirstMultiXactId;
 
 	/*
 	 * Choose a database to connect to.  We pick the database that was least
@@ -3177,16 +3177,18 @@ relation_needs_vacanalyze(Oid relid,
 	relminmxid = classForm->relminmxid;
 
 	/* Force vacuum if table is at risk of wraparound */
-	xidForceLimit = recentXid - freeze_max_age;
-	if (xidForceLimit < FirstNormalTransactionId)
-		xidForceLimit -= FirstNormalTransactionId;
+	if (recentXid > FirstNormalTransactionId + freeze_max_age)
+		xidForceLimit = recentXid - freeze_max_age;
+	else
+		xidForceLimit = FirstNormalTransactionId;
 	force_vacuum = (TransactionIdIsNormal(relfrozenxid) &&
 					TransactionIdPrecedes(relfrozenxid, xidForceLimit));
 	if (!force_vacuum)
 	{
-		multiForceLimit = recentMulti - multixact_freeze_max_age;
-		if (multiForceLimit < FirstMultiXactId)
-			multiForceLimit -= FirstMultiXactId;
+		if (recentMulti > FirstMultiXactId + multixact_freeze_max_age)
+			multiForceLimit = recentMulti - multixact_freeze_max_age;
+		else
+			multiForceLimit = FirstMultiXactId;
 		force_vacuum = MultiXactIdIsValid(relminmxid) &&
 			MultiXactIdPrecedes(relminmxid, multiForceLimit);
 	}

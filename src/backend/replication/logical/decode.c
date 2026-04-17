@@ -406,7 +406,8 @@ standby_decode(LogicalDecodingContext *ctx, XLogRecordBuffer *buf)
 				 * not their purpose.
 				 */
 				if (!OidIsValid(running->dbid))
-					ReorderBufferAbortOld(ctx->reorder, running->oldestRunningXid);
+					ReorderBufferAbortOld(ctx->reorder,
+										 XidFromFullTransactionId(running->oldestRunningXid));
 			}
 			break;
 		case XLOG_STANDBY_LOCK:

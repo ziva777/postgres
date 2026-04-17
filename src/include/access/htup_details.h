@@ -172,7 +172,7 @@ struct HeapTupleHeaderData
 #define FIELDNO_HEAPTUPLEHEADERDATA_HOFF 4
 	uint8		t_hoff;			/* sizeof header incl. bitmap, padding */
 
-	/* ^ - 23 bytes - ^ */
+	/* ^ - 31 bytes - ^ */
 
 #define FIELDNO_HEAPTUPLEHEADERDATA_BITS 5
 	uint8		t_bits[FLEXIBLE_ARRAY_MEMBER];	/* bitmap of NULLs */

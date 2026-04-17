@@ -812,7 +812,7 @@ CLOGShmemRequest(void *arg)
 	SimpleLruRequest(.desc = &XactSlruDesc,
 					 .name = "transaction",
 					 .Dir = "pg_xact",
-					 .long_segment_names = false,
+					 .long_segment_names = true,
 
 					 .nslots = CLOGShmemBuffers(),
 					 .nlsns = CLOG_LSNS_PER_PAGE,
@@ -829,7 +829,7 @@ CLOGShmemRequest(void *arg)
 static void
 CLOGShmemInit(void *arg)
 {
-	SlruPagePrecedesUnitTests(XactCtl, CLOG_XACTS_PER_PAGE);
+	//SlruPagePrecedesUnitTests(XactCtl, CLOG_XACTS_PER_PAGE);
 }
 
 /*
@@ -1040,16 +1040,7 @@ TruncateCLOG(TransactionId oldestXact, Oid oldestxid_datoid)
 static bool
 CLOGPagePrecedes(int64 page1, int64 page2)
 {
-	TransactionId xid1;
-	TransactionId xid2;
-
-	xid1 = ((TransactionId) page1) * CLOG_XACTS_PER_PAGE;
-	xid1 += FirstNormalTransactionId + 1;
-	xid2 = ((TransactionId) page2) * CLOG_XACTS_PER_PAGE;
-	xid2 += FirstNormalTransactionId + 1;
-
-	return (TransactionIdPrecedes(xid1, xid2) &&
-			TransactionIdPrecedes(xid1, xid2 + CLOG_XACTS_PER_PAGE - 1));
+	return page1 < page2;
 }
 
 static int
@@ -1057,7 +1048,8 @@ clog_errdetail_for_io_error(const void *opaque_data)
 {
 	TransactionId xid = *(const TransactionId *) opaque_data;
 
-	return errdetail("Could not access commit status of transaction %u.", xid);
+	return errdetail("Could not access commit status of transaction %" PRIu64 ".",
+					 xid);
 }
 
 

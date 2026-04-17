@@ -22,9 +22,9 @@
  * and epoch of the first segment, so we start assigning multixact values from
  * 2.
  */
-#define InvalidMultiXactId	((MultiXactId) 0)
-#define FirstMultiXactId	((MultiXactId) 1)
-#define MaxMultiXactId		((MultiXactId) 0xFFFFFFFF)
+#define InvalidMultiXactId	((MultiXactId) UINT64CONST(0))
+#define FirstMultiXactId	((MultiXactId) UINT64CONST(1))
+#define MaxMultiXactId		((MultiXactId) UINT64CONST(0xFFFFFFFFFFFFFFFF))
 
 #define MultiXactIdIsValid(multi) ((multi) != InvalidMultiXactId)
 

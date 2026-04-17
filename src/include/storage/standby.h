@@ -99,7 +99,7 @@ extern void StandbyAcquireAccessExclusiveLock(TransactionId xid, Oid dbOid, Oid 
 extern void StandbyReleaseLockTree(TransactionId xid,
 								   int nsubxids, TransactionId *subxids);
 extern void StandbyReleaseAllLocks(void);
-extern void StandbyReleaseOldLocks(TransactionId oldxid);
+extern void StandbyReleaseOldLocks(FullTransactionId oldfxid);
 
 #define MinSizeOfXactRunningXacts offsetof(xl_running_xacts, xids)
 
@@ -130,13 +130,13 @@ typedef struct RunningTransactionsData
 	int			xcnt;			/* # of xact ids in xids[] */
 	int			subxcnt;		/* # of subxact ids in xids[] */
 	subxids_array_status subxid_status;
-	TransactionId nextXid;		/* xid from TransamVariables->nextXid */
-	TransactionId oldestRunningXid; /* *not* oldestXmin */
-	TransactionId oldestDatabaseRunningXid; /* same as above, but within the
-											 * current database */
-	TransactionId latestCompletedXid;	/* so we can set xmax */
+	FullTransactionId nextXid;		/* xid from TransamVariables->nextXid */
+	FullTransactionId oldestRunningXid;		/* *not* oldestXmin */
+	FullTransactionId oldestDatabaseRunningXid; /* same as above, but within the
+												 * current database */
+	FullTransactionId latestCompletedXid;	/* so we can set xmax */
 
-	TransactionId *xids;		/* array of (sub)xids still running */
+	FullTransactionId *fxids;		/* array of (sub)xids still running */
 } RunningTransactionsData;
 
 typedef RunningTransactionsData *RunningTransactions;

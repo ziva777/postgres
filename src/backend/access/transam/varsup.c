@@ -86,7 +86,7 @@ GetNewTransactionId(bool isSubXact)
 		Assert(!isSubXact);
 		MyProc->xid = BootstrapTransactionId;
 		ProcGlobal->xids[MyProc->pgxactoff] = BootstrapTransactionId;
-		return FullTransactionIdFromEpochAndXid(0, BootstrapTransactionId);
+		return FullTransactionIdFromXid(BootstrapTransactionId);
 	}
 
 	/* safety check, we should never get this far in a HS standby */
@@ -163,7 +163,7 @@ GetNewTransactionId(bool isSubXact)
 			/* complain even if that DB has disappeared */
 			if (oldest_datname)
 				ereport(WARNING,
-						(errmsg("database \"%s\" must be vacuumed within %u transactions",
+						(errmsg("database \"%s\" must be vacuumed within %" PRIu64 " transactions",
 								oldest_datname,
 								xidWrapLimit - xid),
 						 errdetail("Approximately %.2f%% of transaction IDs are available for use.",
@@ -172,7 +172,7 @@ GetNewTransactionId(bool isSubXact)
 								 "You might also need to commit or roll back old prepared transactions, or drop stale replication slots.")));
 			else
 				ereport(WARNING,
-						(errmsg("database with OID %u must be vacuumed within %u transactions",
+						(errmsg("database with OID %u must be vacuumed within %" PRIu64 " transactions",
 								oldest_datoid,
 								xidWrapLimit - xid),
 						 errdetail("Approximately %.2f%% of transaction IDs are available for use.",
@@ -326,7 +326,7 @@ AdvanceNextFullTransactionIdPastXid(TransactionId xid)
 	epoch = EpochFromFullTransactionId(TransamVariables->nextXid);
 	if (unlikely(xid < next_xid))
 		++epoch;
-	newNextFullXid = FullTransactionIdFromEpochAndXid(epoch, xid);
+	newNextFullXid = FullTransactionIdFromXid(xid);
 
 	/*
 	 * We still need to take a lock to modify the value when there are
@@ -334,6 +334,34 @@ AdvanceNextFullTransactionIdPastXid(TransactionId xid)
 	 */
 	LWLockAcquire(XidGenLock, LW_EXCLUSIVE);
 	TransamVariables->nextXid = newNextFullXid;
+	LWLockRelease(XidGenLock);
+}
+
+/*
+ * Same as above, but without epoch
+ */
+void
+AdvanceNextFullTransactionIdPastFullXid(FullTransactionId fxid)
+{
+	/*
+	 * It is safe to read nextXid without a lock, because this is only called
+	 * from the startup process or single-process mode, meaning that no other
+	 * process can modify it.
+	 */
+	Assert(AmStartupProcess() || !IsUnderPostmaster);
+
+	/* Fast return if this isn't an xid high enough to move the needle. */
+	if (!FullTransactionIdFollowsOrEquals(fxid, TransamVariables->nextXid))
+		return;
+
+	FullTransactionIdAdvance(&fxid);
+
+	/*
+	 * We still need to take a lock to modify the value when there are
+	 * concurrent readers.
+	 */
+	LWLockAcquire(XidGenLock, LW_EXCLUSIVE);
+	TransamVariables->nextXid = fxid;
 	LWLockRelease(XidGenLock);
 }
 
@@ -447,7 +475,7 @@ SetTransactionIdLimit(TransactionId oldest_datfrozenxid, Oid oldest_datoid)
 
 	/* Log the info */
 	ereport(DEBUG1,
-			(errmsg_internal("transaction ID wrap limit is %u, limited by database with OID %u",
+			(errmsg_internal("transaction ID wrap limit is %" PRIu64 ", limited by database with OID %u",
 							 xidWrapLimit, oldest_datoid)));
 
 	/*
@@ -482,7 +510,7 @@ SetTransactionIdLimit(TransactionId oldest_datfrozenxid, Oid oldest_datoid)
 
 		if (oldest_datname)
 			ereport(WARNING,
-					(errmsg("database \"%s\" must be vacuumed within %u transactions",
+					(errmsg("database \"%s\" must be vacuumed within %" PRIu64 " transactions",
 							oldest_datname,
 							xidWrapLimit - curXid),
 					 errdetail("Approximately %.2f%% of transaction IDs are available for use.",
@@ -491,7 +519,7 @@ SetTransactionIdLimit(TransactionId oldest_datfrozenxid, Oid oldest_datoid)
 							 "You might also need to commit or roll back old prepared transactions, or drop stale replication slots.")));
 		else
 			ereport(WARNING,
-					(errmsg("database with OID %u must be vacuumed within %u transactions",
+					(errmsg("database with OID %u must be vacuumed within %" PRIu64 " transactions",
 							oldest_datoid,
 							xidWrapLimit - curXid),
 					 errdetail("Approximately %.2f%% of transaction IDs are available for use.",

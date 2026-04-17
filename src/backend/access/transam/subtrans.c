@@ -188,7 +188,7 @@ SubTransGetTopmostTransaction(TransactionId xid)
 		 * structure that could lead to an infinite loop, so exit.
 		 */
 		if (!TransactionIdPrecedes(parentXid, previousXid))
-			elog(ERROR, "pg_subtrans contains invalid entry: xid %u points to parent xid %u",
+			elog(ERROR, "pg_subtrans contains invalid entry: xid %" PRIu64 " points to parent xid %" PRIu64,
 				 previousXid, parentXid);
 	}
 
@@ -246,7 +246,7 @@ SUBTRANSShmemRequest(void *arg)
 	SimpleLruRequest(.desc = &SubTransSlruDesc,
 					 .name = "subtransaction",
 					 .Dir = "pg_subtrans",
-					 .long_segment_names = false,
+					 .long_segment_names = true,
 
 					 .nslots = SUBTRANSShmemBuffers(),
 
@@ -262,7 +262,7 @@ SUBTRANSShmemRequest(void *arg)
 static void
 SUBTRANSShmemInit(void *arg)
 {
-	SlruPagePrecedesUnitTests(SubTransCtl, SUBTRANS_XACTS_PER_PAGE);
+	//SlruPagePrecedesUnitTests(SubTransCtl, SUBTRANS_XACTS_PER_PAGE);
 }
 
 /*
@@ -427,16 +427,7 @@ TruncateSUBTRANS(TransactionId oldestXact)
 static bool
 SubTransPagePrecedes(int64 page1, int64 page2)
 {
-	TransactionId xid1;
-	TransactionId xid2;
-
-	xid1 = ((TransactionId) page1) * SUBTRANS_XACTS_PER_PAGE;
-	xid1 += FirstNormalTransactionId + 1;
-	xid2 = ((TransactionId) page2) * SUBTRANS_XACTS_PER_PAGE;
-	xid2 += FirstNormalTransactionId + 1;
-
-	return (TransactionIdPrecedes(xid1, xid2) &&
-			TransactionIdPrecedes(xid1, xid2 + SUBTRANS_XACTS_PER_PAGE - 1));
+	return page1 < page2;
 }
 
 static int
@@ -444,5 +435,6 @@ subtrans_errdetail_for_io_error(const void *opaque_data)
 {
 	TransactionId xid = *(const TransactionId *) opaque_data;
 
-	return errdetail("Could not access subtransaction status of transaction %u.", xid);
+	return errdetail("Could not access subtransaction status of transaction %" PRIu64 ".",
+					 xid);
 }

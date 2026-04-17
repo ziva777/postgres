@@ -264,28 +264,27 @@ main(int argc, char *argv[])
 		   ControlFile->checkPointCopy.PrevTimeLineID);
 	printf(_("Latest checkpoint's full_page_writes: %s\n"),
 		   ControlFile->checkPointCopy.fullPageWrites ? _("on") : _("off"));
-	printf(_("Latest checkpoint's NextXID:          %u:%u\n"),
-		   EpochFromFullTransactionId(ControlFile->checkPointCopy.nextXid),
+	printf(_("Latest checkpoint's NextXID:          %" PRIu64 "\n"),
 		   XidFromFullTransactionId(ControlFile->checkPointCopy.nextXid));
 	printf(_("Latest checkpoint's NextOID:          %u\n"),
 		   ControlFile->checkPointCopy.nextOid);
-	printf(_("Latest checkpoint's NextMultiXactId:  %u\n"),
+	printf(_("Latest checkpoint's NextMultiXactId:  %" PRIu64 "\n"),
 		   ControlFile->checkPointCopy.nextMulti);
 	printf(_("Latest checkpoint's NextMultiOffset:  %" PRIu64 "\n"),
 		   ControlFile->checkPointCopy.nextMultiOffset);
-	printf(_("Latest checkpoint's oldestXID:        %u\n"),
+	printf(_("Latest checkpoint's oldestXID:        %" PRIu64 "\n"),
 		   ControlFile->checkPointCopy.oldestXid);
 	printf(_("Latest checkpoint's oldestXID's DB:   %u\n"),
 		   ControlFile->checkPointCopy.oldestXidDB);
-	printf(_("Latest checkpoint's oldestActiveXID:  %u\n"),
+	printf(_("Latest checkpoint's oldestActiveXID:  %" PRIu64 "\n"),
 		   ControlFile->checkPointCopy.oldestActiveXid);
-	printf(_("Latest checkpoint's oldestMultiXid:   %u\n"),
+	printf(_("Latest checkpoint's oldestMultiXid:   %" PRIu64 "\n"),
 		   ControlFile->checkPointCopy.oldestMulti);
 	printf(_("Latest checkpoint's oldestMulti's DB: %u\n"),
 		   ControlFile->checkPointCopy.oldestMultiDB);
-	printf(_("Latest checkpoint's oldestCommitTsXid:%u\n"),
+	printf(_("Latest checkpoint's oldestCommitTsXid:%" PRIu64 "\n"),
 		   ControlFile->checkPointCopy.oldestCommitTsXid);
-	printf(_("Latest checkpoint's newestCommitTsXid:%u\n"),
+	printf(_("Latest checkpoint's newestCommitTsXid:%" PRIu64 "\n"),
 		   ControlFile->checkPointCopy.newestCommitTsXid);
 	printf(_("Latest checkpoint's data_checksum_version:%u\n"),
 		   ControlFile->checkPointCopy.dataChecksumState);

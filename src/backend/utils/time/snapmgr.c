@@ -1166,7 +1166,7 @@ ExportSnapshot(Snapshot snapshot)
 	 * Generate file path for the snapshot.  We start numbering of snapshots
 	 * inside the transaction from 1.
 	 */
-	snprintf(path, sizeof(path), SNAPSHOT_EXPORT_DIR "/%08X-%08X-%d",
+	snprintf(path, sizeof(path), SNAPSHOT_EXPORT_DIR "/%08X-%016" PRIX64 "-%d",
 			 MyProc->vxid.procNumber, MyProc->vxid.lxid,
 			 list_length(exportedSnapshots) + 1);
 
@@ -1195,14 +1195,15 @@ ExportSnapshot(Snapshot snapshot)
 	 */
 	initStringInfo(&buf);
 
-	appendStringInfo(&buf, "vxid:%d/%u\n", MyProc->vxid.procNumber, MyProc->vxid.lxid);
+	appendStringInfo(&buf, "vxid:%d/%" PRIu64 "\n", MyProc->vxid.procNumber,
+					 MyProc->vxid.lxid);
 	appendStringInfo(&buf, "pid:%d\n", MyProcPid);
 	appendStringInfo(&buf, "dbid:%u\n", MyDatabaseId);
 	appendStringInfo(&buf, "iso:%d\n", XactIsoLevel);
 	appendStringInfo(&buf, "ro:%d\n", XactReadOnly);
 
-	appendStringInfo(&buf, "xmin:%u\n", snapshot->xmin);
-	appendStringInfo(&buf, "xmax:%u\n", snapshot->xmax);
+	appendStringInfo(&buf, "xmin:%" PRIu64 "\n", snapshot->xmin);
+	appendStringInfo(&buf, "xmax:%" PRIu64 "\n", snapshot->xmax);
 
 	/*
 	 * We must include our own top transaction ID in the top-xid data, since
@@ -1219,9 +1220,9 @@ ExportSnapshot(Snapshot snapshot)
 				 TransactionIdPrecedes(topXid, snapshot->xmax)) ? 1 : 0;
 	appendStringInfo(&buf, "xcnt:%d\n", snapshot->xcnt + addTopXid);
 	for (i = 0; i < snapshot->xcnt; i++)
-		appendStringInfo(&buf, "xip:%u\n", snapshot->xip[i]);
+		appendStringInfo(&buf, "xip:%" PRIu64 "\n", snapshot->xip[i]);
 	if (addTopXid)
-		appendStringInfo(&buf, "xip:%u\n", topXid);
+		appendStringInfo(&buf, "xip:%" PRIu64 "\n", topXid);
 
 	/*
 	 * Similarly, we add our subcommitted child XIDs to the subxid data. Here,
@@ -1235,9 +1236,9 @@ ExportSnapshot(Snapshot snapshot)
 		appendStringInfoString(&buf, "sof:0\n");
 		appendStringInfo(&buf, "sxcnt:%d\n", snapshot->subxcnt + nchildren);
 		for (i = 0; i < snapshot->subxcnt; i++)
-			appendStringInfo(&buf, "sxp:%u\n", snapshot->subxip[i]);
+			appendStringInfo(&buf, "sxp:%" PRIu64 "\n", snapshot->subxip[i]);
 		for (i = 0; i < nchildren; i++)
-			appendStringInfo(&buf, "sxp:%u\n", children[i]);
+			appendStringInfo(&buf, "sxp:%" PRIu64 "\n", children[i]);
 	}
 	appendStringInfo(&buf, "rec:%u\n", snapshot->takenDuringRecovery);
 
@@ -1340,7 +1341,7 @@ parseXidFromText(const char *prefix, char **s, const char *filename)
 				(errcode(ERRCODE_INVALID_TEXT_REPRESENTATION),
 				 errmsg("invalid snapshot data in file \"%s\"", filename)));
 	ptr += prefixlen;
-	if (sscanf(ptr, "%u", &val) != 1)
+	if (sscanf(ptr, "%" PRIu64, &val) != 1)
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_TEXT_REPRESENTATION),
 				 errmsg("invalid snapshot data in file \"%s\"", filename)));
@@ -1365,7 +1366,8 @@ parseVxidFromText(const char *prefix, char **s, const char *filename,
 				(errcode(ERRCODE_INVALID_TEXT_REPRESENTATION),
 				 errmsg("invalid snapshot data in file \"%s\"", filename)));
 	ptr += prefixlen;
-	if (sscanf(ptr, "%d/%u", &vxid->procNumber, &vxid->localTransactionId) != 2)
+	if (sscanf(ptr, "%d/" "%" PRIu64, &vxid->procNumber,
+			   &vxid->localTransactionId) != 2)
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_TEXT_REPRESENTATION),
 				 errmsg("invalid snapshot data in file \"%s\"", filename)));
@@ -1899,7 +1901,7 @@ XidInMVCCSnapshot(TransactionId xid, Snapshot snapshot)
 		if (!snapshot->suboverflowed)
 		{
 			/* we have full data, so search subxip */
-			if (pg_lfind32(xid, snapshot->subxip, snapshot->subxcnt))
+			if (pg_lfind64(xid, snapshot->subxip, snapshot->subxcnt))
 				return true;
 
 			/* not there, fall through to search xip[] */
@@ -1921,7 +1923,7 @@ XidInMVCCSnapshot(TransactionId xid, Snapshot snapshot)
 				return false;
 		}
 
-		if (pg_lfind32(xid, snapshot->xip, snapshot->xcnt))
+		if (pg_lfind64(xid, snapshot->xip, snapshot->xcnt))
 			return true;
 	}
 	else
@@ -1955,7 +1957,7 @@ XidInMVCCSnapshot(TransactionId xid, Snapshot snapshot)
 		 * indeterminate xid. We don't know whether it's top level or subxact
 		 * but it doesn't matter. If it's present, the xid is visible.
 		 */
-		if (pg_lfind32(xid, snapshot->subxip, snapshot->subxcnt))
+		if (pg_lfind64(xid, snapshot->subxip, snapshot->subxcnt))
 			return true;
 	}
 

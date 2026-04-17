@@ -19,7 +19,7 @@
 static void
 out_member(StringInfo buf, MultiXactMember *member)
 {
-	appendStringInfo(buf, "%u ", member->xid);
+	appendStringInfo(buf, "%" PRIu64 " ", member->xid);
 	switch (member->status)
 	{
 		case MultiXactStatusForKeyShare:
@@ -65,7 +65,7 @@ multixact_desc(StringInfo buf, XLogReaderState *record)
 		xl_multixact_create *xlrec = (xl_multixact_create *) rec;
 		int			i;
 
-		appendStringInfo(buf, "%u offset %" PRIu64 " nmembers %d: ", xlrec->mid,
+		appendStringInfo(buf, "%" PRIu64 " offset %" PRIu64 " nmembers %d: ", xlrec->mid,
 						 xlrec->moff, xlrec->nmembers);
 		for (i = 0; i < xlrec->nmembers; i++)
 			out_member(buf, &xlrec->members[i]);
@@ -74,7 +74,7 @@ multixact_desc(StringInfo buf, XLogReaderState *record)
 	{
 		xl_multixact_truncate *xlrec = (xl_multixact_truncate *) rec;
 
-		appendStringInfo(buf, "oldestMulti %u, oldestOffset %" PRIu64,
+		appendStringInfo(buf, "oldestMulti %" PRIu64 ", oldestOffset %" PRIu64,
 						 xlrec->oldestMulti, xlrec->oldestOffset);
 	}
 }

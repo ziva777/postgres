@@ -347,7 +347,7 @@ tuple_lock_retry:
 					if (TransactionIdIsValid(SnapshotDirty.xmin))
 						ereport(ERROR,
 								(errcode(ERRCODE_DATA_CORRUPTED),
-								 errmsg_internal("t_xmin %u is uncommitted in tuple (%u,%u) to be updated in table \"%s\"",
+								 errmsg_internal("t_xmin %" PRIu64 " is uncommitted in tuple (%u,%u) to be updated in table \"%s\"",
 												 SnapshotDirty.xmin,
 												 ItemPointerGetBlockNumber(&tuple->t_self),
 												 ItemPointerGetOffsetNumber(&tuple->t_self),

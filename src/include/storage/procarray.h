@@ -25,7 +25,7 @@ extern void ProcArrayRemove(PGPROC *proc, TransactionId latestXid);
 extern void ProcArrayEndTransaction(PGPROC *proc, TransactionId latestXid);
 extern void ProcArrayClearTransaction(PGPROC *proc);
 
-extern void ProcArrayInitRecovery(TransactionId initializedUptoXID);
+extern void ProcArrayInitRecovery(FullTransactionId initializedUptoXID);
 extern void ProcArrayApplyRecoveryInfo(RunningTransactions running);
 extern void ProcArrayApplyXidAssignment(TransactionId topxid,
 										int nsubxids, TransactionId *subxids);
@@ -35,7 +35,7 @@ extern void ExpireTreeKnownAssignedTransactionIds(TransactionId xid,
 												  int nsubxids, TransactionId *subxids,
 												  TransactionId max_xid);
 extern void ExpireAllKnownAssignedTransactionIds(void);
-extern void ExpireOldKnownAssignedTransactionIds(TransactionId xid);
+extern void ExpireOldKnownAssignedTransactionIds(FullTransactionId fxid);
 extern void KnownAssignedTransactionIdsIdleMaintenance(void);
 
 extern int	GetMaxSnapshotXidCount(void);
@@ -97,5 +97,31 @@ extern void ProcArraySetReplicationSlotXmin(TransactionId xmin,
 
 extern void ProcArrayGetReplicationSlotXmin(TransactionId *xmin,
 											TransactionId *catalog_xmin);
+
+/*
+ * Convert a 32 bit transaction id into 64 bit transaction id, by assuming it
+ * is within MaxTransactionId / 2 of XidFromFullTransactionId(rel).
+ *
+ * Be very careful about when to use this function. It can only safely be used
+ * when there is a guarantee that xid is within MaxTransactionId / 2 xids of
+ * rel. That e.g. can be guaranteed if the caller assures a snapshot is
+ * held by the backend and xid is from a table (where vacuum/freezing ensures
+ * the xid has to be within that range), or if xid is from the procarray and
+ * prevents xid wraparound that way.
+ */
+static inline FullTransactionId
+FullXidRelativeTo(FullTransactionId rel, TransactionId xid)
+{
+	TransactionId rel_xid = XidFromFullTransactionId(rel);
+
+	Assert(TransactionIdIsValid(xid));
+	Assert(TransactionIdIsValid(rel_xid));
+
+	/* not guaranteed to find issues, but likely to catch mistakes */
+	AssertTransactionIdInAllowableRange(xid);
+
+	return FullTransactionIdFromU64(U64FromFullTransactionId(rel)
+									+ (int32) (xid - rel_xid));
+}
 
 #endif							/* PROCARRAY_H */

@@ -624,7 +624,7 @@ GetStrictOldestNonRemovableTransactionId(Relation rel)
 		runningTransactions = GetRunningTransactionData(InvalidOid);
 		LWLockRelease(ProcArrayLock);
 		LWLockRelease(XidGenLock);
-		return runningTransactions->oldestRunningXid;
+		return XidFromFullTransactionId(runningTransactions->oldestRunningXid);
 	}
 	else if (!RELATION_IS_LOCAL(rel))
 	{
@@ -635,7 +635,7 @@ GetStrictOldestNonRemovableTransactionId(Relation rel)
 		runningTransactions = GetRunningTransactionData(InvalidOid);
 		LWLockRelease(ProcArrayLock);
 		LWLockRelease(XidGenLock);
-		return runningTransactions->oldestDatabaseRunningXid;
+		return XidFromFullTransactionId(runningTransactions->oldestDatabaseRunningXid);
 	}
 	else
 	{

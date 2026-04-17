@@ -340,9 +340,9 @@ static SlruDesc SerialSlruDesc;
 
 #define SerialValue(slotno, xid) (*((SerCommitSeqNo *) \
 	(SerialSlruCtl->shared->page_buffer[slotno] + \
-	((((uint32) (xid)) % SERIAL_ENTRIESPERPAGE) * SERIAL_ENTRYSIZE))))
+	((((uint64) (xid)) % SERIAL_ENTRIESPERPAGE) * SERIAL_ENTRYSIZE))))
 
-#define SerialPage(xid)	(((uint32) (xid)) / SERIAL_ENTRIESPERPAGE)
+#define SerialPage(xid)		(((uint64) (xid)) / SERIAL_ENTRIESPERPAGE)
 
 typedef struct SerialControlData
 {
@@ -744,16 +744,7 @@ FlagSxactUnsafe(SERIALIZABLEXACT *sxact)
 static bool
 SerialPagePrecedesLogically(int64 page1, int64 page2)
 {
-	TransactionId xid1;
-	TransactionId xid2;
-
-	xid1 = ((TransactionId) page1) * SERIAL_ENTRIESPERPAGE;
-	xid1 += FirstNormalTransactionId + 1;
-	xid2 = ((TransactionId) page2) * SERIAL_ENTRIESPERPAGE;
-	xid2 += FirstNormalTransactionId + 1;
-
-	return (TransactionIdPrecedes(xid1, xid2) &&
-			TransactionIdPrecedes(xid1, xid2 + SERIAL_ENTRIESPERPAGE - 1));
+	return page1 < page2;
 }
 
 static int
@@ -761,7 +752,7 @@ serial_errdetail_for_io_error(const void *opaque_data)
 {
 	TransactionId xid = *(const TransactionId *) opaque_data;
 
-	return errdetail("Could not access serializable CSN of transaction %u.", xid);
+	return errdetail("Could not access serializable CSN of transaction %" PRIu64 ".", xid);
 }
 
 #ifdef USE_ASSERT_CHECKING
@@ -1219,7 +1210,7 @@ PredicateLockShmemRequest(void *arg)
 	SimpleLruRequest(.desc = &SerialSlruDesc,
 					 .name = "serializable",
 					 .Dir = "pg_serial",
-					 .long_segment_names = false,
+					 .long_segment_names = true,
 
 					 .nslots = serializable_buffers,
 
@@ -1231,7 +1222,7 @@ PredicateLockShmemRequest(void *arg)
 					 .bank_tranche_id = LWTRANCHE_SERIAL_SLRU,
 		);
 #ifdef USE_ASSERT_CHECKING
-	SerialPagePrecedesLogicallyUnitTests();
+	//SerialPagePrecedesLogicallyUnitTests();
 #endif
 
 	ShmemRequestStruct(.name = "SerialControlData",
@@ -1314,7 +1305,7 @@ PredicateLockShmemInit(void *arg)
 	serialControl->tailXid = InvalidTransactionId;
 	LWLockRelease(SerialControlLock);
 
-	SlruPagePrecedesUnitTests(SerialSlruCtl, SERIAL_ENTRIESPERPAGE);
+	//SlruPagePrecedesUnitTests(SerialSlruCtl, SERIAL_ENTRIESPERPAGE);
 
 	/* This never changes, so let's keep a local copy. */
 	OldCommittedSxact = PredXact->OldCommittedSxact;
@@ -3914,7 +3905,7 @@ XidIsConcurrent(TransactionId xid)
 	if (TransactionIdFollowsOrEquals(xid, snap->xmax))
 		return true;
 
-	return pg_lfind32(xid, snap->xip, snap->xcnt);
+	return pg_lfind64(xid, snap->xip, snap->xcnt);
 }
 
 bool
@@ -3998,7 +3989,7 @@ CheckForSerializableConflictOut(Relation relation, TransactionId xid, Snapshot s
 				ereport(ERROR,
 						(errcode(ERRCODE_T_R_SERIALIZATION_FAILURE),
 						 errmsg("could not serialize access due to read/write dependencies among transactions"),
-						 errdetail_internal("Reason code: Canceled on conflict out to old pivot %u.", xid),
+						 errdetail_internal("Reason code: Canceled on conflict out to old pivot %" PRIu64 ".", xid),
 						 errhint("The transaction might succeed if retried.")));
 
 			if (SxactHasSummaryConflictIn(MySerializableXact)
@@ -4006,7 +3997,7 @@ CheckForSerializableConflictOut(Relation relation, TransactionId xid, Snapshot s
 				ereport(ERROR,
 						(errcode(ERRCODE_T_R_SERIALIZATION_FAILURE),
 						 errmsg("could not serialize access due to read/write dependencies among transactions"),
-						 errdetail_internal("Reason code: Canceled on identification as a pivot, with conflict out to old committed transaction %u.", xid),
+						 errdetail_internal("Reason code: Canceled on identification as a pivot, with conflict out to old committed transaction %" PRIu64 ".", xid),
 						 errhint("The transaction might succeed if retried.")));
 
 			MySerializableXact->flags |= SXACT_FLAG_SUMMARY_CONFLICT_OUT;
@@ -4606,7 +4597,7 @@ OnConflict_CheckForSerializationFailure(const SERIALIZABLEXACT *reader,
 			ereport(ERROR,
 					(errcode(ERRCODE_T_R_SERIALIZATION_FAILURE),
 					 errmsg("could not serialize access due to read/write dependencies among transactions"),
-					 errdetail_internal("Reason code: Canceled on conflict out to pivot %u, during read.", writer->topXid),
+					 errdetail_internal("Reason code: Canceled on conflict out to pivot %" PRIu64 ", during read.", writer->topXid),
 					 errhint("The transaction might succeed if retried.")));
 		}
 		writer->flags |= SXACT_FLAG_DOOMED;

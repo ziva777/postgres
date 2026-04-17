@@ -761,7 +761,7 @@ InitWalRecovery(ControlFileData *ControlFile, bool *wasShutdown_ptr,
 					(errmsg("entering standby mode")));
 		else if (recoveryTarget == RECOVERY_TARGET_XID)
 			ereport(LOG,
-					(errmsg("starting point-in-time recovery to XID %u",
+					(errmsg("starting point-in-time recovery to XID %" PRIu64,
 							recoveryTargetXid)));
 		else if (recoveryTarget == RECOVERY_TARGET_TIME)
 			ereport(LOG,
@@ -833,16 +833,16 @@ InitWalRecovery(ControlFileData *ControlFile, bool *wasShutdown_ptr,
 							 U64FromFullTransactionId(checkPoint.nextXid),
 							 checkPoint.nextOid)));
 	ereport(DEBUG1,
-			(errmsg_internal("next MultiXactId: %u; next MultiXactOffset: %" PRIu64,
+			(errmsg_internal("next MultiXactId: %" PRIu64 "; next MultiXactOffset: %" PRIu64,
 							 checkPoint.nextMulti, checkPoint.nextMultiOffset)));
 	ereport(DEBUG1,
-			(errmsg_internal("oldest unfrozen transaction ID: %u, in database %u",
+			(errmsg_internal("oldest unfrozen transaction ID: %" PRIu64 ", in database %u",
 							 checkPoint.oldestXid, checkPoint.oldestXidDB)));
 	ereport(DEBUG1,
-			(errmsg_internal("oldest MultiXactId: %u, in database %u",
+			(errmsg_internal("oldest MultiXactId: %" PRIu64 ", in database %u",
 							 checkPoint.oldestMulti, checkPoint.oldestMultiDB)));
 	ereport(DEBUG1,
-			(errmsg_internal("commit timestamp Xid oldest/newest: %u/%u",
+			(errmsg_internal("commit timestamp Xid oldest/newest: %" PRIu64 "/%" PRIu64,
 							 checkPoint.oldestCommitTsXid,
 							 checkPoint.newestCommitTsXid)));
 	if (!TransactionIdIsNormal(XidFromFullTransactionId(checkPoint.nextXid)))
@@ -1891,7 +1891,7 @@ ApplyWalRecord(XLogReaderState *xlogreader, XLogRecord *record, TimeLineID *repl
 	/*
 	 * TransamVariables->nextXid must be beyond record's xid.
 	 */
-	AdvanceNextFullTransactionIdPastXid(record->xl_xid);
+	AdvanceNextFullTransactionIdPastFullXid(record->xl_xid);
 
 	/*
 	 * Before replaying this record, check if this record causes the current
@@ -1949,8 +1949,8 @@ ApplyWalRecord(XLogReaderState *xlogreader, XLogRecord *record, TimeLineID *repl
 	 * If we are attempting to enter Hot Standby mode, process XIDs we see
 	 */
 	if (standbyState >= STANDBY_INITIALIZED &&
-		TransactionIdIsValid(record->xl_xid))
-		RecordKnownAssignedTransactionIds(record->xl_xid);
+		FullTransactionIdIsValid(record->xl_xid))
+		RecordKnownAssignedTransactionIds(XidFromFullTransactionId(record->xl_xid));
 
 	/*
 	 * Some XLOG record types that are related to recovery are processed
@@ -2674,14 +2674,14 @@ recoveryStopsBefore(XLogReaderState *record)
 		if (isCommit)
 		{
 			ereport(LOG,
-					(errmsg("recovery stopping before commit of transaction %u, time %s",
+					(errmsg("recovery stopping before commit of transaction %" PRIu64 ", time %s",
 							recoveryStopXid,
 							timestamptz_to_str(recoveryStopTime))));
 		}
 		else
 		{
 			ereport(LOG,
-					(errmsg("recovery stopping before abort of transaction %u, time %s",
+					(errmsg("recovery stopping before abort of transaction %" PRIu64 ", time %s",
 							recoveryStopXid,
 							timestamptz_to_str(recoveryStopTime))));
 		}
@@ -2819,7 +2819,7 @@ recoveryStopsAfter(XLogReaderState *record)
 				xact_info == XLOG_XACT_COMMIT_PREPARED)
 			{
 				ereport(LOG,
-						(errmsg("recovery stopping after commit of transaction %u, time %s",
+						(errmsg("recovery stopping after commit of transaction %" PRIu64 ", time %s",
 								recoveryStopXid,
 								timestamptz_to_str(recoveryStopTime))));
 			}
@@ -2827,7 +2827,7 @@ recoveryStopsAfter(XLogReaderState *record)
 					 xact_info == XLOG_XACT_ABORT_PREPARED)
 			{
 				ereport(LOG,
-						(errmsg("recovery stopping after abort of transaction %u, time %s",
+						(errmsg("recovery stopping after abort of transaction %" PRIu64 ", time %s",
 								recoveryStopXid,
 								timestamptz_to_str(recoveryStopTime))));
 			}
@@ -2863,7 +2863,7 @@ getRecoveryStopReason(void)
 
 	if (recoveryTarget == RECOVERY_TARGET_XID)
 		snprintf(reason, sizeof(reason),
-				 "%s transaction %u",
+				 "%s transaction %" PRIu64,
 				 recoveryStopAfter ? "after" : "before",
 				 recoveryStopXid);
 	else if (recoveryTarget == RECOVERY_TARGET_TIME)
@@ -5073,7 +5073,7 @@ check_recovery_target_xid(char **newval, void **extra, GucSource source)
 
 		if (xid < FirstNormalTransactionId)
 		{
-			GUC_check_errdetail("\"%s\" without epoch must be greater than or equal to %u.",
+			GUC_check_errdetail("\"%s\" without epoch must be greater than or equal to %" PRIu64 ".",
 								"recovery_target_xid",
 								FirstNormalTransactionId);
 			return false;

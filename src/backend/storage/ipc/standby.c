@@ -1044,14 +1044,14 @@ StandbyReleaseXidEntryLocks(RecoveryLockXidEntry *xidentry)
 		LOCKTAG		locktag;
 
 		elog(DEBUG4,
-			 "releasing recovery lock: xid %u db %u rel %u",
+			 "releasing recovery lock: xid %" PRIu64 " db %u rel %u",
 			 entry->key.xid, entry->key.dbOid, entry->key.relOid);
 		/* Release the lock ... */
 		SET_LOCKTAG_RELATION(locktag, entry->key.dbOid, entry->key.relOid);
 		if (!LockRelease(&locktag, AccessExclusiveLock, true))
 		{
 			elog(LOG,
-				 "RecoveryLockHash contains entry for lock no longer recorded by lock manager: xid %u database %u relation %u",
+				 "RecoveryLockHash contains entry for lock no longer recorded by lock manager: xid %" PRIu64 " database %u relation %u",
 				 entry->key.xid, entry->key.dbOid, entry->key.relOid);
 			Assert(false);
 		}
@@ -1129,7 +1129,7 @@ StandbyReleaseAllLocks(void)
  * write an ABORT/COMMIT record.
  */
 void
-StandbyReleaseOldLocks(TransactionId oldxid)
+StandbyReleaseOldLocks(FullTransactionId oldfxid)
 {
 	HASH_SEQ_STATUS status;
 	RecoveryLockXidEntry *entry;
@@ -1144,7 +1144,8 @@ StandbyReleaseOldLocks(TransactionId oldxid)
 			continue;
 
 		/* Skip if >= oldxid. */
-		if (!TransactionIdPrecedes(entry->xid, oldxid))
+		if (!TransactionIdPrecedes(entry->xid,
+								   XidFromFullTransactionId(oldfxid)))
 			continue;
 
 		/* Remove all locks and hash table entry. */
@@ -1187,6 +1188,7 @@ standby_redo(XLogReaderState *record)
 	{
 		xl_running_xacts *xlrec = (xl_running_xacts *) XLogRecGetData(record);
 		RunningTransactionsData running;
+		int		nxids = xlrec->xcnt + xlrec->subxcnt;
 
 		/*
 		 * Records issued for specific database are not suitable for physical
@@ -1202,9 +1204,40 @@ standby_redo(XLogReaderState *record)
 		running.nextXid = xlrec->nextXid;
 		running.latestCompletedXid = xlrec->latestCompletedXid;
 		running.oldestRunningXid = xlrec->oldestRunningXid;
-		running.xids = xlrec->xids;
+
+		if (nxids)
+		{
+			/*
+			 * Convert xlrec->xids array of type FullTransactionId to
+			 * TransactionId temporary allocation.
+			 *
+			 * The epoch is always zero currently, so XidFromFullTransactionId
+			 * conversion is lossless.
+			 */
+			int j = 0;
+
+			running.fxids = palloc0_array(FullTransactionId, nxids);
+
+			for (int i = 0; i < nxids; i++)
+			{
+				FullTransactionId fxid = xlrec->xids[i];
+
+				if (!FullTransactionIdIsValid(fxid))
+					continue;
+
+				running.fxids[j++] = fxid;
+			}
+
+			running.xcnt = Min(running.xcnt, j);
+			running.subxcnt = j - running.xcnt;
+		}
+		else
+			running.fxids = NULL;
 
 		ProcArrayApplyRecoveryInfo(&running);
+
+		if (running.fxids)
+			pfree(running.fxids);
 
 		/*
 		 * The startup process currently has no convenient way to schedule
@@ -1374,8 +1407,9 @@ LogStandbySnapshot(Oid dbid)
 static XLogRecPtr
 LogCurrentRunningXacts(RunningTransactions CurrRunningXacts)
 {
-	xl_running_xacts xlrec;
+	xl_running_xacts xlrec = {0};
 	XLogRecPtr	recptr;
+	FullTransactionId *fxids = NULL;
 
 	xlrec.dbid = CurrRunningXacts->dbid;
 	xlrec.xcnt = CurrRunningXacts->xcnt;
@@ -1390,29 +1424,38 @@ LogCurrentRunningXacts(RunningTransactions CurrRunningXacts)
 	XLogSetRecordFlags(XLOG_MARK_UNIMPORTANT);
 	XLogRegisterData(&xlrec, MinSizeOfXactRunningXacts);
 
-	/* array of TransactionIds */
+	/* Array of FullTransactionIds */
 	if (xlrec.xcnt > 0)
-		XLogRegisterData(CurrRunningXacts->xids,
-						 (xlrec.xcnt + xlrec.subxcnt) * sizeof(TransactionId));
+	{
+		int					nxids = xlrec.xcnt + xlrec.subxcnt;
+
+		fxids = palloc(nxids * sizeof(FullTransactionId));
+		for (int i = 0; i < nxids; i++)
+			fxids[i] = CurrRunningXacts->fxids[i];
+		XLogRegisterData(fxids, nxids * sizeof(FullTransactionId));
+	}
 
 	recptr = XLogInsert(RM_STANDBY_ID, XLOG_RUNNING_XACTS);
 
+	if (fxids)
+		pfree(fxids);
+
 	if (xlrec.subxid_overflow)
 		elog(DEBUG2,
-			 "snapshot of %d running transactions overflowed (lsn %X/%08X oldest xid %u latest complete %u next xid %u)",
+			 "snapshot of %d running transactions overflowed (lsn %X/%08X oldest xid %" PRIu64 " latest complete %" PRIu64 " next xid %" PRIu64 ")",
 			 CurrRunningXacts->xcnt,
 			 LSN_FORMAT_ARGS(recptr),
-			 CurrRunningXacts->oldestRunningXid,
-			 CurrRunningXacts->latestCompletedXid,
-			 CurrRunningXacts->nextXid);
+			 U64FromFullTransactionId(CurrRunningXacts->oldestRunningXid),
+			 U64FromFullTransactionId(CurrRunningXacts->latestCompletedXid),
+			 U64FromFullTransactionId(CurrRunningXacts->nextXid));
 	else
 		elog(DEBUG2,
-			 "snapshot of %d+%d running transaction ids (lsn %X/%08X oldest xid %u latest complete %u next xid %u)",
+			 "snapshot of %d+%d running transaction ids (lsn %X/%08X oldest xid %" PRIu64 " latest complete %" PRIu64 " next xid %" PRIu64 ")",
 			 CurrRunningXacts->xcnt, CurrRunningXacts->subxcnt,
 			 LSN_FORMAT_ARGS(recptr),
-			 CurrRunningXacts->oldestRunningXid,
-			 CurrRunningXacts->latestCompletedXid,
-			 CurrRunningXacts->nextXid);
+			 U64FromFullTransactionId(CurrRunningXacts->oldestRunningXid),
+			 U64FromFullTransactionId(CurrRunningXacts->latestCompletedXid),
+			 U64FromFullTransactionId(CurrRunningXacts->nextXid));
 
 	/*
 	 * Ensure running_xacts information is synced to disk not too far in the

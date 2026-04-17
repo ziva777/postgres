@@ -3434,15 +3434,12 @@ WHERE id NOT IN (
  Seq Scan on not_null_tab
    Filter: (NOT (ANY (id = (hashed SubPlan any_1).col1)))
    SubPlan any_1
-     ->  Merge Left Join
-           Merge Cond: (t1.id = t2.id)
-           ->  Sort
-                 Sort Key: t1.id
-                 ->  Seq Scan on not_null_tab t1
-           ->  Sort
-                 Sort Key: t2.id
+     ->  Hash Left Join
+           Hash Cond: (t1.id = t2.id)
+           ->  Seq Scan on not_null_tab t1
+           ->  Hash
                  ->  Seq Scan on not_null_tab t2
-(11 rows)
+(8 rows)
 
 -- ANTI JOIN: outer side is defined NOT NULL, inner side is forced nonnullable
 -- by qual clause

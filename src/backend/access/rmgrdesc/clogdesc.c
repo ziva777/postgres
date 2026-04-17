@@ -35,7 +35,7 @@ clog_desc(StringInfo buf, XLogReaderState *record)
 		xl_clog_truncate xlrec;
 
 		memcpy(&xlrec, rec, sizeof(xl_clog_truncate));
-		appendStringInfo(buf, "page %" PRId64 "; oldestXact %u",
+		appendStringInfo(buf, "page %" PRId64 "; oldestXact %" PRIu64,
 						 xlrec.pageno, xlrec.oldestXact);
 	}
 }

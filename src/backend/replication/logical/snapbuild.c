@@ -498,7 +498,7 @@ SnapBuildInitialSnapshot(SnapBuild *builder)
 	LWLockRelease(ProcArrayLock);
 
 	if (TransactionIdFollows(safeXid, snap->xmin))
-		elog(ERROR, "cannot build an initial slot snapshot as oldest safe xid %u follows snapshot's xmin %u",
+		elog(ERROR, "cannot build an initial slot snapshot as oldest safe xid %" PRIu64 " follows snapshot's xmin %" PRIu64,
 			 safeXid, snap->xmin);
 
 	MyProc->xmin = snap->xmin;
@@ -791,7 +791,7 @@ SnapBuildDistributeSnapshotAndInval(SnapBuild *builder, XLogRecPtr lsn, Transact
 		if (rbtxn_is_prepared(txn))
 			continue;
 
-		elog(DEBUG2, "adding a new snapshot and invalidations to %u at %X/%08X",
+		elog(DEBUG2, "adding a new snapshot and invalidations to %" PRIu64 " at %X/%08X",
 			 txn->xid, LSN_FORMAT_ARGS(lsn));
 
 		/*
@@ -907,7 +907,7 @@ SnapBuildPurgeOlderTxn(SnapBuild *builder)
 	memcpy(builder->committed.xip, workspace,
 		   surviving_xids * sizeof(TransactionId));
 
-	elog(DEBUG3, "purged committed transactions from %u to %u, xmin: %u, xmax: %u",
+	elog(DEBUG3, "purged committed transactions from %u to %u, xmin: %" PRIu64 ", xmax: %" PRIu64,
 		 (uint32) builder->committed.xcnt, (uint32) surviving_xids,
 		 builder->xmin, builder->xmax);
 	builder->committed.xcnt = surviving_xids;
@@ -944,7 +944,7 @@ SnapBuildPurgeOlderTxn(SnapBuild *builder)
 			builder->catchange.xip = NULL;
 		}
 
-		elog(DEBUG3, "purged catalog modifying transactions from %u to %u, xmin: %u, xmax: %u",
+		elog(DEBUG3, "purged catalog modifying transactions from %u to %u, xmin: %" PRIu64 ", xmax: %" PRIu64,
 			 (uint32) builder->catchange.xcnt, (uint32) surviving_xids,
 			 builder->xmin, builder->xmax);
 		builder->catchange.xcnt = surviving_xids;
@@ -1009,7 +1009,7 @@ SnapBuildCommitTxn(SnapBuild *builder, XLogRecPtr lsn, TransactionId xid,
 			sub_needs_timetravel = true;
 			needs_snapshot = true;
 
-			elog(DEBUG1, "found subtransaction %u:%u with catalog changes",
+			elog(DEBUG1, "found subtransaction %" PRIu64 ":%" PRIu64 " with catalog changes",
 				 xid, subxid);
 
 			SnapBuildAddCommittedTxn(builder, subxid);
@@ -1035,7 +1035,7 @@ SnapBuildCommitTxn(SnapBuild *builder, XLogRecPtr lsn, TransactionId xid,
 	/* if top-level modified catalog, it'll need a snapshot */
 	if (SnapBuildXidHasCatalogChanges(builder, xid, xinfo))
 	{
-		elog(DEBUG2, "found top level transaction %u, with catalog changes",
+		elog(DEBUG2, "found top level transaction %" PRIu64 ", with catalog changes",
 			 xid);
 		needs_snapshot = true;
 		needs_timetravel = true;
@@ -1044,14 +1044,14 @@ SnapBuildCommitTxn(SnapBuild *builder, XLogRecPtr lsn, TransactionId xid,
 	else if (sub_needs_timetravel)
 	{
 		/* track toplevel txn as well, subxact alone isn't meaningful */
-		elog(DEBUG2, "forced transaction %u to do timetravel due to one of its subtransactions",
+		elog(DEBUG2, "forced transaction %" PRIu64 " to do timetravel due to one of its subtransactions",
 			 xid);
 		needs_timetravel = true;
 		SnapBuildAddCommittedTxn(builder, xid);
 	}
 	else if (needs_timetravel)
 	{
-		elog(DEBUG2, "forced transaction %u to do timetravel", xid);
+		elog(DEBUG2, "forced transaction %" PRIu64 " to do timetravel", xid);
 
 		SnapBuildAddCommittedTxn(builder, xid);
 	}
@@ -1155,7 +1155,8 @@ SnapBuildProcessRunningXacts(SnapBuild *builder, XLogRecPtr lsn, xl_running_xact
 							 bool db_specific)
 {
 	ReorderBufferTXN *txn;
-	TransactionId xmin;
+	TransactionId	xmin,
+					oldestRunningXid;
 
 	/*
 	 * If we're not consistent yet, inspect the record to see whether it
@@ -1208,6 +1209,7 @@ SnapBuildProcessRunningXacts(SnapBuild *builder, XLogRecPtr lsn, xl_running_xact
 	if (OidIsValid(running->dbid))
 		return;
 
+	oldestRunningXid = XidFromFullTransactionId(running->oldestRunningXid);
 	/*
 	 * Update range of interesting xids based on the running xacts
 	 * information. We don't increase ->xmax using it, because once we are in
@@ -1220,7 +1222,7 @@ SnapBuildProcessRunningXacts(SnapBuild *builder, XLogRecPtr lsn, xl_running_xact
 	 * xmin, which looks odd but is correct and actually more efficient, since
 	 * we hit fast paths in heapam_visibility.c.
 	 */
-	builder->xmin = running->oldestRunningXid;
+	builder->xmin = oldestRunningXid;
 
 	/* Remove transactions we don't need to keep track off anymore */
 	SnapBuildPurgeOlderTxn(builder);
@@ -1236,9 +1238,9 @@ SnapBuildProcessRunningXacts(SnapBuild *builder, XLogRecPtr lsn, xl_running_xact
 	 */
 	xmin = ReorderBufferGetOldestXmin(builder->reorder);
 	if (xmin == InvalidTransactionId)
-		xmin = running->oldestRunningXid;
-	elog(DEBUG3, "xmin: %u, xmax: %u, oldest running: %u, oldest xmin: %u",
-		 builder->xmin, builder->xmax, running->oldestRunningXid, xmin);
+		xmin = oldestRunningXid;
+	elog(DEBUG3, "xmin: %" PRIu64 ", xmax: %" PRIu64 ", oldest running: %" PRIu64 ", oldest xmin: %" PRIu64,
+		 builder->xmin, builder->xmax, oldestRunningXid, xmin);
 	LogicalIncreaseXminForSlot(lsn, xmin);
 
 	/*
@@ -1293,6 +1295,7 @@ SnapBuildProcessRunningXacts(SnapBuild *builder, XLogRecPtr lsn, xl_running_xact
 static bool
 SnapBuildFindSnapshot(SnapBuild *builder, XLogRecPtr lsn, xl_running_xacts *running)
 {
+	TransactionId oldestRunningXid = XidFromFullTransactionId(running->oldestRunningXid);
 	/* ---
 	 * Build catalog decoding snapshot incrementally using information about
 	 * the currently running transactions. There are several ways to do that:
@@ -1323,14 +1326,14 @@ SnapBuildFindSnapshot(SnapBuild *builder, XLogRecPtr lsn, xl_running_xacts *runn
 	 * have all necessary catalog rows anymore.
 	 */
 	if (TransactionIdIsNormal(builder->initial_xmin_horizon) &&
-		NormalTransactionIdPrecedes(running->oldestRunningXid,
+		NormalTransactionIdPrecedes(oldestRunningXid,
 									builder->initial_xmin_horizon))
 	{
 		ereport(DEBUG1,
 				errmsg_internal("skipping snapshot at %X/%08X while building logical decoding snapshot, xmin horizon too low",
 								LSN_FORMAT_ARGS(lsn)),
-				errdetail_internal("initial xmin horizon of %u vs the snapshot's %u",
-								   builder->initial_xmin_horizon, running->oldestRunningXid));
+				errdetail_internal("initial xmin horizon of %" PRIu64 " vs the snapshot's %" PRIu64,
+								   builder->initial_xmin_horizon, oldestRunningXid));
 
 
 		SnapBuildWaitSnapshot(running, builder->initial_xmin_horizon);
@@ -1347,7 +1350,7 @@ SnapBuildFindSnapshot(SnapBuild *builder, XLogRecPtr lsn, xl_running_xacts *runn
 	 * NB: We might have already started to incrementally assemble a snapshot,
 	 * so we need to be careful to deal with that.
 	 */
-	if (running->oldestRunningXid == running->nextXid)
+	if (oldestRunningXid == XidFromFullTransactionId(running->nextXid))
 	{
 		if (!XLogRecPtrIsValid(builder->start_decoding_at) ||
 			builder->start_decoding_at <= lsn)
@@ -1355,8 +1358,8 @@ SnapBuildFindSnapshot(SnapBuild *builder, XLogRecPtr lsn, xl_running_xacts *runn
 			builder->start_decoding_at = lsn + 1;
 
 		/* As no transactions were running xmin/xmax can be trivially set. */
-		builder->xmin = running->nextXid;	/* < are finished */
-		builder->xmax = running->nextXid;	/* >= are running */
+		builder->xmin = XidFromFullTransactionId(running->nextXid);	/* < are finished */
+		builder->xmax = XidFromFullTransactionId(running->nextXid);	/* >= are running */
 
 		/* so we can safely use the faster comparisons */
 		Assert(TransactionIdIsNormal(builder->xmin));
@@ -1399,16 +1402,18 @@ SnapBuildFindSnapshot(SnapBuild *builder, XLogRecPtr lsn, xl_running_xacts *runn
 	 */
 	else if (builder->state == SNAPBUILD_START)
 	{
+		TransactionId nextXid = XidFromFullTransactionId(running->nextXid);
+
 		builder->state = SNAPBUILD_BUILDING_SNAPSHOT;
-		builder->next_phase_at = running->nextXid;
+		builder->next_phase_at = nextXid;
 
 		/*
 		 * Start with an xmin/xmax that's correct for future, when all the
 		 * currently running transactions have finished. We'll update both
 		 * while waiting for the pending transactions to finish.
 		 */
-		builder->xmin = running->nextXid;	/* < are finished */
-		builder->xmax = running->nextXid;	/* >= are running */
+		builder->xmin = nextXid;	/* < are finished */
+		builder->xmax = nextXid;	/* >= are running */
 
 		/* so we can safely use the faster comparisons */
 		Assert(TransactionIdIsNormal(builder->xmin));
@@ -1417,10 +1422,10 @@ SnapBuildFindSnapshot(SnapBuild *builder, XLogRecPtr lsn, xl_running_xacts *runn
 		ereport(LOG,
 				errmsg("logical decoding found initial starting point at %X/%08X",
 					   LSN_FORMAT_ARGS(lsn)),
-				errdetail("Waiting for transactions (approximately %d) older than %u to end.",
-						  running->xcnt, running->nextXid));
+				errdetail("Waiting for transactions (approximately %d) older than %" PRIu64 " to end.",
+						  running->xcnt, nextXid));
 
-		SnapBuildWaitSnapshot(running, running->nextXid);
+		SnapBuildWaitSnapshot(running, nextXid);
 	}
 
 	/*
@@ -1433,18 +1438,20 @@ SnapBuildFindSnapshot(SnapBuild *builder, XLogRecPtr lsn, xl_running_xacts *runn
 	 */
 	else if (builder->state == SNAPBUILD_BUILDING_SNAPSHOT &&
 			 TransactionIdPrecedesOrEquals(builder->next_phase_at,
-										   running->oldestRunningXid))
+										   XidFromFullTransactionId(running->oldestRunningXid)))
 	{
+		TransactionId nextXid = XidFromFullTransactionId(running->nextXid);
+
 		builder->state = SNAPBUILD_FULL_SNAPSHOT;
-		builder->next_phase_at = running->nextXid;
+		builder->next_phase_at = nextXid;
 
 		ereport(LOG,
 				errmsg("logical decoding found initial consistent point at %X/%08X",
 					   LSN_FORMAT_ARGS(lsn)),
-				errdetail("Waiting for transactions (approximately %d) older than %u to end.",
-						  running->xcnt, running->nextXid));
+				errdetail("Waiting for transactions (approximately %d) older than %" PRIu64 " to end.",
+						  running->xcnt, nextXid));
 
-		SnapBuildWaitSnapshot(running, running->nextXid);
+		SnapBuildWaitSnapshot(running, nextXid);
 	}
 
 	/*
@@ -1457,7 +1464,7 @@ SnapBuildFindSnapshot(SnapBuild *builder, XLogRecPtr lsn, xl_running_xacts *runn
 	 */
 	else if (builder->state == SNAPBUILD_FULL_SNAPSHOT &&
 			 TransactionIdPrecedesOrEquals(builder->next_phase_at,
-										   running->oldestRunningXid))
+										   XidFromFullTransactionId(running->oldestRunningXid)))
 	{
 		builder->state = SNAPBUILD_CONSISTENT;
 		builder->next_phase_at = InvalidTransactionId;
@@ -1494,7 +1501,7 @@ SnapBuildWaitSnapshot(xl_running_xacts *running, TransactionId cutoff)
 
 	for (off = 0; off < running->xcnt; off++)
 	{
-		TransactionId xid = running->xids[off];
+		TransactionId xid = XidFromFullTransactionId(running->xids[off]);
 
 		/*
 		 * Upper layers should prevent that we ever need to wait on ourselves.

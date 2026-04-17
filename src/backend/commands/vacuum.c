@@ -1157,12 +1157,16 @@ vacuum_get_cutoffs(Relation rel, const VacuumParams *params,
 	 * Almost ready to set freeze output parameters; check if OldestXmin or
 	 * OldestMxact are held back to an unsafe degree before we start on that
 	 */
-	safeOldestXmin = nextXID - autovacuum_freeze_max_age;
-	if (!TransactionIdIsNormal(safeOldestXmin))
+	if (nextXID > FirstNormalTransactionId + autovacuum_freeze_max_age)
+		safeOldestXmin = nextXID - autovacuum_freeze_max_age;
+	else
 		safeOldestXmin = FirstNormalTransactionId;
-	safeOldestMxact = nextMXID - effective_multixact_freeze_max_age;
-	if (safeOldestMxact < FirstMultiXactId)
+
+	if (nextMXID > FirstMultiXactId + effective_multixact_freeze_max_age)
+		safeOldestMxact = nextMXID - effective_multixact_freeze_max_age;
+	else
 		safeOldestMxact = FirstMultiXactId;
+
 	if (TransactionIdPrecedes(cutoffs->OldestXmin, safeOldestXmin))
 		ereport(WARNING,
 				(errmsg("cutoff for removing and freezing tuples is far in the past"),
@@ -1187,7 +1191,9 @@ vacuum_get_cutoffs(Relation rel, const VacuumParams *params,
 
 	/* Compute FreezeLimit, being careful to generate a normal XID */
 	cutoffs->FreezeLimit = nextXID - freeze_min_age;
-	if (!TransactionIdIsNormal(cutoffs->FreezeLimit))
+	if (nextXID > FirstNormalTransactionId + freeze_min_age)
+		cutoffs->FreezeLimit = nextXID - freeze_min_age;
+	else
 		cutoffs->FreezeLimit = FirstNormalTransactionId;
 	/* FreezeLimit must always be <= OldestXmin */
 	if (TransactionIdPrecedes(cutoffs->OldestXmin, cutoffs->FreezeLimit))
@@ -1226,8 +1232,9 @@ vacuum_get_cutoffs(Relation rel, const VacuumParams *params,
 		freeze_table_age = vacuum_freeze_table_age;
 	freeze_table_age = Min(freeze_table_age, autovacuum_freeze_max_age * 0.95);
 	Assert(freeze_table_age >= 0);
-	aggressiveXIDCutoff = nextXID - freeze_table_age;
-	if (!TransactionIdIsNormal(aggressiveXIDCutoff))
+	if (nextXID > FirstNormalTransactionId + freeze_table_age)
+		aggressiveXIDCutoff = nextXID - freeze_table_age;
+	else
 		aggressiveXIDCutoff = FirstNormalTransactionId;
 	if (TransactionIdPrecedesOrEquals(cutoffs->relfrozenxid,
 									  aggressiveXIDCutoff))
@@ -1247,8 +1254,9 @@ vacuum_get_cutoffs(Relation rel, const VacuumParams *params,
 		Min(multixact_freeze_table_age,
 			effective_multixact_freeze_max_age * 0.95);
 	Assert(multixact_freeze_table_age >= 0);
-	aggressiveMXIDCutoff = nextMXID - multixact_freeze_table_age;
-	if (aggressiveMXIDCutoff < FirstMultiXactId)
+	if (nextMXID > FirstMultiXactId + multixact_freeze_table_age)
+		aggressiveMXIDCutoff = nextMXID - multixact_freeze_table_age;
+	else
 		aggressiveMXIDCutoff = FirstMultiXactId;
 	if (MultiXactIdPrecedesOrEquals(cutoffs->relminmxid,
 									aggressiveMXIDCutoff))
@@ -1283,8 +1291,9 @@ vacuum_xid_failsafe_check(const struct VacuumCutoffs *cutoffs)
 	 */
 	skip_index_vacuum = Max(vacuum_failsafe_age, autovacuum_freeze_max_age * 1.05);
 
-	xid_skip_limit = ReadNextTransactionId() - skip_index_vacuum;
-	if (!TransactionIdIsNormal(xid_skip_limit))
+	if (ReadNextTransactionId() > FirstNormalTransactionId + skip_index_vacuum)
+		xid_skip_limit = ReadNextTransactionId() - skip_index_vacuum;
+	else
 		xid_skip_limit = FirstNormalTransactionId;
 
 	if (TransactionIdPrecedes(relfrozenxid, xid_skip_limit))
@@ -1301,8 +1310,9 @@ vacuum_xid_failsafe_check(const struct VacuumCutoffs *cutoffs)
 	skip_index_vacuum = Max(vacuum_multixact_failsafe_age,
 							autovacuum_multixact_freeze_max_age * 1.05);
 
-	multi_skip_limit = ReadNextMultiXactId() - skip_index_vacuum;
-	if (multi_skip_limit < FirstMultiXactId)
+	if (ReadNextMultiXactId() > FirstMultiXactId + autovacuum_freeze_max_age)
+		multi_skip_limit = ReadNextMultiXactId() - autovacuum_freeze_max_age;
+	else
 		multi_skip_limit = FirstMultiXactId;
 
 	if (MultiXactIdPrecedes(relminmxid, multi_skip_limit))
@@ -1575,13 +1585,13 @@ vac_update_relstats(Relation relation,
 	if (futurexid)
 		ereport(WARNING,
 				(errcode(ERRCODE_DATA_CORRUPTED),
-				 errmsg_internal("overwrote invalid relfrozenxid value %u with new value %u for table \"%s\"",
+				 errmsg_internal("overwrote invalid relfrozenxid value %" PRIu64 " with new value %" PRIu64 " for table \"%s\"",
 								 oldfrozenxid, frozenxid,
 								 RelationGetRelationName(relation))));
 	if (futuremxid)
 		ereport(WARNING,
 				(errcode(ERRCODE_DATA_CORRUPTED),
-				 errmsg_internal("overwrote invalid relminmxid value %u with new value %u for table \"%s\"",
+				 errmsg_internal("overwrote invalid relminmxid value %" PRIu64 " with new value %" PRIu64 " for table \"%s\"",
 								 oldminmulti, minmulti,
 								 RelationGetRelationName(relation))));
 }
