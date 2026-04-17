@@ -26,7 +26,7 @@ live_items    | 1
 dead_items    | 0
 avg_item_size | 16
 page_size     | 8192
-free_size     | 8128
+free_size     | 8120
 btpo_prev     | 0
 btpo_next     | 0
 btpo_level    | 0
@@ -43,11 +43,11 @@ SELECT * FROM bt_multi_page_stats('test2_col1_idx', 1, -1);
 -[ RECORD 1 ]-+-----
 blkno         | 1
 type          | l
-live_items    | 367
+live_items    | 366
 dead_items    | 0
 avg_item_size | 16
 page_size     | 8192
-free_size     | 808
+free_size     | 820
 btpo_prev     | 0
 btpo_next     | 2
 btpo_level    | 0
@@ -55,11 +55,11 @@ btpo_flags    | 1
 -[ RECORD 2 ]-+-----
 blkno         | 2
 type          | l
-live_items    | 367
+live_items    | 366
 dead_items    | 0
 avg_item_size | 16
 page_size     | 8192
-free_size     | 808
+free_size     | 820
 btpo_prev     | 1
 btpo_next     | 4
 btpo_level    | 0
@@ -71,7 +71,7 @@ live_items    | 3
 dead_items    | 0
 avg_item_size | 13
 page_size     | 8192
-free_size     | 8096
+free_size     | 8088
 btpo_prev     | 0
 btpo_next     | 0
 btpo_level    | 1
@@ -79,11 +79,11 @@ btpo_flags    | 2
 -[ RECORD 4 ]-+-----
 blkno         | 4
 type          | l
-live_items    | 268
+live_items    | 270
 dead_items    | 0
 avg_item_size | 16
 page_size     | 8192
-free_size     | 2788
+free_size     | 2740
 btpo_prev     | 2
 btpo_next     | 0
 btpo_level    | 0
@@ -96,11 +96,11 @@ SELECT * FROM bt_multi_page_stats('test2_col1_idx', 1, 2);
 -[ RECORD 1 ]-+-----
 blkno         | 1
 type          | l
-live_items    | 367
+live_items    | 366
 dead_items    | 0
 avg_item_size | 16
 page_size     | 8192
-free_size     | 808
+free_size     | 820
 btpo_prev     | 0
 btpo_next     | 2
 btpo_level    | 0
@@ -108,11 +108,11 @@ btpo_flags    | 1
 -[ RECORD 2 ]-+-----
 blkno         | 2
 type          | l
-live_items    | 367
+live_items    | 366
 dead_items    | 0
 avg_item_size | 16
 page_size     | 8192
-free_size     | 808
+free_size     | 820
 btpo_prev     | 1
 btpo_next     | 4
 btpo_level    | 0
@@ -126,7 +126,7 @@ live_items    | 3
 dead_items    | 0
 avg_item_size | 13
 page_size     | 8192
-free_size     | 8096
+free_size     | 8088
 btpo_prev     | 0
 btpo_next     | 0
 btpo_level    | 1
@@ -134,11 +134,11 @@ btpo_flags    | 2
 -[ RECORD 2 ]-+-----
 blkno         | 4
 type          | l
-live_items    | 268
+live_items    | 270
 dead_items    | 0
 avg_item_size | 16
 page_size     | 8192
-free_size     | 2788
+free_size     | 2740
 btpo_prev     | 2
 btpo_next     | 0
 btpo_level    | 0

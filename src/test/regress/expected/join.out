@@ -6984,12 +6984,12 @@ from t t1
   on true
   left join t t4 on true
 where s.a < s.c;
-                  QUERY PLAN                   
------------------------------------------------
+                    QUERY PLAN                     
+---------------------------------------------------
  Nested Loop Left Join
    ->  Nested Loop
          ->  Seq Scan on t t1
-         ->  Seq Scan on t t2
+         ->  Index Only Scan using t_a_key on t t2
                Filter: (a < COALESCE(t1.a, 1))
    ->  Materialize
          ->  Seq Scan on t t4
@@ -8179,9 +8179,22 @@ ON sj_t1.id = _t2t3t4.id;
  Nested Loop
    Join Filter: (sj_t3.id = sj_t1.id)
    ->  Nested Loop
-         Join Filter: (sj_t2.id = sj_t3.id)
-         ->  Nested Loop Semi Join
+         Join Filter: (sj_t3.id = sj_t2_1.id)
+         ->  Nested Loop
+               Join Filter: (sj_t2.id = sj_t3.id)
                ->  Nested Loop
+                     ->  HashAggregate
+                           Group Key: sj_t3_1.id
+                           ->  Nested Loop
+                                 ->  Seq Scan on sj_t4 sj_t4_1
+                                 ->  Materialize
+                                       ->  Bitmap Heap Scan on sj_t3 sj_t3_1
+                                             Recheck Cond: (a = 1)
+                                             ->  Bitmap Index Scan on sj_t3_a_id_idx
+                                                   Index Cond: (a = 1)
+                     ->  Index Only Scan using sj_t2_id_idx on sj_t2
+                           Index Cond: (id = sj_t3_1.id)
+               ->  Materialize
                      ->  HashAggregate
                            Group Key: sj_t3.id
                            ->  Nested Loop
@@ -8191,16 +8204,10 @@ ON sj_t1.id = _t2t3t4.id;
                                              Recheck Cond: (a = 1)
                                              ->  Bitmap Index Scan on sj_t3_a_id_idx
                                                    Index Cond: (a = 1)
-                     ->  Index Only Scan using sj_t2_id_idx on sj_t2 sj_t2_1
-                           Index Cond: (id = sj_t3.id)
-               ->  Nested Loop
-                     ->  Index Only Scan using sj_t3_a_id_idx on sj_t3 sj_t3_1
-                           Index Cond: ((a = 1) AND (id = sj_t3.id))
-                     ->  Seq Scan on sj_t4 sj_t4_1
-         ->  Index Only Scan using sj_t2_id_idx on sj_t2
-               Index Cond: (id = sj_t2_1.id)
+         ->  Index Only Scan using sj_t2_id_idx on sj_t2 sj_t2_1
+               Index Cond: (id = sj_t2.id)
    ->  Seq Scan on sj_t1
-(24 rows)
+(31 rows)
 
 --
 -- Test RowMarks-related code

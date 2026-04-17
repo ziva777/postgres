@@ -3476,18 +3476,28 @@ explain (costs off) select a, abs(b) from mcrparted order by a, abs(b), c;
 -- check that Append is used when the sub-partitioned tables are pruned
 -- during planning.
 explain (costs off) select * from mcrparted where a < 20 order by a, abs(b), c;
-                               QUERY PLAN                                
--------------------------------------------------------------------------
- Append
-   ->  Index Scan using mcrparted0_a_abs_c_idx on mcrparted0 mcrparted_1
-         Index Cond: (a < 20)
-   ->  Index Scan using mcrparted1_a_abs_c_idx on mcrparted1 mcrparted_2
-         Index Cond: (a < 20)
-   ->  Index Scan using mcrparted2_a_abs_c_idx on mcrparted2 mcrparted_3
-         Index Cond: (a < 20)
-   ->  Index Scan using mcrparted3_a_abs_c_idx on mcrparted3 mcrparted_4
-         Index Cond: (a < 20)
-(9 rows)
+                          QUERY PLAN                           
+---------------------------------------------------------------
+ Sort
+   Sort Key: mcrparted.a, (abs(mcrparted.b)), mcrparted.c
+   ->  Append
+         ->  Bitmap Heap Scan on mcrparted0 mcrparted_1
+               Recheck Cond: (a < 20)
+               ->  Bitmap Index Scan on mcrparted0_a_abs_c_idx
+                     Index Cond: (a < 20)
+         ->  Bitmap Heap Scan on mcrparted1 mcrparted_2
+               Recheck Cond: (a < 20)
+               ->  Bitmap Index Scan on mcrparted1_a_abs_c_idx
+                     Index Cond: (a < 20)
+         ->  Bitmap Heap Scan on mcrparted2 mcrparted_3
+               Recheck Cond: (a < 20)
+               ->  Bitmap Index Scan on mcrparted2_a_abs_c_idx
+                     Index Cond: (a < 20)
+         ->  Bitmap Heap Scan on mcrparted3 mcrparted_4
+               Recheck Cond: (a < 20)
+               ->  Bitmap Index Scan on mcrparted3_a_abs_c_idx
+                     Index Cond: (a < 20)
+(19 rows)
 
 set enable_bitmapscan to off;
 set enable_sort to off;

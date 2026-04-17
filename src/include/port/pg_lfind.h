@@ -206,4 +206,19 @@ pg_lfind32(uint32 key, const uint32 *base, uint32 nelem)
 #endif
 }
 
+static inline bool
+pg_lfind64(uint64 key, const uint64 *base, uint64 nelem)
+{
+	const uint64 *end;
+
+	end = base + nelem;
+	while (base < end)
+	{
+		if (*base++ == key)
+			return true;
+	}
+
+	return false;
+}
+
 #endif							/* PG_LFIND_H */

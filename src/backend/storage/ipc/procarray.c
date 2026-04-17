@@ -70,7 +70,7 @@
 #include "utils/snapmgr.h"
 #include "utils/wait_event.h"
 
-#define UINT32_ACCESS_ONCE(var)		 ((uint32)(*((volatile uint32 *)&(var))))
+#define UINT64_ACCESS_ONCE(var)		 ((uint64)(*((volatile uint64 *)&(var))))
 
 /* Our shared memory area */
 typedef struct ProcArrayStruct
@@ -382,8 +382,6 @@ static void ProcArrayGroupClearXid(PGPROC *proc, TransactionId latestXid);
 static void MaintainLatestCompletedXid(TransactionId latestXid);
 static void MaintainLatestCompletedXidRecovery(TransactionId latestXid);
 
-static inline FullTransactionId FullXidRelativeTo(FullTransactionId rel,
-												  TransactionId xid);
 static void GlobalVisUpdateApply(ComputeXidHorizonsResult *horizons);
 
 /*
@@ -965,8 +963,7 @@ MaintainLatestCompletedXid(TransactionId latestXid)
 
 	if (TransactionIdPrecedes(XidFromFullTransactionId(cur_latest), latestXid))
 	{
-		TransamVariables->latestCompletedXid =
-			FullXidRelativeTo(cur_latest, latestXid);
+		TransamVariables->latestCompletedXid = FullTransactionIdFromXid(latestXid);
 	}
 
 	Assert(IsBootstrapProcessingMode() ||
@@ -980,7 +977,6 @@ static void
 MaintainLatestCompletedXidRecovery(TransactionId latestXid)
 {
 	FullTransactionId cur_latest = TransamVariables->latestCompletedXid;
-	FullTransactionId rel;
 
 	Assert(AmStartupProcess() || !IsUnderPostmaster);
 	Assert(LWLockHeldByMe(ProcArrayLock));
@@ -990,14 +986,13 @@ MaintainLatestCompletedXidRecovery(TransactionId latestXid)
 	 * latestCompletedXid to be initialized in recovery. But in recovery it's
 	 * safe to access nextXid without a lock for the startup process.
 	 */
-	rel = TransamVariables->nextXid;
 	Assert(FullTransactionIdIsValid(TransamVariables->nextXid));
 
 	if (!FullTransactionIdIsValid(cur_latest) ||
 		TransactionIdPrecedes(XidFromFullTransactionId(cur_latest), latestXid))
 	{
 		TransamVariables->latestCompletedXid =
-			FullXidRelativeTo(rel, latestXid);
+			FullTransactionIdFromXid(latestXid);
 	}
 
 	Assert(FullTransactionIdIsNormal(TransamVariables->latestCompletedXid));
@@ -1118,9 +1113,8 @@ ProcArrayApplyRecoveryInfo(RunningTransactions running)
 			else
 				elog(DEBUG1,
 					 "recovery snapshot waiting for non-overflowed snapshot or "
-					 "until oldest active xid on standby is at least %u (now %u)",
-					 standbySnapshotPendingXmin,
-					 running->oldestRunningXid);
+					 "until oldest active xid on standby is at least %" PRIu64 " (now %" PRIu64 ")",
+					 standbySnapshotPendingXmin, running->oldestRunningXid);
 			return;
 		}
 	}
@@ -1204,7 +1198,7 @@ ProcArrayApplyRecoveryInfo(RunningTransactions running)
 			if (i > 0 && TransactionIdEquals(xids[i - 1], xids[i]))
 			{
 				elog(DEBUG1,
-					 "found duplicated transaction %u for KnownAssignedXids insertion",
+					 "found duplicated transaction %" PRIu64 " for KnownAssignedXids insertion",
 					 xids[i]);
 				continue;
 			}
@@ -1296,7 +1290,7 @@ ProcArrayApplyRecoveryInfo(RunningTransactions running)
 	else
 		elog(DEBUG1,
 			 "recovery snapshot waiting for non-overflowed snapshot or "
-			 "until oldest active xid on standby is at least %u (now %u)",
+			 "until oldest active xid on standby is at least %" PRIu64 " (now %" PRIu64 ")",
 			 standbySnapshotPendingXmin,
 			 running->oldestRunningXid);
 }
@@ -1489,7 +1483,7 @@ TransactionIdIsInProgress(TransactionId xid)
 			continue;
 
 		/* Fetch xid just once - see GetNewTransactionId */
-		pxid = UINT32_ACCESS_ONCE(other_xids[pgxactoff]);
+		pxid = UINT64_ACCESS_ONCE(other_xids[pgxactoff]);
 
 		if (!TransactionIdIsValid(pxid))
 			continue;
@@ -1521,7 +1515,7 @@ TransactionIdIsInProgress(TransactionId xid)
 		for (j = pxids - 1; j >= 0; j--)
 		{
 			/* Fetch xid just once - see GetNewTransactionId */
-			TransactionId cxid = UINT32_ACCESS_ONCE(proc->subxids.xids[j]);
+			TransactionId cxid = UINT64_ACCESS_ONCE(proc->subxids.xids[j]);
 
 			if (TransactionIdEquals(cxid, xid))
 			{
@@ -1606,7 +1600,7 @@ TransactionIdIsInProgress(TransactionId xid)
 	topxid = SubTransGetTopmostTransaction(xid);
 	Assert(TransactionIdIsValid(topxid));
 	if (!TransactionIdEquals(topxid, xid) &&
-		pg_lfind32(topxid, xids, nxids))
+		pg_lfind64(topxid, xids, nxids))
 		return true;
 
 	cachedXidIsNotInProgress = xid;
@@ -1737,8 +1731,8 @@ ComputeXidHorizons(ComputeXidHorizonsResult *h)
 		TransactionId xmin;
 
 		/* Fetch xid just once - see GetNewTransactionId */
-		xid = UINT32_ACCESS_ONCE(other_xids[index]);
-		xmin = UINT32_ACCESS_ONCE(proc->xmin);
+		xid = UINT64_ACCESS_ONCE(other_xids[index]);
+		xmin = UINT64_ACCESS_ONCE(proc->xmin);
 
 		/*
 		 * Consider both the transaction's Xmin, and its Xid.
@@ -2212,7 +2206,7 @@ GetSnapshotData(Snapshot snapshot)
 		for (int pgxactoff = 0; pgxactoff < numProcs; pgxactoff++)
 		{
 			/* Fetch xid just once - see GetNewTransactionId */
-			TransactionId xid = UINT32_ACCESS_ONCE(other_xids[pgxactoff]);
+			TransactionId xid = UINT64_ACCESS_ONCE(other_xids[pgxactoff]);
 			uint8		statusFlags;
 
 			Assert(allProcs[arrayP->pgprocnos[pgxactoff]].pgxactoff == pgxactoff);
@@ -2367,7 +2361,7 @@ GetSnapshotData(Snapshot snapshot)
 		 * i.e. holding locks. While we don't hold the lock anymore, all the
 		 * necessary data has been gathered with lock held.
 		 */
-		oldestfxid = FullXidRelativeTo(latest_completed, oldestxid);
+		oldestfxid = FullTransactionIdFromXid(oldestxid);
 
 		/* Check whether there's a replication slot requiring an older xmin. */
 		def_vis_xid_data =
@@ -2386,8 +2380,8 @@ GetSnapshotData(Snapshot snapshot)
 		def_vis_xid =
 			TransactionIdOlder(replication_slot_catalog_xmin, def_vis_xid);
 
-		def_vis_fxid = FullXidRelativeTo(latest_completed, def_vis_xid);
-		def_vis_fxid_data = FullXidRelativeTo(latest_completed, def_vis_xid_data);
+		def_vis_fxid = FullTransactionIdFromXid(def_vis_xid);
+		def_vis_fxid_data = FullTransactionIdFromXid(def_vis_xid_data);
 
 		/*
 		 * Check if we can increase upper bound. As a previous
@@ -2406,7 +2400,7 @@ GetSnapshotData(Snapshot snapshot)
 		/* See temp_oldest_nonremovable computation in ComputeXidHorizons() */
 		if (TransactionIdIsNormal(myxid))
 			GlobalVisTempRels.definitely_needed =
-				FullXidRelativeTo(latest_completed, myxid);
+				FullTransactionIdFromXid(myxid);
 		else
 		{
 			GlobalVisTempRels.definitely_needed = latest_completed;
@@ -2516,7 +2510,7 @@ ProcArrayInstallImportedXmin(TransactionId xmin,
 		/*
 		 * Likewise, let's just make real sure its xmin does cover us.
 		 */
-		xid = UINT32_ACCESS_ONCE(proc->xmin);
+		xid = UINT64_ACCESS_ONCE(proc->xmin);
 		if (!TransactionIdIsNormal(xid) ||
 			!TransactionIdPrecedesOrEquals(xid, xmin))
 			continue;
@@ -2571,7 +2565,7 @@ ProcArrayInstallRestoredXmin(TransactionId xmin, PGPROC *proc)
 	 * can't go backwards.  Also, make sure it's running in the same database,
 	 * so that the per-database xmin cannot go backwards.
 	 */
-	xid = UINT32_ACCESS_ONCE(proc->xmin);
+	xid = UINT64_ACCESS_ONCE(proc->xmin);
 	if (proc->databaseId == MyDatabaseId &&
 		TransactionIdIsNormal(xid) &&
 		TransactionIdPrecedesOrEquals(xid, xmin))
@@ -2691,7 +2685,7 @@ GetRunningTransactionData(void)
 		TransactionId xid;
 
 		/* Fetch xid just once - see GetNewTransactionId */
-		xid = UINT32_ACCESS_ONCE(other_xids[index]);
+		xid = UINT64_ACCESS_ONCE(other_xids[index]);
 
 		/*
 		 * We don't need to store transactions that don't have a TransactionId
@@ -2762,6 +2756,7 @@ GetRunningTransactionData(void)
 
 				memcpy(&xids[count], proc->subxids.xids,
 					   nsubxids * sizeof(TransactionId));
+
 				count += nsubxids;
 				subcount += nsubxids;
 
@@ -2852,7 +2847,7 @@ GetOldestActiveTransactionId(bool inCommitOnly, bool allDbs)
 		PGPROC	   *proc = &allProcs[pgprocno];
 
 		/* Fetch xid just once - see GetNewTransactionId */
-		xid = UINT32_ACCESS_ONCE(other_xids[index]);
+		xid = UINT64_ACCESS_ONCE(other_xids[index]);
 
 		if (!TransactionIdIsNormal(xid))
 			continue;
@@ -2957,7 +2952,7 @@ GetOldestSafeDecodingTransactionId(bool catalogOnly)
 			TransactionId xid;
 
 			/* Fetch xid just once - see GetNewTransactionId */
-			xid = UINT32_ACCESS_ONCE(other_xids[index]);
+			xid = UINT64_ACCESS_ONCE(other_xids[index]);
 
 			if (!TransactionIdIsNormal(xid))
 				continue;
@@ -3302,7 +3297,7 @@ GetCurrentVirtualXIDs(TransactionId limitXmin, bool excludeXmin0,
 		if (allDbs || proc->databaseId == MyDatabaseId)
 		{
 			/* Fetch xmin just once - might change on us */
-			TransactionId pxmin = UINT32_ACCESS_ONCE(proc->xmin);
+			TransactionId pxmin = UINT64_ACCESS_ONCE(proc->xmin);
 
 			if (excludeXmin0 && !TransactionIdIsValid(pxmin))
 				continue;
@@ -3402,7 +3397,7 @@ GetConflictingVirtualXIDs(TransactionId limitXmin, Oid dbOid)
 			proc->databaseId == dbOid)
 		{
 			/* Fetch xmin just once - can't change on us, but good coding */
-			TransactionId pxmin = UINT32_ACCESS_ONCE(proc->xmin);
+			TransactionId pxmin = UINT64_ACCESS_ONCE(proc->xmin);
 
 			/*
 			 * We ignore an invalid pxmin because this means that backend has
@@ -3953,7 +3948,7 @@ ProcArraySetReplicationSlotXmin(TransactionId xmin, TransactionId catalog_xmin,
 	if (!already_locked)
 		LWLockRelease(ProcArrayLock);
 
-	elog(DEBUG1, "xmin required by slots: data %u, catalog %u",
+	elog(DEBUG1, "xmin required by slots: data %" PRIu64 ", catalog %" PRIu64,
 		 xmin, catalog_xmin);
 }
 
@@ -4042,7 +4037,7 @@ XidCacheRemoveRunningXids(TransactionId xid,
 		 * debug warning.
 		 */
 		if (j < 0 && !MyProc->subxidStatus.overflowed)
-			elog(WARNING, "did not find subXID %u in MyProc", anxid);
+			elog(WARNING, "did not find subXID %" PRIu64 " in MyProc", anxid);
 	}
 
 	for (j = MyProc->subxidStatus.count - 1; j >= 0; j--)
@@ -4058,7 +4053,7 @@ XidCacheRemoveRunningXids(TransactionId xid,
 	}
 	/* Ordinarily we should have found it, unless the cache has overflowed */
 	if (j < 0 && !MyProc->subxidStatus.overflowed)
-		elog(WARNING, "did not find subXID %u in MyProc", xid);
+		elog(WARNING, "did not find subXID %" PRIu64 " in MyProc", xid);
 
 	/* Also advance global latestCompletedXid while holding the lock */
 	MaintainLatestCompletedXid(latestXid);
@@ -4165,17 +4160,13 @@ static void
 GlobalVisUpdateApply(ComputeXidHorizonsResult *horizons)
 {
 	GlobalVisSharedRels.maybe_needed =
-		FullXidRelativeTo(horizons->latest_completed,
-						  horizons->shared_oldest_nonremovable);
+		FullTransactionIdFromXid(horizons->shared_oldest_nonremovable);
 	GlobalVisCatalogRels.maybe_needed =
-		FullXidRelativeTo(horizons->latest_completed,
-						  horizons->catalog_oldest_nonremovable);
+		FullTransactionIdFromXid(horizons->catalog_oldest_nonremovable);
 	GlobalVisDataRels.maybe_needed =
-		FullXidRelativeTo(horizons->latest_completed,
-						  horizons->data_oldest_nonremovable);
+		FullTransactionIdFromXid(horizons->data_oldest_nonremovable);
 	GlobalVisTempRels.maybe_needed =
-		FullXidRelativeTo(horizons->latest_completed,
-						  horizons->temp_oldest_nonremovable);
+		FullTransactionIdFromXid(horizons->temp_oldest_nonremovable);
 
 	/*
 	 * In longer running transactions it's possible that transactions we
@@ -4271,15 +4262,7 @@ GlobalVisTestIsRemovableXid(GlobalVisState *state, TransactionId xid,
 {
 	FullTransactionId fxid;
 
-	/*
-	 * Convert 32 bit argument to FullTransactionId. We can do so safely
-	 * because we know the xid has to, at the very least, be between
-	 * [oldestXid, nextXid), i.e. within 2 billion of xid. To avoid taking a
-	 * lock to determine either, we can just compare with
-	 * state->definitely_needed, which was based on those value at the time
-	 * the current snapshot was built.
-	 */
-	fxid = FullXidRelativeTo(state->definitely_needed, xid);
+	fxid = FullTransactionIdFromXid(xid);
 
 	return GlobalVisTestIsRemovableFullXid(state, fxid, allow_update);
 }
@@ -4336,32 +4319,6 @@ GlobalVisCheckRemovableXid(Relation rel, TransactionId xid)
 	state = GlobalVisTestFor(rel);
 
 	return GlobalVisTestIsRemovableXid(state, xid, true);
-}
-
-/*
- * Convert a 32 bit transaction id into 64 bit transaction id, by assuming it
- * is within MaxTransactionId / 2 of XidFromFullTransactionId(rel).
- *
- * Be very careful about when to use this function. It can only safely be used
- * when there is a guarantee that xid is within MaxTransactionId / 2 xids of
- * rel. That e.g. can be guaranteed if the caller assures a snapshot is
- * held by the backend and xid is from a table (where vacuum/freezing ensures
- * the xid has to be within that range), or if xid is from the procarray and
- * prevents xid wraparound that way.
- */
-static inline FullTransactionId
-FullXidRelativeTo(FullTransactionId rel, TransactionId xid)
-{
-	TransactionId rel_xid = XidFromFullTransactionId(rel);
-
-	Assert(TransactionIdIsValid(xid));
-	Assert(TransactionIdIsValid(rel_xid));
-
-	/* not guaranteed to find issues, but likely to catch mistakes */
-	AssertTransactionIdInAllowableRange(xid);
-
-	return FullTransactionIdFromU64(U64FromFullTransactionId(rel)
-									+ (int32) (xid - rel_xid));
 }
 
 
@@ -4438,7 +4395,7 @@ RecordKnownAssignedTransactionIds(TransactionId xid)
 	Assert(TransactionIdIsValid(xid));
 	Assert(TransactionIdIsValid(latestObservedXid));
 
-	elog(DEBUG4, "record known xact %u latestObservedXid %u",
+	elog(DEBUG4, "record known xact %" PRIu64 " latestObservedXid %" PRIu64,
 		 xid, latestObservedXid);
 
 	/*
@@ -5020,7 +4977,7 @@ KnownAssignedXidsRemove(TransactionId xid)
 {
 	Assert(TransactionIdIsValid(xid));
 
-	elog(DEBUG4, "remove KnownAssignedXid %u", xid);
+	elog(DEBUG4, "remove KnownAssignedXid %" PRIu64, xid);
 
 	/*
 	 * Note: we cannot consider it an error to remove an XID that's not
@@ -5080,7 +5037,7 @@ KnownAssignedXidsRemovePreceding(TransactionId removeXid)
 		return;
 	}
 
-	elog(DEBUG4, "prune KnownAssignedXids to %u", removeXid);
+	elog(DEBUG4, "prune KnownAssignedXids to %" PRIu64, removeXid);
 
 	/*
 	 * Mark entries invalid starting at the tail.  Since array is sorted, we
@@ -5266,7 +5223,7 @@ KnownAssignedXidsDisplay(int trace_level)
 		if (KnownAssignedXidsValid[i])
 		{
 			nxids++;
-			appendStringInfo(&buf, "[%d]=%u ", i, KnownAssignedXids[i]);
+			appendStringInfo(&buf, "[%d]=%" PRIu64 " ", i, KnownAssignedXids[i]);
 		}
 	}
 

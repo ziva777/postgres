@@ -96,15 +96,6 @@ command_fails_like(
 	[ 'pg_resetwal', '-c' => '10,1', $node->data_dir ],
 	qr/greater than/,
 	'fails with -c value 1 part 2');
-# -e
-command_fails_like(
-	[ 'pg_resetwal', '-e' => 'foo', $node->data_dir ],
-	qr/error: invalid argument for option -e/,
-	'fails with incorrect -e option');
-command_fails_like(
-	[ 'pg_resetwal', '-e' => '-1', $node->data_dir ],
-	qr/error: invalid argument for option -e/,
-	'fails with -e value -1');
 # -l
 command_fails_like(
 	[ 'pg_resetwal', '-l' => 'foo', $node->data_dir ],
@@ -174,7 +165,7 @@ command_fails_like(
 	'fails with -x value too small');
 
 # Check out of range values with -x. These are forbidden for all other
-# 32-bit values too, but we use just -x to exercise the parsing.
+# 64-bit values too, but we use just -x to exercise the parsing.
 command_fails_like(
 	[ 'pg_resetwal', '-x' => '-1', $node->data_dir ],
 	qr/error: invalid argument for option -x/,
@@ -184,7 +175,7 @@ command_fails_like(
 	qr/error: invalid argument for option -x/,
 	'fails with negative -x value');
 command_fails_like(
-	[ 'pg_resetwal', '-x' => '10000000000', $node->data_dir ],
+	[ 'pg_resetwal', '-x' => '18446744073709551616', $node->data_dir ],
 	qr/error: invalid argument for option -x/,
 	'fails with -x value too large');
 
@@ -203,7 +194,6 @@ my $blcksz = $1;
 my @cmd = ('pg_resetwal', '--pgdata' => $node->data_dir);
 
 # some not-so-critical hardcoded values
-push @cmd, '--epoch' => 1;
 push @cmd, '--next-wal-file' => '00000001000000320000004B';
 push @cmd, '--next-oid' => 100_000;
 push @cmd, '--wal-segsize' => 1;
@@ -236,7 +226,7 @@ push @cmd,
 	hex($files[0]) == 0 ? 1 : hex($files[0] * $mult));
 
 @files = get_slru_files('pg_multixact/members');
-$mult = 32 * int($blcksz / 20) * 4;
+$mult = 32 * int($blcksz / 72) * 8;
 push @cmd, '--multixact-offset' => (hex($files[-1]) + 1) * $mult;
 
 @files = get_slru_files('pg_xact');

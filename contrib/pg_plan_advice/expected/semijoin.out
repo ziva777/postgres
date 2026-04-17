@@ -282,47 +282,45 @@ SET LOCAL pg_plan_advice.advice = 'semijoin_unique(g)';
 EXPLAIN (COSTS OFF, PLAN_ADVICE)
 SELECT * FROM generate_series(1,1000) g
     WHERE g in (select val1 from sj_narrow);
-                 QUERY PLAN                 
---------------------------------------------
+                            QUERY PLAN                             
+-------------------------------------------------------------------
  Nested Loop
    Disabled: true
    Join Filter: (g.g = sj_narrow.val1)
-   ->  HashAggregate
-         Group Key: sj_narrow.val1
-         ->  Seq Scan on sj_narrow
+   ->  Unique
+         ->  Index Only Scan using sj_narrow_val1_idx on sj_narrow
    ->  Function Scan on generate_series g
  Supplied Plan Advice:
    SEMIJOIN_UNIQUE(g) /* matched, failed */
  Generated Plan Advice:
    JOIN_ORDER(sj_narrow g)
    NESTED_LOOP_PLAIN(g)
-   SEQ_SCAN(sj_narrow)
+   INDEX_ONLY_SCAN(sj_narrow public.sj_narrow_val1_idx)
    SEMIJOIN_UNIQUE(sj_narrow)
    NO_GATHER(g sj_narrow)
-(15 rows)
+(14 rows)
 
 SET LOCAL pg_plan_advice.advice = 'semijoin_non_unique(g)';
 EXPLAIN (COSTS OFF, PLAN_ADVICE)
 SELECT * FROM generate_series(1,1000) g
     WHERE g in (select val1 from sj_narrow);
-                   QUERY PLAN                   
-------------------------------------------------
+                            QUERY PLAN                             
+-------------------------------------------------------------------
  Nested Loop
    Disabled: true
    Join Filter: (g.g = sj_narrow.val1)
-   ->  HashAggregate
-         Group Key: sj_narrow.val1
-         ->  Seq Scan on sj_narrow
+   ->  Unique
+         ->  Index Only Scan using sj_narrow_val1_idx on sj_narrow
    ->  Function Scan on generate_series g
  Supplied Plan Advice:
    SEMIJOIN_NON_UNIQUE(g) /* matched, failed */
  Generated Plan Advice:
    JOIN_ORDER(sj_narrow g)
    NESTED_LOOP_PLAIN(g)
-   SEQ_SCAN(sj_narrow)
+   INDEX_ONLY_SCAN(sj_narrow public.sj_narrow_val1_idx)
    SEMIJOIN_UNIQUE(sj_narrow)
    NO_GATHER(g sj_narrow)
-(15 rows)
+(14 rows)
 
 COMMIT;
 -- Test conflicting advice.

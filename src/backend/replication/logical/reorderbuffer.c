@@ -2655,7 +2655,7 @@ ReorderBufferProcessTXN(ReorderBuffer *rb, ReorderBufferTXN *txn,
 
 		/* this is just a sanity check against bad output plugin behaviour */
 		if (GetCurrentTransactionIdIfAny() != InvalidTransactionId)
-			elog(ERROR, "output plugin used XID %u",
+			elog(ERROR, "output plugin used XID %" PRIu64,
 				 GetCurrentTransactionId());
 
 		/*
@@ -3147,7 +3147,7 @@ ReorderBufferAbortOld(ReorderBuffer *rb, TransactionId oldestRunningXid)
 
 		if (TransactionIdPrecedes(txn->xid, oldestRunningXid))
 		{
-			elog(DEBUG2, "aborting old transaction %u", txn->xid);
+			elog(DEBUG2, "aborting old transaction %" PRIu64, txn->xid);
 
 			/* Notify the remote node about the crash/immediate restart. */
 			if (rbtxn_is_streamed(txn))
@@ -4001,7 +4001,7 @@ ReorderBufferSerializeTXN(ReorderBuffer *rb, ReorderBufferTXN *txn)
 	Size		spilled = 0;
 	Size		size = txn->size;
 
-	elog(DEBUG2, "spill %u changes in XID %u to disk",
+	elog(DEBUG2, "spill %u changes in XID %" PRIu64 " to disk",
 		 (uint32) txn->nentries_mem, txn->xid);
 
 	/* do the same to all child TXs */
@@ -4281,7 +4281,7 @@ ReorderBufferSerializeChange(ReorderBuffer *rb, ReorderBufferTXN *txn,
 		errno = save_errno ? save_errno : ENOSPC;
 		ereport(ERROR,
 				(errcode_for_file_access(),
-				 errmsg("could not write to data file for XID %u: %m",
+				 errmsg("could not write to data file for XID %" PRIu64 ": %m",
 						txn->xid)));
 	}
 	pgstat_report_wait_end();
@@ -4925,7 +4925,7 @@ ReorderBufferSerializedPath(char *path, ReplicationSlot *slot, TransactionId xid
 
 	XLogSegNoOffsetToRecPtr(segno, 0, wal_segment_size, recptr);
 
-	snprintf(path, MAXPGPATH, "%s/%s/xid-%u-lsn-%X-%X.spill",
+	snprintf(path, MAXPGPATH, "%s/%s/xid-%" PRIu64 "-lsn-%X-%X.spill",
 			 PG_REPLSLOT_DIR,
 			 NameStr(MyReplicationSlot->data.name),
 			 xid, LSN_FORMAT_ARGS(recptr));
@@ -5540,7 +5540,7 @@ UpdateLogicalMappings(HTAB *tuplecid_data, Oid relid, Snapshot snapshot)
 	{
 		RewriteMappingFile *f = (RewriteMappingFile *) lfirst(file);
 
-		elog(DEBUG1, "applying mapping: \"%s\" in %u", f->fname,
+		elog(DEBUG1, "applying mapping: \"%s\" in %" PRIu64, f->fname,
 			 snapshot->subxip[0]);
 		ApplyLogicalMappingFile(tuplecid_data, f->fname);
 		pfree(f);

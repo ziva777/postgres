@@ -32,7 +32,7 @@
 #define BootstrapTransactionId		((TransactionId) 1)
 #define FrozenTransactionId			((TransactionId) 2)
 #define FirstNormalTransactionId	((TransactionId) 3)
-#define MaxTransactionId			((TransactionId) 0xFFFFFFFF)
+#define MaxTransactionId			((TransactionId) UINT64CONST(0xFFFFFFFFFFFFFFFF))
 
 /* ----------------
  *		transaction ID manipulation macros
@@ -45,7 +45,7 @@
 #define StoreInvalidTransactionId(dest) (*(dest) = InvalidTransactionId)
 
 #define EpochFromFullTransactionId(x)	((uint32) ((x).value >> 32))
-#define XidFromFullTransactionId(x)		((uint32) (x).value)
+#define XidFromFullTransactionId(x)		((x).value)
 #define U64FromFullTransactionId(x)		((x).value)
 #define FullTransactionIdEquals(a, b)	((a).value == (b).value)
 #define FullTransactionIdPrecedes(a, b)	((a).value < (b).value)
@@ -53,8 +53,8 @@
 #define FullTransactionIdFollows(a, b) ((a).value > (b).value)
 #define FullTransactionIdFollowsOrEquals(a, b) ((a).value >= (b).value)
 #define FullTransactionIdIsValid(x)		TransactionIdIsValid(XidFromFullTransactionId(x))
-#define InvalidFullTransactionId		FullTransactionIdFromEpochAndXid(0, InvalidTransactionId)
-#define FirstNormalFullTransactionId	FullTransactionIdFromEpochAndXid(0, FirstNormalTransactionId)
+#define InvalidFullTransactionId		FullTransactionIdFromXid(InvalidTransactionId)
+#define FirstNormalFullTransactionId	FullTransactionIdFromXid(FirstNormalTransactionId)
 #define FullTransactionIdIsNormal(x)	FullTransactionIdFollowsOrEquals(x, FirstNormalFullTransactionId)
 
 /*
@@ -68,11 +68,11 @@ typedef struct FullTransactionId
 } FullTransactionId;
 
 static inline FullTransactionId
-FullTransactionIdFromEpochAndXid(uint32 epoch, TransactionId xid)
+FullTransactionIdFromXid(TransactionId xid)
 {
 	FullTransactionId result;
 
-	result.value = ((uint64) epoch) << 32 | xid;
+	result.value = xid;
 
 	return result;
 }
@@ -91,8 +91,7 @@ FullTransactionIdFromU64(uint64 value)
 #define TransactionIdAdvance(dest)	\
 	do { \
 		(dest)++; \
-		if ((dest) < FirstNormalTransactionId) \
-			(dest) = FirstNormalTransactionId; \
+		Assert(TransactionIdIsNormal(dest)); \
 	} while(0)
 
 /*
@@ -140,18 +139,19 @@ FullTransactionIdAdvance(FullTransactionId *dest)
 /* back up a transaction ID variable, handling wraparound correctly */
 #define TransactionIdRetreat(dest)	\
 	do { \
+		Assert(TransactionIdIsNormal(dest)); \
 		(dest)--; \
-	} while ((dest) < FirstNormalTransactionId)
+	} while (0)
 
 /* compare two XIDs already known to be normal; this is a macro for speed */
 #define NormalTransactionIdPrecedes(id1, id2) \
 	(AssertMacro(TransactionIdIsNormal(id1) && TransactionIdIsNormal(id2)), \
-	(int32) ((id1) - (id2)) < 0)
+	(int64) ((id1) - (id2)) < 0)
 
 /* compare two XIDs already known to be normal; this is a macro for speed */
 #define NormalTransactionIdFollows(id1, id2) \
 	(AssertMacro(TransactionIdIsNormal(id1) && TransactionIdIsNormal(id2)), \
-	(int32) ((id1) - (id2)) > 0)
+	(int64) ((id1) - (id2)) > 0)
 
 /* ----------
  *		Object ID (OID) zero is InvalidOid.
@@ -266,12 +266,12 @@ TransactionIdPrecedes(TransactionId id1, TransactionId id2)
 	 * If either ID is a permanent XID then we can just do unsigned
 	 * comparison.  If both are normal, do a modulo-2^32 comparison.
 	 */
-	int32		diff;
+	int64		diff;
 
 	if (!TransactionIdIsNormal(id1) || !TransactionIdIsNormal(id2))
 		return (id1 < id2);
 
-	diff = (int32) (id1 - id2);
+	diff = (int64) (id1 - id2);
 	return (diff < 0);
 }
 
@@ -281,12 +281,12 @@ TransactionIdPrecedes(TransactionId id1, TransactionId id2)
 static inline bool
 TransactionIdPrecedesOrEquals(TransactionId id1, TransactionId id2)
 {
-	int32		diff;
+	int64		diff;
 
 	if (!TransactionIdIsNormal(id1) || !TransactionIdIsNormal(id2))
 		return (id1 <= id2);
 
-	diff = (int32) (id1 - id2);
+	diff = (int64) (id1 - id2);
 	return (diff <= 0);
 }
 
@@ -296,12 +296,12 @@ TransactionIdPrecedesOrEquals(TransactionId id1, TransactionId id2)
 static inline bool
 TransactionIdFollows(TransactionId id1, TransactionId id2)
 {
-	int32		diff;
+	int64		diff;
 
 	if (!TransactionIdIsNormal(id1) || !TransactionIdIsNormal(id2))
 		return (id1 > id2);
 
-	diff = (int32) (id1 - id2);
+	diff = (int64) (id1 - id2);
 	return (diff > 0);
 }
 
@@ -311,12 +311,12 @@ TransactionIdFollows(TransactionId id1, TransactionId id2)
 static inline bool
 TransactionIdFollowsOrEquals(TransactionId id1, TransactionId id2)
 {
-	int32		diff;
+	int64		diff;
 
 	if (!TransactionIdIsNormal(id1) || !TransactionIdIsNormal(id2))
 		return (id1 >= id2);
 
-	diff = (int32) (id1 - id2);
+	diff = (int64) (id1 - id2);
 	return (diff >= 0);
 }
 
@@ -441,36 +441,14 @@ static inline FullTransactionId
 FullTransactionIdFromAllowableAt(FullTransactionId nextFullXid,
 								 TransactionId xid)
 {
-	uint32		epoch;
-
 	/* Special transaction ID. */
 	if (!TransactionIdIsNormal(xid))
-		return FullTransactionIdFromEpochAndXid(0, xid);
+		return FullTransactionIdFromXid(xid);
 
 	Assert(TransactionIdPrecedesOrEquals(xid,
 										 XidFromFullTransactionId(nextFullXid)));
 
-	/*
-	 * The 64 bit result must be <= nextFullXid, since nextFullXid hadn't been
-	 * issued yet when xid was in the past.  The xid must therefore be from
-	 * the epoch of nextFullXid or the epoch before.  We know this because we
-	 * must remove (by freezing) an XID before assigning the XID half an epoch
-	 * ahead of it.
-	 *
-	 * The unlikely() branch hint is dubious.  It's perfect for the first 2^32
-	 * XIDs of a cluster's life.  Right at 2^32 XIDs, misprediction shoots to
-	 * 100%, then improves until perfection returns 2^31 XIDs later.  Since
-	 * current callers pass relatively-recent XIDs, expect >90% prediction
-	 * accuracy overall.  This favors average latency over tail latency.
-	 */
-	epoch = EpochFromFullTransactionId(nextFullXid);
-	if (unlikely(xid > XidFromFullTransactionId(nextFullXid)))
-	{
-		Assert(epoch != 0);
-		epoch--;
-	}
-
-	return FullTransactionIdFromEpochAndXid(epoch, xid);
+	return FullTransactionIdFromXid(xid);
 }
 
 #endif							/* FRONTEND */

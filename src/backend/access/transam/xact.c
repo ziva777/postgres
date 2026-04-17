@@ -1832,7 +1832,7 @@ RecordTransactionAbort(bool isSubXact)
 	 * Check that we haven't aborted halfway through RecordTransactionCommit.
 	 */
 	if (TransactionIdDidCommit(xid))
-		elog(PANIC, "cannot abort transaction %u, it was already committed",
+		elog(PANIC, "cannot abort transaction %" PRIu64 ", it was already committed",
 			 xid);
 
 	/*
@@ -5737,12 +5737,12 @@ ShowTransactionStateRec(const char *str, TransactionState s)
 	{
 		int			i;
 
-		appendStringInfo(&buf, ", children: %u", s->childXids[0]);
+		appendStringInfo(&buf, ", children: %" PRIu64, s->childXids[0]);
 		for (i = 1; i < s->nChildXids; i++)
-			appendStringInfo(&buf, " %u", s->childXids[i]);
+			appendStringInfo(&buf, " %" PRIu64, s->childXids[i]);
 	}
 	ereport(DEBUG5,
-			(errmsg_internal("%s(%d) name: %s; blockState: %s; state: %s, xid/subid/cid: %u/%u/%u%s%s",
+			(errmsg_internal("%s(%d) name: %s; blockState: %s; state: %s, xid/subid/cid: %" PRIu64 "/%" PRIu64 "/%u%s%s",
 							 str, s->nestingLevel,
 							 s->name ? s->name : "unnamed",
 							 BlockStateAsString(s->blockState),
@@ -5954,7 +5954,7 @@ XactLogCommitRecord(TimestampTz commit_time,
 	if (TransactionIdIsValid(twophase_xid))
 	{
 		xl_xinfo.xinfo |= XACT_XINFO_HAS_TWOPHASE;
-		xl_twophase.xid = twophase_xid;
+		xl_xact_twophase_set_xid(&xl_twophase, twophase_xid);
 		Assert(twophase_gid != NULL);
 
 		if (XLogLogicalInfoActive())
@@ -6097,7 +6097,7 @@ XactLogAbortRecord(TimestampTz abort_time,
 	if (TransactionIdIsValid(twophase_xid))
 	{
 		xl_xinfo.xinfo |= XACT_XINFO_HAS_TWOPHASE;
-		xl_twophase.xid = twophase_xid;
+		xl_xact_twophase_set_xid(&xl_twophase, twophase_xid);
 		Assert(twophase_gid != NULL);
 
 		if (XLogLogicalInfoActive())

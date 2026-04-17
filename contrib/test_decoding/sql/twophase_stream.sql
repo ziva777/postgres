@@ -12,7 +12,7 @@ SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL, 'inc
 BEGIN;
 SAVEPOINT s1;
 SELECT 'msg5' FROM pg_logical_emit_message(true, 'test', repeat('a', 50));
-INSERT INTO stream_test SELECT repeat('a', 2000) || g.i FROM generate_series(1, 35) g(i);
+INSERT INTO stream_test SELECT repeat('a', 1986) || g.i FROM generate_series(1, 35) g(i);
 TRUNCATE table stream_test;
 ROLLBACK TO s1;
 INSERT INTO stream_test SELECT repeat('a', 10) || g.i FROM generate_series(1, 20) g(i);
@@ -29,7 +29,7 @@ SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL,NULL, 'incl
 BEGIN;
 SAVEPOINT s1;
 SELECT 'msg5' FROM pg_logical_emit_message(true, 'test', repeat('a', 50));
-INSERT INTO stream_test SELECT repeat('a', 2000) || g.i FROM generate_series(1, 35) g(i);
+INSERT INTO stream_test SELECT repeat('a', 1986) || g.i FROM generate_series(1, 35) g(i);
 TRUNCATE table stream_test;
 ROLLBACK to s1;
 INSERT INTO stream_test SELECT repeat('a', 10) || g.i FROM generate_series(1, 20) g(i);

@@ -79,7 +79,7 @@ plan_elem_desc(StringInfo buf, void *plan, void *data)
 	xlhp_freeze_plan *new_plan = (xlhp_freeze_plan *) plan;
 	OffsetNumber **offsets = data;
 
-	appendStringInfo(buf, "{ xmax: %u, infomask: %u, infomask2: %u, ntuples: %u",
+	appendStringInfo(buf, "{ xmax: %" PRIu64 ", infomask: %u, infomask2: %u, ntuples: %u",
 					 new_plan->xmax,
 					 new_plan->t_infomask, new_plan->t_infomask2,
 					 new_plan->ntuples);
@@ -200,7 +200,7 @@ heap_desc(StringInfo buf, XLogReaderState *record)
 	{
 		xl_heap_delete *xlrec = (xl_heap_delete *) rec;
 
-		appendStringInfo(buf, "xmax: %u, off: %u, ",
+		appendStringInfo(buf, "xmax: %" PRIu64 ", off: %u, ",
 						 xlrec->xmax, xlrec->offnum);
 		infobits_desc(buf, xlrec->infobits_set, "infobits");
 		appendStringInfo(buf, ", flags: 0x%02X", xlrec->flags);
@@ -209,20 +209,20 @@ heap_desc(StringInfo buf, XLogReaderState *record)
 	{
 		xl_heap_update *xlrec = (xl_heap_update *) rec;
 
-		appendStringInfo(buf, "old_xmax: %u, old_off: %u, ",
+		appendStringInfo(buf, "old_xmax: %" PRIu64 ", old_off: %u, ",
 						 xlrec->old_xmax, xlrec->old_offnum);
 		infobits_desc(buf, xlrec->old_infobits_set, "old_infobits");
-		appendStringInfo(buf, ", flags: 0x%02X, new_xmax: %u, new_off: %u",
+		appendStringInfo(buf, ", flags: 0x%02X, new_xmax: %" PRIu64 ", new_off: %u",
 						 xlrec->flags, xlrec->new_xmax, xlrec->new_offnum);
 	}
 	else if (info == XLOG_HEAP_HOT_UPDATE)
 	{
 		xl_heap_update *xlrec = (xl_heap_update *) rec;
 
-		appendStringInfo(buf, "old_xmax: %u, old_off: %u, ",
+		appendStringInfo(buf, "old_xmax: %" PRIu64 ", old_off: %u, ",
 						 xlrec->old_xmax, xlrec->old_offnum);
 		infobits_desc(buf, xlrec->old_infobits_set, "old_infobits");
-		appendStringInfo(buf, ", flags: 0x%02X, new_xmax: %u, new_off: %u",
+		appendStringInfo(buf, ", flags: 0x%02X, new_xmax: %" PRIu64 ", new_off: %u",
 						 xlrec->flags, xlrec->new_xmax, xlrec->new_offnum);
 	}
 	else if (info == XLOG_HEAP_TRUNCATE)
@@ -245,7 +245,7 @@ heap_desc(StringInfo buf, XLogReaderState *record)
 	{
 		xl_heap_lock *xlrec = (xl_heap_lock *) rec;
 
-		appendStringInfo(buf, "xmax: %u, off: %u, ",
+		appendStringInfo(buf, "xmax: %" PRIu64 ", off: %u, ",
 						 xlrec->xmax, xlrec->offnum);
 		infobits_desc(buf, xlrec->infobits_set, "infobits");
 		appendStringInfo(buf, ", flags: 0x%02X", xlrec->flags);
@@ -280,7 +280,7 @@ heap2_desc(StringInfo buf, XLogReaderState *record)
 
 			memcpy(&conflict_xid, rec + SizeOfHeapPrune, sizeof(TransactionId));
 
-			appendStringInfo(buf, "snapshotConflictHorizon: %u",
+			appendStringInfo(buf, "snapshotConflictHorizon: %" PRIu64,
 							 conflict_xid);
 		}
 
@@ -373,7 +373,7 @@ heap2_desc(StringInfo buf, XLogReaderState *record)
 	{
 		xl_heap_lock_updated *xlrec = (xl_heap_lock_updated *) rec;
 
-		appendStringInfo(buf, "xmax: %u, off: %u, ",
+		appendStringInfo(buf, "xmax: %" PRIu64 ", off: %u, ",
 						 xlrec->xmax, xlrec->offnum);
 		infobits_desc(buf, xlrec->infobits_set, "infobits");
 		appendStringInfo(buf, ", flags: 0x%02X", xlrec->flags);

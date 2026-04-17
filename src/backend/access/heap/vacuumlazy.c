@@ -1006,7 +1006,7 @@ heap_vacuum_rel(Relation rel, const VacuumParams *params,
 			BufferUsage bufferusage;
 			StringInfoData buf;
 			char	   *msgfmt;
-			int32		diff;
+			int64		diff;
 			double		read_rate = 0,
 						write_rate = 0;
 			int64		total_blks_hit;
@@ -1079,25 +1079,25 @@ heap_vacuum_rel(Relation rel, const VacuumParams *params,
 								 _("tuples missed: %" PRId64 " dead from %u pages not removed due to cleanup lock contention\n"),
 								 vacrel->missed_dead_tuples,
 								 vacrel->missed_dead_pages);
-			diff = (int32) (ReadNextTransactionId() -
+			diff = (int64) (ReadNextTransactionId() -
 							vacrel->cutoffs.OldestXmin);
 			appendStringInfo(&buf,
-							 _("removable cutoff: %u, which was %d XIDs old when operation ended\n"),
+							 _("removable cutoff: %" PRIu64 ", which was %" PRId64 " XIDs old when operation ended\n"),
 							 vacrel->cutoffs.OldestXmin, diff);
 			if (frozenxid_updated)
 			{
-				diff = (int32) (vacrel->NewRelfrozenXid -
+				diff = (int64) (vacrel->NewRelfrozenXid -
 								vacrel->cutoffs.relfrozenxid);
 				appendStringInfo(&buf,
-								 _("new relfrozenxid: %u, which is %d XIDs ahead of previous value\n"),
+								 _("new relfrozenxid: %" PRIu64 ", which is %" PRId64 " XIDs ahead of previous value\n"),
 								 vacrel->NewRelfrozenXid, diff);
 			}
 			if (minmulti_updated)
 			{
-				diff = (int32) (vacrel->NewRelminMxid -
+				diff = (int64) (vacrel->NewRelminMxid -
 								vacrel->cutoffs.relminmxid);
 				appendStringInfo(&buf,
-								 _("new relminmxid: %u, which is %d MXIDs ahead of previous value\n"),
+								 _("new relminmxid: %" PRIu64 ", which is %" PRId64 " MXIDs ahead of previous value\n"),
 								 vacrel->NewRelminMxid, diff);
 			}
 			appendStringInfo(&buf, _("frozen: %u pages from table (%.2f%% of total) had %" PRId64 " tuples frozen\n"),

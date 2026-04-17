@@ -1193,7 +1193,7 @@ InitPostgres(const char *in_dbname, Oid dboid,
 		if (access(fullpath, F_OK) == -1)
 		{
 			if (errno == ENOENT)
-				ereport(FATAL,
+				ereport(PANIC,
 						(errcode(ERRCODE_UNDEFINED_DATABASE),
 						 errmsg("database \"%s\" does not exist",
 								dbname),

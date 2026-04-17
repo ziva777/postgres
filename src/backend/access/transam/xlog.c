@@ -5501,7 +5501,7 @@ BootStrapXLOG(uint32 data_checksum_version)
 	checkPoint.logicalDecodingEnabled = (wal_level == WAL_LEVEL_LOGICAL);
 	checkPoint.wal_level = wal_level;
 	checkPoint.nextXid =
-		FullTransactionIdFromEpochAndXid(0, FirstNormalTransactionId);
+		FullTransactionIdFromXid(FirstNormalTransactionId);
 	checkPoint.nextOid = FirstGenbkiObjectId;
 	checkPoint.nextMulti = FirstMultiXactId;
 	checkPoint.nextMultiOffset = 1;

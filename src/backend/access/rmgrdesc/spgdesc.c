@@ -118,7 +118,7 @@ spg_desc(StringInfo buf, XLogReaderState *record)
 			{
 				spgxlogVacuumRedirect *xlrec = (spgxlogVacuumRedirect *) rec;
 
-				appendStringInfo(buf, "ntoplaceholder: %u, firstplaceholder: %u, snapshotConflictHorizon: %u, isCatalogRel: %c",
+				appendStringInfo(buf, "ntoplaceholder: %u, firstplaceholder: %u, snapshotConflictHorizon: %" PRIu64 ", isCatalogRel: %c",
 								 xlrec->nToPlaceholder,
 								 xlrec->firstPlaceholder,
 								 xlrec->snapshotConflictHorizon,

@@ -21,7 +21,7 @@ standby_desc_running_xacts(StringInfo buf, xl_running_xacts *xlrec)
 {
 	int			i;
 
-	appendStringInfo(buf, "nextXid %u latestCompletedXid %u oldestRunningXid %u",
+	appendStringInfo(buf, "nextXid %" PRIu64 " latestCompletedXid %" PRIu64 " oldestRunningXid %" PRIu64,
 					 xlrec->nextXid,
 					 xlrec->latestCompletedXid,
 					 xlrec->oldestRunningXid);
@@ -29,7 +29,7 @@ standby_desc_running_xacts(StringInfo buf, xl_running_xacts *xlrec)
 	{
 		appendStringInfo(buf, "; %d xacts:", xlrec->xcnt);
 		for (i = 0; i < xlrec->xcnt; i++)
-			appendStringInfo(buf, " %u", xlrec->xids[i]);
+			appendStringInfo(buf, " %" PRIu64, xlrec->xids[i]);
 	}
 
 	if (xlrec->subxid_overflow)
@@ -39,7 +39,7 @@ standby_desc_running_xacts(StringInfo buf, xl_running_xacts *xlrec)
 	{
 		appendStringInfo(buf, "; %d subxacts:", xlrec->subxcnt);
 		for (i = 0; i < xlrec->subxcnt; i++)
-			appendStringInfo(buf, " %u", xlrec->xids[xlrec->xcnt + i]);
+			appendStringInfo(buf, " %" PRIu64, xlrec->xids[xlrec->xcnt + i]);
 	}
 }
 
@@ -55,7 +55,7 @@ standby_desc(StringInfo buf, XLogReaderState *record)
 		int			i;
 
 		for (i = 0; i < xlrec->nlocks; i++)
-			appendStringInfo(buf, "xid %u db %u rel %u ",
+			appendStringInfo(buf, "xid %" PRIu64 " db %u rel %u ",
 							 xlrec->locks[i].xid, xlrec->locks[i].dbOid,
 							 xlrec->locks[i].relOid);
 	}

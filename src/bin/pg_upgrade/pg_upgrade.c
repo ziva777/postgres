@@ -795,10 +795,6 @@ copy_xact_xlog_xid(void)
 			  "\"%s/pg_resetwal\" -f -x %u \"%s\"",
 			  new_cluster.bindir, old_cluster.controldata.chkpnt_nxtxid,
 			  new_cluster.pgdata);
-	exec_prog(UTILITY_LOG_FILE, NULL, true, true,
-			  "\"%s/pg_resetwal\" -f -e %u \"%s\"",
-			  new_cluster.bindir, old_cluster.controldata.chkpnt_nxtepoch,
-			  new_cluster.pgdata);
 	/* must reset commit timestamp limits also */
 	exec_prog(UTILITY_LOG_FILE, NULL, true, true,
 			  "\"%s/pg_resetwal\" -f -c %u,%u \"%s\"",
@@ -827,7 +823,7 @@ copy_xact_xlog_xid(void)
 		 * counters here and the oldest multi present on system.
 		 */
 		exec_prog(UTILITY_LOG_FILE, NULL, true, true,
-				  "\"%s/pg_resetwal\" -O %" PRIu64 " -m %u,%u \"%s\"",
+				  "\"%s/pg_resetwal\" -O %" PRIu64 " -m %" PRIu64 ",%u \"%s\"",
 				  new_cluster.bindir, new_nxtmxoff, new_nxtmulti,
 				  old_cluster.controldata.chkpnt_oldstMulti,
 				  new_cluster.pgdata);
@@ -885,7 +881,7 @@ copy_xact_xlog_xid(void)
 
 		prep_status("Setting next multixact ID and offset for new cluster");
 		exec_prog(UTILITY_LOG_FILE, NULL, true, true,
-				  "\"%s/pg_resetwal\" -O %" PRIu64 " -m %u,%u \"%s\"",
+				  "\"%s/pg_resetwal\" -O %" PRIu64 " -m %" PRIu64 ",%" PRIu64 " \"%s\"",
 				  new_cluster.bindir,
 				  nxtmxoff, nxtmulti, oldstMulti,
 				  new_cluster.pgdata);

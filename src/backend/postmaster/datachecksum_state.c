@@ -1011,7 +1011,7 @@ WaitForAllTransactionsToFinish(void)
 		/* Oldest running xid is older than us, so wait */
 		snprintf(activity,
 				 sizeof(activity),
-				 "Waiting for current transactions to finish (waiting for %u)",
+				 "Waiting for current transactions to finish (waiting for %" PRIu64 ")",
 				 waitforxid);
 		pgstat_report_activity(STATE_RUNNING, activity);
 

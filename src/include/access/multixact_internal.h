@@ -67,7 +67,7 @@ MultiXactIdToOffsetSegment(MultiXactId multi)
 #define MXACT_MEMBER_XACT_BITMASK	((1 << MXACT_MEMBER_BITS_PER_XACT) - 1)
 
 /* how many full bytes of flags are there in a group? */
-#define MULTIXACT_FLAGBYTES_PER_GROUP		4
+#define MULTIXACT_FLAGBYTES_PER_GROUP		8
 #define MULTIXACT_MEMBERS_PER_MEMBERGROUP	\
 	(MULTIXACT_FLAGBYTES_PER_GROUP * MXACT_MEMBER_FLAGS_PER_BYTE)
 /* size in bytes of a complete group */

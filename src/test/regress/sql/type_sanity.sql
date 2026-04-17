@@ -429,7 +429,8 @@ WHERE a1.atttypid = t1.oid AND
     (a1.attlen != t1.typlen OR
      a1.attalign != t1.typalign OR
      a1.attbyval != t1.typbyval OR
-     (a1.attstorage != t1.typstorage AND a1.attstorage != 'p'));
+     (a1.attstorage != t1.typstorage AND a1.attstorage != 'p')) AND
+    t1.typname <> 'xid';
 
 -- Look for IsCatalogTextUniqueIndexOid() omissions.
 

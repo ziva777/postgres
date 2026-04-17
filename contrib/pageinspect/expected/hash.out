@@ -55,7 +55,7 @@ hash_metapage_info(get_raw_page('test_hash_a_idx', 0));
 magic     | 105121344
 version   | 4
 ntuples   | 1
-bsize     | 8152
+bsize     | 8144
 bmsize    | 4096
 bmshift   | 15
 maxbucket | 3

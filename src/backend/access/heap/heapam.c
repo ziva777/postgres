@@ -2217,6 +2217,7 @@ heap_prepare_insert(Relation relation, HeapTuple tup, TransactionId xid,
 	tup->t_data->t_infomask2 &= ~(HEAP2_XACT_MASK);
 	tup->t_data->t_infomask |= HEAP_XMAX_INVALID;
 	HeapTupleHeaderSetXmin(tup->t_data, xid);
+
 	if (options & HEAP_INSERT_FROZEN)
 		HeapTupleHeaderSetXminFrozen(tup->t_data);
 
@@ -5460,7 +5461,8 @@ l5:
 				 * TransactionIdIsInProgress() should have returned false.  We
 				 * assume it's no longer locked in this case.
 				 */
-				elog(WARNING, "LOCK_ONLY found for Xid in progress %u", xmax);
+				elog(WARNING, "LOCK_ONLY found for Xid in progress %" PRIu64,
+							  xmax);
 				old_infomask |= HEAP_XMAX_INVALID;
 				old_infomask &= ~HEAP_XMAX_LOCK_ONLY;
 				goto l5;
@@ -6698,7 +6700,7 @@ FreezeMultiXactId(MultiXactId multi, uint16 t_infomask,
 	else if (MultiXactIdPrecedes(multi, cutoffs->relminmxid))
 		ereport(ERROR,
 				(errcode(ERRCODE_DATA_CORRUPTED),
-				 errmsg_internal("found multixact %u from before relminmxid %u",
+				 errmsg_internal("found multixact %" PRIu64 " from before relminmxid %" PRIu64,
 								 multi, cutoffs->relminmxid)));
 	else if (MultiXactIdPrecedes(multi, cutoffs->OldestMxact))
 	{
@@ -6714,7 +6716,7 @@ FreezeMultiXactId(MultiXactId multi, uint16 t_infomask,
 								 HEAP_XMAX_IS_LOCKED_ONLY(t_infomask)))
 			ereport(ERROR,
 					(errcode(ERRCODE_DATA_CORRUPTED),
-					 errmsg_internal("multixact %u from before multi freeze cutoff %u found to be still running",
+					 errmsg_internal("multixact %" PRIu64 " from before multi freeze cutoff %" PRIu64 " found to be still running",
 									 multi, cutoffs->OldestMxact)));
 
 		if (HEAP_XMAX_IS_LOCKED_ONLY(t_infomask))
@@ -6729,7 +6731,7 @@ FreezeMultiXactId(MultiXactId multi, uint16 t_infomask,
 		if (TransactionIdPrecedes(update_xact, cutoffs->relfrozenxid))
 			ereport(ERROR,
 					(errcode(ERRCODE_DATA_CORRUPTED),
-					 errmsg_internal("multixact %u contains update XID %u from before relfrozenxid %u",
+					 errmsg_internal("multixact %" PRIu64 " contains update XID %" PRIu64 " from before relfrozenxid %" PRIu64,
 									 multi, update_xact,
 									 cutoffs->relfrozenxid)));
 		else if (TransactionIdPrecedes(update_xact, cutoffs->OldestXmin))
@@ -6742,7 +6744,7 @@ FreezeMultiXactId(MultiXactId multi, uint16 t_infomask,
 			if (TransactionIdDidCommit(update_xact))
 				ereport(ERROR,
 						(errcode(ERRCODE_DATA_CORRUPTED),
-						 errmsg_internal("multixact %u contains committed update XID %u from before removable cutoff %u",
+						 errmsg_internal("multixact %" PRIu64 " contains committed update XID %" PRIu64 " from before removable cutoff %" PRIu64,
 										 multi, update_xact,
 										 cutoffs->OldestXmin)));
 			*flags |= FRM_INVALIDATE_XMAX;
@@ -6863,7 +6865,7 @@ FreezeMultiXactId(MultiXactId multi, uint16 t_infomask,
 				if (TransactionIdPrecedes(xid, cutoffs->OldestXmin))
 					ereport(ERROR,
 							(errcode(ERRCODE_DATA_CORRUPTED),
-							 errmsg_internal("multixact %u contains running locker XID %u from before removable cutoff %u",
+							 errmsg_internal("multixact %" PRIu64 " contains running locker XID %" PRIu64 " from before removable cutoff %" PRIu64,
 											 multi, xid,
 											 cutoffs->OldestXmin)));
 				newmembers[nnewmembers++] = members[i];
@@ -6887,9 +6889,9 @@ FreezeMultiXactId(MultiXactId multi, uint16 t_infomask,
 		if (TransactionIdIsValid(update_xid))
 			ereport(ERROR,
 					(errcode(ERRCODE_DATA_CORRUPTED),
-					 errmsg_internal("multixact %u has two or more updating members",
+					 errmsg_internal("multixact %" PRIu64 " has two or more updating members",
 									 multi),
-					 errdetail_internal("First updater XID=%u second updater XID=%u.",
+					 errdetail_internal("First updater XID=%" PRIu64 " second updater XID=%" PRIu64 ".",
 										update_xid, xid)));
 
 		/*
@@ -6926,7 +6928,7 @@ FreezeMultiXactId(MultiXactId multi, uint16 t_infomask,
 		if (TransactionIdPrecedes(xid, cutoffs->OldestXmin))
 			ereport(ERROR,
 					(errcode(ERRCODE_DATA_CORRUPTED),
-					 errmsg_internal("multixact %u contains committed update XID %u from before removable cutoff %u",
+					 errmsg_internal("multixact %" PRIu64 " contains committed update XID %" PRIu64 " from before removable cutoff %" PRIu64,
 									 multi, xid, cutoffs->OldestXmin)));
 		newmembers[nnewmembers++] = members[i];
 	}
@@ -7056,7 +7058,7 @@ heap_prepare_freeze_tuple(HeapTupleHeader tuple,
 		if (TransactionIdPrecedes(xid, cutoffs->relfrozenxid))
 			ereport(ERROR,
 					(errcode(ERRCODE_DATA_CORRUPTED),
-					 errmsg_internal("found xmin %u from before relfrozenxid %u",
+					 errmsg_internal("found xmin %" PRIu64 " from before relfrozenxid %" PRIu64,
 									 xid, cutoffs->relfrozenxid)));
 
 		/* Will set freeze_xmin flags in freeze plan below */
@@ -7202,7 +7204,7 @@ heap_prepare_freeze_tuple(HeapTupleHeader tuple,
 		if (TransactionIdPrecedes(xid, cutoffs->relfrozenxid))
 			ereport(ERROR,
 					(errcode(ERRCODE_DATA_CORRUPTED),
-					 errmsg_internal("found xmax %u from before relfrozenxid %u",
+					 errmsg_internal("found xmax %" PRIu64 " from before relfrozenxid %" PRIu64,
 									 xid, cutoffs->relfrozenxid)));
 
 		/* Will set freeze_xmax flags in freeze plan below */
@@ -7225,7 +7227,7 @@ heap_prepare_freeze_tuple(HeapTupleHeader tuple,
 	else
 		ereport(ERROR,
 				(errcode(ERRCODE_DATA_CORRUPTED),
-				 errmsg_internal("found raw xmax %u (infomask 0x%04x) not invalid and not multi",
+				 errmsg_internal("found raw xmax %" PRIu64 " (infomask 0x%04x) not invalid and not multi",
 								 xid, tuple->t_infomask)));
 
 	if (freeze_xmin)
@@ -7326,7 +7328,7 @@ heap_pre_freeze_checks(Buffer buffer,
 			if (unlikely(!TransactionIdDidCommit(xmin)))
 				ereport(ERROR,
 						(errcode(ERRCODE_DATA_CORRUPTED),
-						 errmsg_internal("uncommitted xmin %u needs to be frozen",
+						 errmsg_internal("uncommitted xmin %" PRIu64 " needs to be frozen",
 										 xmin)));
 		}
 
@@ -7343,7 +7345,7 @@ heap_pre_freeze_checks(Buffer buffer,
 			if (unlikely(TransactionIdDidCommit(xmax)))
 				ereport(ERROR,
 						(errcode(ERRCODE_DATA_CORRUPTED),
-						 errmsg_internal("cannot freeze committed xmax %u",
+						 errmsg_internal("cannot freeze committed xmax %" PRIu64,
 										 xmax)));
 		}
 	}

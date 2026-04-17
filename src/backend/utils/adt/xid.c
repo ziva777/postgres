@@ -35,7 +35,7 @@ xidin(PG_FUNCTION_ARGS)
 	char	   *str = PG_GETARG_CSTRING(0);
 	TransactionId result;
 
-	result = uint32in_subr(str, NULL, "xid", fcinfo->context);
+	result = uint64in_subr(str, NULL, "xid", fcinfo->context);
 	PG_RETURN_TRANSACTIONID(result);
 }
 
@@ -43,9 +43,9 @@ Datum
 xidout(PG_FUNCTION_ARGS)
 {
 	TransactionId transactionId = PG_GETARG_TRANSACTIONID(0);
-	char	   *result = (char *) palloc(16);
+	char	   *result = (char *) palloc(32);
 
-	snprintf(result, 16, "%u", transactionId);
+	snprintf(result, 32, "%" PRIu64, transactionId);
 	PG_RETURN_CSTRING(result);
 }
 
@@ -57,7 +57,7 @@ xidrecv(PG_FUNCTION_ARGS)
 {
 	StringInfo	buf = (StringInfo) PG_GETARG_POINTER(0);
 
-	PG_RETURN_TRANSACTIONID((TransactionId) pq_getmsgint(buf, sizeof(TransactionId)));
+	PG_RETURN_TRANSACTIONID((TransactionId) pq_getmsgint64(buf));
 }
 
 /*
@@ -70,7 +70,7 @@ xidsend(PG_FUNCTION_ARGS)
 	StringInfoData buf;
 
 	pq_begintypsend(&buf);
-	pq_sendint32(&buf, arg1);
+	pq_sendint64(&buf, arg1);
 	PG_RETURN_BYTEA_P(pq_endtypsend(&buf));
 }
 
@@ -101,13 +101,13 @@ xidneq(PG_FUNCTION_ARGS)
 Datum
 hashxid(PG_FUNCTION_ARGS)
 {
-	return hash_uint32(PG_GETARG_TRANSACTIONID(0));
+	return hashxid8(fcinfo);
 }
 
 Datum
 hashxidextended(PG_FUNCTION_ARGS)
 {
-	return hash_uint32_extended(PG_GETARG_TRANSACTIONID(0), PG_GETARG_INT64(1));
+	return hashint8extended(fcinfo);
 }
 
 /*
@@ -121,9 +121,9 @@ xid_age(PG_FUNCTION_ARGS)
 
 	/* Permanent XIDs are always infinitely old */
 	if (!TransactionIdIsNormal(xid))
-		PG_RETURN_INT32(INT_MAX);
+		PG_RETURN_INT64(PG_INT8_MAX);
 
-	PG_RETURN_INT32((int32) (now - xid));
+	PG_RETURN_INT64((int64) (now - xid));
 }
 
 /*
@@ -136,9 +136,9 @@ mxid_age(PG_FUNCTION_ARGS)
 	MultiXactId now = ReadNextMultiXactId();
 
 	if (!MultiXactIdIsValid(xid))
-		PG_RETURN_INT32(INT_MAX);
+		PG_RETURN_INT64(PG_INT8_MAX);
 
-	PG_RETURN_INT32((int32) (now - xid));
+	PG_RETURN_INT64((int64) (now - xid));
 }
 
 /*
@@ -154,7 +154,7 @@ xidComparator(const void *arg1, const void *arg2)
 	TransactionId xid1 = *(const TransactionId *) arg1;
 	TransactionId xid2 = *(const TransactionId *) arg2;
 
-	return pg_cmp_u32(xid1, xid2);
+	return pg_cmp_u64(xid1, xid2);
 }
 
 /*
@@ -362,7 +362,7 @@ cidout(PG_FUNCTION_ARGS)
 	CommandId	c = PG_GETARG_COMMANDID(0);
 	char	   *result = (char *) palloc(16);
 
-	snprintf(result, 16, "%u", c);
+	snprintf(result, 16, "%lu", (unsigned long) c);
 	PG_RETURN_CSTRING(result);
 }
 

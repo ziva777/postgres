@@ -158,7 +158,7 @@ TransactionIdDidCommit(TransactionId transactionId)
 		parentXid = SubTransGetParent(transactionId);
 		if (!TransactionIdIsValid(parentXid))
 		{
-			elog(WARNING, "no pg_subtrans entry for subcommitted XID %u",
+			elog(WARNING, "no pg_subtrans entry for subcommitted XID %" PRIu64,
 				 transactionId);
 			return false;
 		}
@@ -213,7 +213,7 @@ TransactionIdDidAbort(TransactionId transactionId)
 		if (!TransactionIdIsValid(parentXid))
 		{
 			/* see notes in TransactionIdDidCommit */
-			elog(WARNING, "no pg_subtrans entry for subcommitted XID %u",
+			elog(WARNING, "no pg_subtrans entry for subcommitted XID %" PRIu64,
 				 transactionId);
 			return true;
 		}

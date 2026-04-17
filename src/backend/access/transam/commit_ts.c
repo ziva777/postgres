@@ -293,7 +293,8 @@ TransactionIdGetCommitTsData(TransactionId xid, TimestampTz *ts,
 	if (!TransactionIdIsValid(xid))
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				 errmsg("cannot retrieve commit timestamp for transaction %u", xid)));
+				 errmsg("cannot retrieve commit timestamp for transaction %" PRIu64,
+						xid)));
 	else if (!TransactionIdIsNormal(xid))
 	{
 		/* frozen and bootstrap xids are always committed far in the past */
@@ -551,7 +552,7 @@ CommitTsShmemRequest(void *arg)
 	SimpleLruRequest(.desc = &CommitTsSlruDesc,
 					 .name = "commit_timestamp",
 					 .Dir = "pg_commit_ts",
-					 .long_segment_names = false,
+					 .long_segment_names = true,
 
 					 .nslots = CommitTsShmemBuffers(),
 
@@ -952,16 +953,7 @@ AdvanceOldestCommitTsXid(TransactionId oldestXact)
 static bool
 CommitTsPagePrecedes(int64 page1, int64 page2)
 {
-	TransactionId xid1;
-	TransactionId xid2;
-
-	xid1 = ((TransactionId) page1) * COMMIT_TS_XACTS_PER_PAGE;
-	xid1 += FirstNormalTransactionId + 1;
-	xid2 = ((TransactionId) page2) * COMMIT_TS_XACTS_PER_PAGE;
-	xid2 += FirstNormalTransactionId + 1;
-
-	return (TransactionIdPrecedes(xid1, xid2) &&
-			TransactionIdPrecedes(xid1, xid2 + COMMIT_TS_XACTS_PER_PAGE - 1));
+	return page1 < page2;
 }
 
 static int
@@ -969,7 +961,8 @@ commit_ts_errdetail_for_io_error(const void *opaque_data)
 {
 	TransactionId xid = *(const TransactionId *) opaque_data;
 
-	return errdetail("Could not access commit timestamp of transaction %u.", xid);
+	return errdetail("Could not access commit timestamp of transaction %" PRIu64 ".",
+					 xid);
 }
 
 /*

@@ -733,11 +733,11 @@ typedef double float8;
 typedef Oid regproc;
 typedef regproc RegProcedure;
 
-typedef uint32 TransactionId;
+typedef uint64 TransactionId;
 
-typedef uint32 LocalTransactionId;
+typedef uint64 LocalTransactionId;
 
-typedef uint32 SubTransactionId;
+typedef uint64 SubTransactionId;
 
 #define InvalidSubTransactionId		((SubTransactionId) 0)
 #define TopSubTransactionId			((SubTransactionId) 1)

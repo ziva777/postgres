@@ -3016,13 +3016,16 @@ select sum(t1.c1), count(t2.c1) from ft1 t1 inner join ft2 t2 on (t1.c1 = t2.c1)
 -- GROUP BY clause having expressions
 explain (verbose, costs off)
 select c2/2, sum(c2) * (c2/2) from ft1 group by c2/2 order by c2/2;
-                                                    QUERY PLAN                                                    
-------------------------------------------------------------------------------------------------------------------
- Foreign Scan
+                                      QUERY PLAN                                       
+---------------------------------------------------------------------------------------
+ Sort
    Output: ((c2 / 2)), ((sum(c2) * (c2 / 2)))
-   Relations: Aggregate on (public.ft1)
-   Remote SQL: SELECT (c2 / 2), (sum(c2) * (c2 / 2)) FROM "S 1"."T 1" GROUP BY 1 ORDER BY (c2 / 2) ASC NULLS LAST
-(4 rows)
+   Sort Key: ((ft1.c2 / 2))
+   ->  Foreign Scan
+         Output: ((c2 / 2)), ((sum(c2) * (c2 / 2)))
+         Relations: Aggregate on (public.ft1)
+         Remote SQL: SELECT (c2 / 2), (sum(c2) * (c2 / 2)) FROM "S 1"."T 1" GROUP BY 1
+(7 rows)
 
 select c2/2, sum(c2) * (c2/2) from ft1 group by c2/2 order by c2/2;
  ?column? | ?column? 
@@ -10585,16 +10588,18 @@ ANALYZE fpagg_tab_p3;
 SET enable_partitionwise_aggregate TO false;
 EXPLAIN (COSTS OFF)
 SELECT a, sum(b), min(b), count(*) FROM pagg_tab GROUP BY a HAVING avg(b) < 22 ORDER BY 1;
-                     QUERY PLAN                      
------------------------------------------------------
- GroupAggregate
-   Group Key: pagg_tab.a
-   Filter: (avg(pagg_tab.b) < '22'::numeric)
-   ->  Append
-         ->  Foreign Scan on fpagg_tab_p1 pagg_tab_1
-         ->  Foreign Scan on fpagg_tab_p2 pagg_tab_2
-         ->  Foreign Scan on fpagg_tab_p3 pagg_tab_3
-(7 rows)
+                        QUERY PLAN                         
+-----------------------------------------------------------
+ Sort
+   Sort Key: pagg_tab.a
+   ->  HashAggregate
+         Group Key: pagg_tab.a
+         Filter: (avg(pagg_tab.b) < '22'::numeric)
+         ->  Append
+               ->  Foreign Scan on fpagg_tab_p1 pagg_tab_1
+               ->  Foreign Scan on fpagg_tab_p2 pagg_tab_2
+               ->  Foreign Scan on fpagg_tab_p3 pagg_tab_3
+(9 rows)
 
 -- Plan with partitionwise aggregates is enabled
 SET enable_partitionwise_aggregate TO true;
@@ -10628,32 +10633,34 @@ SELECT a, sum(b), min(b), count(*) FROM pagg_tab GROUP BY a HAVING avg(b) < 22 O
 -- Should have all the columns in the target list for the given relation
 EXPLAIN (VERBOSE, COSTS OFF)
 SELECT a, count(t1) FROM pagg_tab t1 GROUP BY a HAVING avg(b) < 22 ORDER BY 1;
-                                         QUERY PLAN                                         
---------------------------------------------------------------------------------------------
- Merge Append
+                               QUERY PLAN                               
+------------------------------------------------------------------------
+ Sort
+   Output: t1.a, (count(((t1.*)::pagg_tab)))
    Sort Key: t1.a
-   ->  GroupAggregate
-         Output: t1.a, count(((t1.*)::pagg_tab))
-         Group Key: t1.a
-         Filter: (avg(t1.b) < '22'::numeric)
-         ->  Foreign Scan on public.fpagg_tab_p1 t1
-               Output: t1.a, t1.*, t1.b
-               Remote SQL: SELECT a, b, c FROM public.pagg_tab_p1 ORDER BY a ASC NULLS LAST
-   ->  GroupAggregate
-         Output: t1_1.a, count(((t1_1.*)::pagg_tab))
-         Group Key: t1_1.a
-         Filter: (avg(t1_1.b) < '22'::numeric)
-         ->  Foreign Scan on public.fpagg_tab_p2 t1_1
-               Output: t1_1.a, t1_1.*, t1_1.b
-               Remote SQL: SELECT a, b, c FROM public.pagg_tab_p2 ORDER BY a ASC NULLS LAST
-   ->  GroupAggregate
-         Output: t1_2.a, count(((t1_2.*)::pagg_tab))
-         Group Key: t1_2.a
-         Filter: (avg(t1_2.b) < '22'::numeric)
-         ->  Foreign Scan on public.fpagg_tab_p3 t1_2
-               Output: t1_2.a, t1_2.*, t1_2.b
-               Remote SQL: SELECT a, b, c FROM public.pagg_tab_p3 ORDER BY a ASC NULLS LAST
-(23 rows)
+   ->  Append
+         ->  HashAggregate
+               Output: t1.a, count(((t1.*)::pagg_tab))
+               Group Key: t1.a
+               Filter: (avg(t1.b) < '22'::numeric)
+               ->  Foreign Scan on public.fpagg_tab_p1 t1
+                     Output: t1.a, t1.*, t1.b
+                     Remote SQL: SELECT a, b, c FROM public.pagg_tab_p1
+         ->  HashAggregate
+               Output: t1_1.a, count(((t1_1.*)::pagg_tab))
+               Group Key: t1_1.a
+               Filter: (avg(t1_1.b) < '22'::numeric)
+               ->  Foreign Scan on public.fpagg_tab_p2 t1_1
+                     Output: t1_1.a, t1_1.*, t1_1.b
+                     Remote SQL: SELECT a, b, c FROM public.pagg_tab_p2
+         ->  HashAggregate
+               Output: t1_2.a, count(((t1_2.*)::pagg_tab))
+               Group Key: t1_2.a
+               Filter: (avg(t1_2.b) < '22'::numeric)
+               ->  Foreign Scan on public.fpagg_tab_p3 t1_2
+                     Output: t1_2.a, t1_2.*, t1_2.b
+                     Remote SQL: SELECT a, b, c FROM public.pagg_tab_p3
+(25 rows)
 
 SELECT a, count(t1) FROM pagg_tab t1 GROUP BY a HAVING avg(b) < 22 ORDER BY 1;
  a  | count 
@@ -10669,23 +10676,24 @@ SELECT a, count(t1) FROM pagg_tab t1 GROUP BY a HAVING avg(b) < 22 ORDER BY 1;
 -- When GROUP BY clause does not match with PARTITION KEY.
 EXPLAIN (COSTS OFF)
 SELECT b, avg(a), max(a), count(*) FROM pagg_tab GROUP BY b HAVING sum(a) < 700 ORDER BY 1;
-                        QUERY PLAN                         
------------------------------------------------------------
- Finalize GroupAggregate
-   Group Key: pagg_tab.b
-   Filter: (sum(pagg_tab.a) < 700)
-   ->  Merge Append
-         Sort Key: pagg_tab.b
-         ->  Partial GroupAggregate
-               Group Key: pagg_tab.b
-               ->  Foreign Scan on fpagg_tab_p1 pagg_tab
-         ->  Partial GroupAggregate
-               Group Key: pagg_tab_1.b
-               ->  Foreign Scan on fpagg_tab_p2 pagg_tab_1
-         ->  Partial GroupAggregate
-               Group Key: pagg_tab_2.b
-               ->  Foreign Scan on fpagg_tab_p3 pagg_tab_2
-(14 rows)
+                           QUERY PLAN                            
+-----------------------------------------------------------------
+ Sort
+   Sort Key: pagg_tab.b
+   ->  Finalize HashAggregate
+         Group Key: pagg_tab.b
+         Filter: (sum(pagg_tab.a) < 700)
+         ->  Append
+               ->  Partial HashAggregate
+                     Group Key: pagg_tab.b
+                     ->  Foreign Scan on fpagg_tab_p1 pagg_tab
+               ->  Partial HashAggregate
+                     Group Key: pagg_tab_1.b
+                     ->  Foreign Scan on fpagg_tab_p2 pagg_tab_1
+               ->  Partial HashAggregate
+                     Group Key: pagg_tab_2.b
+                     ->  Foreign Scan on fpagg_tab_p3 pagg_tab_2
+(15 rows)
 
 -- ===================================================================
 -- access rights and superuser
