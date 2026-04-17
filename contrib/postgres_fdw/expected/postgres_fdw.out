@@ -10628,32 +10628,34 @@ SELECT a, sum(b), min(b), count(*) FROM pagg_tab GROUP BY a HAVING avg(b) < 22 O
 -- Should have all the columns in the target list for the given relation
 EXPLAIN (VERBOSE, COSTS OFF)
 SELECT a, count(t1) FROM pagg_tab t1 GROUP BY a HAVING avg(b) < 22 ORDER BY 1;
-                                         QUERY PLAN                                         
---------------------------------------------------------------------------------------------
- Merge Append
+                               QUERY PLAN                               
+------------------------------------------------------------------------
+ Sort
+   Output: t1.a, (count(((t1.*)::pagg_tab)))
    Sort Key: t1.a
-   ->  GroupAggregate
-         Output: t1.a, count(((t1.*)::pagg_tab))
-         Group Key: t1.a
-         Filter: (avg(t1.b) < '22'::numeric)
-         ->  Foreign Scan on public.fpagg_tab_p1 t1
-               Output: t1.a, t1.*, t1.b
-               Remote SQL: SELECT a, b, c FROM public.pagg_tab_p1 ORDER BY a ASC NULLS LAST
-   ->  GroupAggregate
-         Output: t1_1.a, count(((t1_1.*)::pagg_tab))
-         Group Key: t1_1.a
-         Filter: (avg(t1_1.b) < '22'::numeric)
-         ->  Foreign Scan on public.fpagg_tab_p2 t1_1
-               Output: t1_1.a, t1_1.*, t1_1.b
-               Remote SQL: SELECT a, b, c FROM public.pagg_tab_p2 ORDER BY a ASC NULLS LAST
-   ->  GroupAggregate
-         Output: t1_2.a, count(((t1_2.*)::pagg_tab))
-         Group Key: t1_2.a
-         Filter: (avg(t1_2.b) < '22'::numeric)
-         ->  Foreign Scan on public.fpagg_tab_p3 t1_2
-               Output: t1_2.a, t1_2.*, t1_2.b
-               Remote SQL: SELECT a, b, c FROM public.pagg_tab_p3 ORDER BY a ASC NULLS LAST
-(23 rows)
+   ->  Append
+         ->  HashAggregate
+               Output: t1.a, count(((t1.*)::pagg_tab))
+               Group Key: t1.a
+               Filter: (avg(t1.b) < '22'::numeric)
+               ->  Foreign Scan on public.fpagg_tab_p1 t1
+                     Output: t1.a, t1.*, t1.b
+                     Remote SQL: SELECT a, b, c FROM public.pagg_tab_p1
+         ->  HashAggregate
+               Output: t1_1.a, count(((t1_1.*)::pagg_tab))
+               Group Key: t1_1.a
+               Filter: (avg(t1_1.b) < '22'::numeric)
+               ->  Foreign Scan on public.fpagg_tab_p2 t1_1
+                     Output: t1_1.a, t1_1.*, t1_1.b
+                     Remote SQL: SELECT a, b, c FROM public.pagg_tab_p2
+         ->  HashAggregate
+               Output: t1_2.a, count(((t1_2.*)::pagg_tab))
+               Group Key: t1_2.a
+               Filter: (avg(t1_2.b) < '22'::numeric)
+               ->  Foreign Scan on public.fpagg_tab_p3 t1_2
+                     Output: t1_2.a, t1_2.*, t1_2.b
+                     Remote SQL: SELECT a, b, c FROM public.pagg_tab_p3
+(25 rows)
 
 SELECT a, count(t1) FROM pagg_tab t1 GROUP BY a HAVING avg(b) < 22 ORDER BY 1;
  a  | count 

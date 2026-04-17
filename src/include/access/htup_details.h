@@ -122,7 +122,9 @@
 typedef struct HeapTupleFields
 {
 	TransactionId t_xmin;		/* inserting xact ID */
+	TransactionId t_xmin_base;
 	TransactionId t_xmax;		/* deleting or locking xact ID */
+	TransactionId t_xmax_base;
 
 	union
 	{
@@ -172,7 +174,7 @@ struct HeapTupleHeaderData
 #define FIELDNO_HEAPTUPLEHEADERDATA_HOFF 4
 	uint8		t_hoff;			/* sizeof header incl. bitmap, padding */
 
-	/* ^ - 23 bytes - ^ */
+	/* ^ - 31 bytes - ^ */
 
 #define FIELDNO_HEAPTUPLEHEADERDATA_BITS 5
 	uint8		t_bits[FLEXIBLE_ARRAY_MEMBER];	/* bitmap of NULLs */

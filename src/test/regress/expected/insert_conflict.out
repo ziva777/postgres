@@ -77,8 +77,8 @@ explain (costs off) insert into insertconflicttest values(0, 'Crowberry') on con
    Conflict Filter: EXISTS(SubPlan exists_1)
    ->  Result
    SubPlan exists_1
-     ->  Index Only Scan using both_index_expr_key on insertconflicttest ii
-           Index Cond: (key = excluded.key)
+     ->  Seq Scan on insertconflicttest ii
+           Filter: (key = excluded.key)
 (8 rows)
 
 -- Neither collation nor operator class specifications are required --

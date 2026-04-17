@@ -327,18 +327,19 @@ SELECT * FROM jo_dim1 d1
          ->  Sort
                Sort Key: ((d2.id + 0))
                ->  Seq Scan on jo_dim2 d2
-         ->  Sort
-               Sort Key: ((f.dim2_id + 0))
-               ->  Seq Scan on jo_fact f
+         ->  Materialize
+               ->  Sort
+                     Sort Key: ((f.dim2_id + 0))
+                     ->  Seq Scan on jo_fact f
    ->  Materialize
          ->  Seq Scan on jo_dim1 d1
  Generated Plan Advice:
    JOIN_ORDER(d2 f d1)
-   MERGE_JOIN_PLAIN(f)
+   MERGE_JOIN_MATERIALIZE(f)
    NESTED_LOOP_MATERIALIZE(d1)
    SEQ_SCAN(d2 f d1)
    NO_GATHER(d1 f d2)
-(18 rows)
+(19 rows)
 
 -- We should not be able to force the planner to join f to d1 first, because
 -- that is not a valid join order, but we should be able to force the planner
@@ -417,20 +418,21 @@ SELECT * FROM jo_dim1 d1
          ->  Sort
                Sort Key: ((d2.id + 0))
                ->  Seq Scan on jo_dim2 d2
-         ->  Sort
-               Sort Key: ((f.dim2_id + 0))
-               ->  Seq Scan on jo_fact f
+         ->  Materialize
+               ->  Sort
+                     Sort Key: ((f.dim2_id + 0))
+                     ->  Seq Scan on jo_fact f
    ->  Materialize
          ->  Seq Scan on jo_dim1 d1
  Supplied Plan Advice:
    JOIN_ORDER(d2 f d1) /* matched */
  Generated Plan Advice:
    JOIN_ORDER(d2 f d1)
-   MERGE_JOIN_PLAIN(f)
+   MERGE_JOIN_MATERIALIZE(f)
    NESTED_LOOP_MATERIALIZE(d1)
    SEQ_SCAN(d2 f d1)
    NO_GATHER(d1 f d2)
-(20 rows)
+(21 rows)
 
 COMMIT;
 -- Two incompatible join orders should conflict. In the second case,
@@ -483,18 +485,19 @@ SELECT * FROM jo_dim1 d1
                ->  Sort
                      Sort Key: ((d2.id + 0))
                      ->  Seq Scan on jo_dim2 d2
-               ->  Sort
-                     Sort Key: ((f.dim2_id + 0))
-                     ->  Seq Scan on jo_fact f
+               ->  Materialize
+                     ->  Sort
+                           Sort Key: ((f.dim2_id + 0))
+                           ->  Seq Scan on jo_fact f
  Supplied Plan Advice:
    JOIN_ORDER(d1) /* matched, conflicting */
    HASH_JOIN(d1) /* matched, conflicting, failed */
  Generated Plan Advice:
    JOIN_ORDER(d1 (d2 f))
-   MERGE_JOIN_PLAIN(f)
+   MERGE_JOIN_MATERIALIZE(f)
    NESTED_LOOP_MATERIALIZE((f d2))
    SEQ_SCAN(d1 d2 f)
    NO_GATHER(d1 f d2)
-(21 rows)
+(22 rows)
 
 COMMIT;

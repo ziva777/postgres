@@ -2217,8 +2217,15 @@ heap_prepare_insert(Relation relation, HeapTuple tup, TransactionId xid,
 	tup->t_data->t_infomask2 &= ~(HEAP2_XACT_MASK);
 	tup->t_data->t_infomask |= HEAP_XMAX_INVALID;
 	HeapTupleHeaderSetXmin(tup->t_data, xid);
+
+	tup->t_data->t_choice.t_heap.t_xmin_base = 0;
+	tup->t_data->t_choice.t_heap.t_xmax_base = 0;
+
 	if (options & HEAP_INSERT_FROZEN)
 		HeapTupleHeaderSetXminFrozen(tup->t_data);
+
+	tup->t_data->t_choice.t_heap.t_xmin_base = 0;
+	tup->t_data->t_choice.t_heap.t_xmax_base = 0;
 
 	HeapTupleHeaderSetCmin(tup->t_data, cid);
 	HeapTupleHeaderSetXmax(tup->t_data, 0); /* for cleanliness */
@@ -3741,6 +3748,8 @@ l2:
 	newtup->t_data->t_infomask2 |= infomask2_new_tuple;
 	HeapTupleHeaderSetXmax(newtup->t_data, xmax_new_tuple);
 
+	newtup->t_data->t_choice.t_heap.t_xmin_base = 0;
+	newtup->t_data->t_choice.t_heap.t_xmax_base = 0;
 	/*
 	 * Replace cid with a combo CID if necessary.  Note that we already put
 	 * the plain cid into the new tuple.
