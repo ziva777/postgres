@@ -1187,6 +1187,7 @@ standby_redo(XLogReaderState *record)
 	{
 		xl_running_xacts *xlrec = (xl_running_xacts *) XLogRecGetData(record);
 		RunningTransactionsData running;
+		int		nxids = xlrec->xcnt + xlrec->subxcnt;
 
 		/*
 		 * Records issued for specific database are not suitable for physical
@@ -1199,12 +1200,52 @@ standby_redo(XLogReaderState *record)
 		running.xcnt = xlrec->xcnt;
 		running.subxcnt = xlrec->subxcnt;
 		running.subxid_status = xlrec->subxid_overflow ? SUBXIDS_MISSING : SUBXIDS_IN_ARRAY;
-		running.nextXid = xlrec->nextXid;
-		running.latestCompletedXid = xlrec->latestCompletedXid;
-		running.oldestRunningXid = xlrec->oldestRunningXid;
-		running.xids = xlrec->xids;
+		running.nextXid =
+			XidFromFullTransactionId(xlrec->nextXid);
+		running.latestCompletedXid =
+			XidFromFullTransactionId(xlrec->latestCompletedXid);
+		running.oldestRunningXid =
+			XidFromFullTransactionId(xlrec->oldestRunningXid);
+
+		if (nxids)
+		{
+			/*
+			 * Convert xlrec->xids array of type FullTransactionId to
+			 * TransactionId temporary allocation.
+			 *
+			 * The epoch is always zero currently, so XidFromFullTransactionId
+			 * conversion is lossless.
+			 */
+			int j = 0;
+
+			running.xids = palloc0_array(TransactionId, nxids);
+
+			for (int i = 0; i < nxids; i++)
+			{
+				FullTransactionId	fxid;
+				TransactionId		xid;
+
+				fxid = xlrec->xids[i];
+				if (!FullTransactionIdIsValid(fxid))
+					continue;
+
+				xid = XidFromFullTransactionId(fxid);
+				if (!TransactionIdIsValid(xid))
+					continue;
+
+				running.xids[j++] = xid;
+			}
+
+			running.xcnt = Min(running.xcnt, j);
+			running.subxcnt = j - running.xcnt;
+		}
+		else
+			running.xids = NULL;
 
 		ProcArrayApplyRecoveryInfo(&running);
+
+		if (running.xids)
+			pfree(running.xids);
 
 		/*
 		 * The startup process currently has no convenient way to schedule
@@ -1374,28 +1415,42 @@ LogStandbySnapshot(Oid dbid)
 static XLogRecPtr
 LogCurrentRunningXacts(RunningTransactions CurrRunningXacts)
 {
-	xl_running_xacts xlrec;
+	xl_running_xacts xlrec = {0};
 	XLogRecPtr	recptr;
+	FullTransactionId *fxids = NULL;
 
 	xlrec.dbid = CurrRunningXacts->dbid;
 	xlrec.xcnt = CurrRunningXacts->xcnt;
 	xlrec.subxcnt = CurrRunningXacts->subxcnt;
 	xlrec.subxid_overflow = (CurrRunningXacts->subxid_status != SUBXIDS_IN_ARRAY);
-	xlrec.nextXid = CurrRunningXacts->nextXid;
-	xlrec.oldestRunningXid = CurrRunningXacts->oldestRunningXid;
-	xlrec.latestCompletedXid = CurrRunningXacts->latestCompletedXid;
+	xlrec.nextXid =
+		FullTransactionIdFromEpochAndXid(0, CurrRunningXacts->nextXid);
+	xlrec.oldestRunningXid =
+		FullTransactionIdFromEpochAndXid(0, CurrRunningXacts->oldestRunningXid);
+	xlrec.latestCompletedXid =
+		FullTransactionIdFromEpochAndXid(0, CurrRunningXacts->latestCompletedXid);
 
 	/* Header */
 	XLogBeginInsert();
 	XLogSetRecordFlags(XLOG_MARK_UNIMPORTANT);
 	XLogRegisterData(&xlrec, MinSizeOfXactRunningXacts);
 
-	/* array of TransactionIds */
+	/* Array of FullTransactionIds */
 	if (xlrec.xcnt > 0)
-		XLogRegisterData(CurrRunningXacts->xids,
-						 (xlrec.xcnt + xlrec.subxcnt) * sizeof(TransactionId));
+	{
+		int					nxids = xlrec.xcnt + xlrec.subxcnt;
+
+		fxids = palloc(nxids * sizeof(FullTransactionId));
+		for (int i = 0; i < nxids; i++)
+			fxids[i] = FullTransactionIdFromEpochAndXid(0,
+														CurrRunningXacts->xids[i]);
+		XLogRegisterData(fxids, nxids * sizeof(FullTransactionId));
+	}
 
 	recptr = XLogInsert(RM_STANDBY_ID, XLOG_RUNNING_XACTS);
+
+	if (fxids)
+		pfree(fxids);
 
 	if (xlrec.subxid_overflow)
 		elog(DEBUG2,
