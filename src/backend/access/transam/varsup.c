@@ -338,6 +338,34 @@ AdvanceNextFullTransactionIdPastXid(TransactionId xid)
 }
 
 /*
+ * Same as above, but without epoch
+ */
+void
+AdvanceNextFullTransactionIdPastFullXid(FullTransactionId fxid)
+{
+	/*
+	 * It is safe to read nextXid without a lock, because this is only called
+	 * from the startup process or single-process mode, meaning that no other
+	 * process can modify it.
+	 */
+	Assert(AmStartupProcess() || !IsUnderPostmaster);
+
+	/* Fast return if this isn't an xid high enough to move the needle. */
+	if (!FullTransactionIdFollowsOrEquals(fxid, TransamVariables->nextXid))
+		return;
+
+	FullTransactionIdAdvance(&fxid);
+
+	/*
+	 * We still need to take a lock to modify the value when there are
+	 * concurrent readers.
+	 */
+	LWLockAcquire(XidGenLock, LW_EXCLUSIVE);
+	TransamVariables->nextXid = fxid;
+	LWLockRelease(XidGenLock);
+}
+
+/*
  * Advance the cluster-wide value for the oldest valid clog entry.
  *
  * We must acquire XactTruncationLock to advance the oldestClogXid. It's not
