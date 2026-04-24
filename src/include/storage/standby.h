@@ -130,7 +130,7 @@ typedef struct RunningTransactionsData
 	int			xcnt;			/* # of xact ids in xids[] */
 	int			subxcnt;		/* # of subxact ids in xids[] */
 	subxids_array_status subxid_status;
-	TransactionId nextXid;		/* xid from TransamVariables->nextXid */
+	FullTransactionId nextXid;		/* xid from TransamVariables->nextXid */
 	TransactionId oldestRunningXid; /* *not* oldestXmin */
 	TransactionId oldestDatabaseRunningXid; /* same as above, but within the
 											 * current database */

@@ -1045,12 +1045,12 @@ void
 ProcArrayApplyRecoveryInfo(RunningTransactions running)
 {
 	TransactionId *xids;
-	TransactionId advanceNextXid;
+	FullTransactionId advanceNextXid;
 	int			nxids;
 	int			i;
 
 	Assert(standbyState >= STANDBY_INITIALIZED);
-	Assert(TransactionIdIsValid(running->nextXid));
+	Assert(FullTransactionIdIsValid(running->nextXid));
 	Assert(TransactionIdIsValid(running->oldestRunningXid));
 	Assert(TransactionIdIsNormal(running->latestCompletedXid));
 
@@ -1065,8 +1065,8 @@ ProcArrayApplyRecoveryInfo(RunningTransactions running)
 	 * in StandbyReleaseOldLocks().
 	 */
 	advanceNextXid = running->nextXid;
-	TransactionIdRetreat(advanceNextXid);
-	AdvanceNextFullTransactionIdPastXid(advanceNextXid);
+	FullTransactionIdRetreat(&advanceNextXid);
+	AdvanceNextFullTransactionIdPastFullXid(advanceNextXid);
 	Assert(FullTransactionIdIsValid(TransamVariables->nextXid));
 
 	/*
@@ -1228,7 +1228,8 @@ ProcArrayApplyRecoveryInfo(RunningTransactions running)
 	 */
 	Assert(TransactionIdIsNormal(latestObservedXid));
 	TransactionIdAdvance(latestObservedXid);
-	while (TransactionIdPrecedes(latestObservedXid, running->nextXid))
+	while (TransactionIdPrecedes(latestObservedXid,
+								 XidFromFullTransactionId(running->nextXid)))
 	{
 		ExtendSUBTRANS(latestObservedXid);
 		TransactionIdAdvance(latestObservedXid);
@@ -2807,12 +2808,12 @@ GetRunningTransactionData(Oid dbid)
 	CurrentRunningXacts->xcnt = count - subcount;
 	CurrentRunningXacts->subxcnt = subcount;
 	CurrentRunningXacts->subxid_status = suboverflowed ? SUBXIDS_IN_SUBTRANS : SUBXIDS_IN_ARRAY;
-	CurrentRunningXacts->nextXid = XidFromFullTransactionId(TransamVariables->nextXid);
+	CurrentRunningXacts->nextXid = TransamVariables->nextXid;
 	CurrentRunningXacts->oldestRunningXid = oldestRunningXid;
 	CurrentRunningXacts->oldestDatabaseRunningXid = oldestDatabaseRunningXid;
 	CurrentRunningXacts->latestCompletedXid = latestCompletedXid;
 
-	Assert(TransactionIdIsValid(CurrentRunningXacts->nextXid));
+	Assert(FullTransactionIdIsValid(CurrentRunningXacts->nextXid));
 	Assert(TransactionIdIsValid(CurrentRunningXacts->oldestRunningXid));
 	Assert(TransactionIdIsNormal(CurrentRunningXacts->latestCompletedXid));
 

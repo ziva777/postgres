@@ -1200,8 +1200,7 @@ standby_redo(XLogReaderState *record)
 		running.xcnt = xlrec->xcnt;
 		running.subxcnt = xlrec->subxcnt;
 		running.subxid_status = xlrec->subxid_overflow ? SUBXIDS_MISSING : SUBXIDS_IN_ARRAY;
-		running.nextXid =
-			XidFromFullTransactionId(xlrec->nextXid);
+		running.nextXid = xlrec->nextXid;
 		running.latestCompletedXid =
 			XidFromFullTransactionId(xlrec->latestCompletedXid);
 		running.oldestRunningXid =
@@ -1423,8 +1422,7 @@ LogCurrentRunningXacts(RunningTransactions CurrRunningXacts)
 	xlrec.xcnt = CurrRunningXacts->xcnt;
 	xlrec.subxcnt = CurrRunningXacts->subxcnt;
 	xlrec.subxid_overflow = (CurrRunningXacts->subxid_status != SUBXIDS_IN_ARRAY);
-	xlrec.nextXid =
-		FullTransactionIdFromEpochAndXid(0, CurrRunningXacts->nextXid);
+	xlrec.nextXid = CurrRunningXacts->nextXid;
 	xlrec.oldestRunningXid =
 		FullTransactionIdFromEpochAndXid(0, CurrRunningXacts->oldestRunningXid);
 	xlrec.latestCompletedXid =
@@ -1454,20 +1452,20 @@ LogCurrentRunningXacts(RunningTransactions CurrRunningXacts)
 
 	if (xlrec.subxid_overflow)
 		elog(DEBUG2,
-			 "snapshot of %d running transactions overflowed (lsn %X/%08X oldest xid %u latest complete %u next xid %u)",
+			 "snapshot of %d running transactions overflowed (lsn %X/%08X oldest xid %u latest complete %u next xid %" PRIu64 ")",
 			 CurrRunningXacts->xcnt,
 			 LSN_FORMAT_ARGS(recptr),
 			 CurrRunningXacts->oldestRunningXid,
 			 CurrRunningXacts->latestCompletedXid,
-			 CurrRunningXacts->nextXid);
+			 U64FromFullTransactionId(CurrRunningXacts->nextXid));
 	else
 		elog(DEBUG2,
-			 "snapshot of %d+%d running transaction ids (lsn %X/%08X oldest xid %u latest complete %u next xid %u)",
+			 "snapshot of %d+%d running transaction ids (lsn %X/%08X oldest xid %u latest complete %u next xid %" PRIu64 ")",
 			 CurrRunningXacts->xcnt, CurrRunningXacts->subxcnt,
 			 LSN_FORMAT_ARGS(recptr),
 			 CurrRunningXacts->oldestRunningXid,
 			 CurrRunningXacts->latestCompletedXid,
-			 CurrRunningXacts->nextXid);
+			 U64FromFullTransactionId(CurrRunningXacts->nextXid));
 
 	/*
 	 * Ensure running_xacts information is synced to disk not too far in the
