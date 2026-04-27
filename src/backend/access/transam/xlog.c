@@ -6245,7 +6245,7 @@ StartupXLOG(void)
 			if (wasShutdown)
 			{
 				RunningTransactionsData running;
-				TransactionId latestCompletedXid;
+				FullTransactionId latestCompletedXid;
 
 				/* Update pg_subtrans entries for any prepared transactions */
 				StandbyRecoverPreparedTransactions();
@@ -6261,9 +6261,9 @@ StartupXLOG(void)
 				running.subxid_status = SUBXIDS_IN_SUBTRANS;
 				running.nextXid = checkPoint.nextXid;
 				running.oldestRunningXid = oldestActiveXID;
-				latestCompletedXid = XidFromFullTransactionId(checkPoint.nextXid);
-				TransactionIdRetreat(latestCompletedXid);
-				Assert(TransactionIdIsNormal(latestCompletedXid));
+				latestCompletedXid = checkPoint.nextXid;
+				FullTransactionIdRetreat(&latestCompletedXid);
+				Assert(FullTransactionIdIsNormal(latestCompletedXid));
 				running.latestCompletedXid = latestCompletedXid;
 				running.xids = xids;
 
@@ -8903,7 +8903,7 @@ xlog_redo(XLogReaderState *record)
 			TransactionId *xids;
 			int			nxids;
 			TransactionId oldestActiveXID;
-			TransactionId latestCompletedXid;
+			FullTransactionId latestCompletedXid;
 			RunningTransactionsData running;
 
 			oldestActiveXID = PrescanPreparedTransactions(&xids, &nxids);
@@ -8922,9 +8922,9 @@ xlog_redo(XLogReaderState *record)
 			running.subxid_status = SUBXIDS_IN_SUBTRANS;
 			running.nextXid = checkPoint.nextXid;
 			running.oldestRunningXid = oldestActiveXID;
-			latestCompletedXid = XidFromFullTransactionId(checkPoint.nextXid);
-			TransactionIdRetreat(latestCompletedXid);
-			Assert(TransactionIdIsNormal(latestCompletedXid));
+			latestCompletedXid = checkPoint.nextXid;
+			FullTransactionIdRetreat(&latestCompletedXid);
+			Assert(FullTransactionIdIsNormal(latestCompletedXid));
 			running.latestCompletedXid = latestCompletedXid;
 			running.xids = xids;
 

@@ -380,7 +380,7 @@ static void KnownAssignedXidsReset(void);
 static inline void ProcArrayEndTransactionInternal(PGPROC *proc, TransactionId latestXid);
 static void ProcArrayGroupClearXid(PGPROC *proc, TransactionId latestXid);
 static void MaintainLatestCompletedXid(TransactionId latestXid);
-static void MaintainLatestCompletedXidRecovery(TransactionId latestXid);
+static void MaintainLatestCompletedXidRecovery(FullTransactionId latestXid);
 
 static inline FullTransactionId FullXidRelativeTo(FullTransactionId rel,
 												  TransactionId xid);
@@ -977,10 +977,9 @@ MaintainLatestCompletedXid(TransactionId latestXid)
  * Same as MaintainLatestCompletedXid, except for use during WAL replay.
  */
 static void
-MaintainLatestCompletedXidRecovery(TransactionId latestXid)
+MaintainLatestCompletedXidRecovery(FullTransactionId latestXid)
 {
 	FullTransactionId cur_latest = TransamVariables->latestCompletedXid;
-	FullTransactionId rel;
 
 	Assert(AmStartupProcess() || !IsUnderPostmaster);
 	Assert(LWLockHeldByMe(ProcArrayLock));
@@ -990,14 +989,12 @@ MaintainLatestCompletedXidRecovery(TransactionId latestXid)
 	 * latestCompletedXid to be initialized in recovery. But in recovery it's
 	 * safe to access nextXid without a lock for the startup process.
 	 */
-	rel = TransamVariables->nextXid;
 	Assert(FullTransactionIdIsValid(TransamVariables->nextXid));
 
 	if (!FullTransactionIdIsValid(cur_latest) ||
-		TransactionIdPrecedes(XidFromFullTransactionId(cur_latest), latestXid))
+		FullTransactionIdPrecedes(cur_latest, latestXid))
 	{
-		TransamVariables->latestCompletedXid =
-			FullXidRelativeTo(rel, latestXid);
+		TransamVariables->latestCompletedXid = latestXid;
 	}
 
 	Assert(FullTransactionIdIsNormal(TransamVariables->latestCompletedXid));
@@ -1052,7 +1049,7 @@ ProcArrayApplyRecoveryInfo(RunningTransactions running)
 	Assert(standbyState >= STANDBY_INITIALIZED);
 	Assert(FullTransactionIdIsValid(running->nextXid));
 	Assert(TransactionIdIsValid(running->oldestRunningXid));
-	Assert(TransactionIdIsNormal(running->latestCompletedXid));
+	Assert(FullTransactionIdIsNormal(running->latestCompletedXid));
 
 	/*
 	 * Remove stale transactions, if any.
@@ -2636,7 +2633,7 @@ GetRunningTransactionData(Oid dbid)
 	ProcArrayStruct *arrayP = procArray;
 	TransactionId *other_xids = ProcGlobal->xids;
 	RunningTransactions CurrentRunningXacts = &CurrentRunningXactsData;
-	TransactionId latestCompletedXid;
+	FullTransactionId latestCompletedXid;
 	TransactionId oldestRunningXid;
 	TransactionId oldestDatabaseRunningXid;
 	TransactionId *xids;
@@ -2681,8 +2678,7 @@ GetRunningTransactionData(Oid dbid)
 	LWLockAcquire(ProcArrayLock, LW_SHARED);
 	LWLockAcquire(XidGenLock, LW_SHARED);
 
-	latestCompletedXid =
-		XidFromFullTransactionId(TransamVariables->latestCompletedXid);
+	latestCompletedXid = TransamVariables->latestCompletedXid;
 	oldestDatabaseRunningXid = oldestRunningXid =
 		XidFromFullTransactionId(TransamVariables->nextXid);
 
@@ -2815,7 +2811,7 @@ GetRunningTransactionData(Oid dbid)
 
 	Assert(FullTransactionIdIsValid(CurrentRunningXacts->nextXid));
 	Assert(TransactionIdIsValid(CurrentRunningXacts->oldestRunningXid));
-	Assert(TransactionIdIsNormal(CurrentRunningXacts->latestCompletedXid));
+	Assert(FullTransactionIdIsNormal(CurrentRunningXacts->latestCompletedXid));
 
 	/* We don't release the locks here, the caller is responsible for that */
 
@@ -4536,7 +4532,12 @@ ExpireTreeKnownAssignedTransactionIds(TransactionId xid, int nsubxids,
 	KnownAssignedXidsRemoveTree(xid, nsubxids, subxids);
 
 	/* As in ProcArrayEndTransaction, advance latestCompletedXid */
-	MaintainLatestCompletedXidRecovery(max_xid);
+	{
+		FullTransactionId full_max_xid = FullXidRelativeTo(TransamVariables->nextXid,
+														   max_xid);
+
+		MaintainLatestCompletedXidRecovery(full_max_xid);
+	}
 
 	/* ... and xactCompletionCount */
 	TransamVariables->xactCompletionCount++;
@@ -4592,7 +4593,12 @@ ExpireOldKnownAssignedTransactionIds(TransactionId xid)
 	/* As in ProcArrayEndTransaction, advance latestCompletedXid */
 	latestXid = xid;
 	TransactionIdRetreat(latestXid);
-	MaintainLatestCompletedXidRecovery(latestXid);
+	{
+		FullTransactionId full_latest_xid = FullXidRelativeTo(TransamVariables->nextXid,
+															  latestXid);
+
+		MaintainLatestCompletedXidRecovery(full_latest_xid);
+	}
 
 	/* ... and xactCompletionCount */
 	TransamVariables->xactCompletionCount++;

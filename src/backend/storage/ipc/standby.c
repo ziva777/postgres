@@ -1201,8 +1201,7 @@ standby_redo(XLogReaderState *record)
 		running.subxcnt = xlrec->subxcnt;
 		running.subxid_status = xlrec->subxid_overflow ? SUBXIDS_MISSING : SUBXIDS_IN_ARRAY;
 		running.nextXid = xlrec->nextXid;
-		running.latestCompletedXid =
-			XidFromFullTransactionId(xlrec->latestCompletedXid);
+		running.latestCompletedXid = xlrec->latestCompletedXid;
 		running.oldestRunningXid =
 			XidFromFullTransactionId(xlrec->oldestRunningXid);
 
@@ -1425,8 +1424,7 @@ LogCurrentRunningXacts(RunningTransactions CurrRunningXacts)
 	xlrec.nextXid = CurrRunningXacts->nextXid;
 	xlrec.oldestRunningXid =
 		FullTransactionIdFromEpochAndXid(0, CurrRunningXacts->oldestRunningXid);
-	xlrec.latestCompletedXid =
-		FullTransactionIdFromEpochAndXid(0, CurrRunningXacts->latestCompletedXid);
+	xlrec.latestCompletedXid = CurrRunningXacts->latestCompletedXid;
 
 	/* Header */
 	XLogBeginInsert();
@@ -1452,19 +1450,19 @@ LogCurrentRunningXacts(RunningTransactions CurrRunningXacts)
 
 	if (xlrec.subxid_overflow)
 		elog(DEBUG2,
-			 "snapshot of %d running transactions overflowed (lsn %X/%08X oldest xid %u latest complete %u next xid %" PRIu64 ")",
+			 "snapshot of %d running transactions overflowed (lsn %X/%08X oldest xid %u latest complete %" PRIu64 " next xid %" PRIu64 ")",
 			 CurrRunningXacts->xcnt,
 			 LSN_FORMAT_ARGS(recptr),
 			 CurrRunningXacts->oldestRunningXid,
-			 CurrRunningXacts->latestCompletedXid,
+			 U64FromFullTransactionId(CurrRunningXacts->latestCompletedXid),
 			 U64FromFullTransactionId(CurrRunningXacts->nextXid));
 	else
 		elog(DEBUG2,
-			 "snapshot of %d+%d running transaction ids (lsn %X/%08X oldest xid %u latest complete %u next xid %" PRIu64 ")",
+			 "snapshot of %d+%d running transaction ids (lsn %X/%08X oldest xid %u latest complete %" PRIu64 " next xid %" PRIu64 ")",
 			 CurrRunningXacts->xcnt, CurrRunningXacts->subxcnt,
 			 LSN_FORMAT_ARGS(recptr),
 			 CurrRunningXacts->oldestRunningXid,
-			 CurrRunningXacts->latestCompletedXid,
+			 U64FromFullTransactionId(CurrRunningXacts->latestCompletedXid),
 			 U64FromFullTransactionId(CurrRunningXacts->nextXid));
 
 	/*
