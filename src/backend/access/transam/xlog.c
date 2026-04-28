@@ -6228,7 +6228,7 @@ StartupXLOG(void)
 			Assert(FullTransactionIdIsValid(oldestActiveXID));
 
 			/* Tell procarray about the range of xids it has to deal with */
-			ProcArrayInitRecovery(XidFromFullTransactionId(TransamVariables->nextXid));
+			ProcArrayInitRecovery(TransamVariables->nextXid);
 
 			/*
 			 * Startup subtrans only.  CLOG, MultiXact and commit timestamp
