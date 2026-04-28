@@ -132,8 +132,8 @@ typedef struct RunningTransactionsData
 	subxids_array_status subxid_status;
 	FullTransactionId nextXid;		/* xid from TransamVariables->nextXid */
 	FullTransactionId oldestRunningXid;		/* *not* oldestXmin */
-	TransactionId oldestDatabaseRunningXid; /* same as above, but within the
-											 * current database */
+	FullTransactionId oldestDatabaseRunningXid; /* same as above, but within the
+												 * current database */
 	FullTransactionId latestCompletedXid;	/* so we can set xmax */
 
 	TransactionId *xids;		/* array of (sub)xids still running */

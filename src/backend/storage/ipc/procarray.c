@@ -2633,7 +2633,7 @@ GetRunningTransactionData(Oid dbid)
 	RunningTransactions CurrentRunningXacts = &CurrentRunningXactsData;
 	FullTransactionId latestCompletedXid;
 	FullTransactionId oldestRunningXid;
-	TransactionId oldestDatabaseRunningXid;
+	FullTransactionId oldestDatabaseRunningXid;
 	TransactionId *xids;
 	int			index;
 	int			count;
@@ -2678,7 +2678,7 @@ GetRunningTransactionData(Oid dbid)
 
 	latestCompletedXid = TransamVariables->latestCompletedXid;
 	oldestRunningXid = TransamVariables->nextXid;
-	oldestDatabaseRunningXid = XidFromFullTransactionId(oldestRunningXid);
+	oldestDatabaseRunningXid = oldestRunningXid;
 
 	/*
 	 * Spin over procArray collecting all xids
@@ -2723,13 +2723,15 @@ GetRunningTransactionData(Oid dbid)
 		 * fetching pgprocno and PGPROC could cause cache misses, we do cheap
 		 * TransactionId comparison first.
 		 */
-		if (TransactionIdPrecedes(xid, oldestDatabaseRunningXid))
+		if (TransactionIdPrecedes(xid,
+								  XidFromFullTransactionId(oldestDatabaseRunningXid)))
 		{
 			int			pgprocno = arrayP->pgprocnos[index];
 			PGPROC	   *proc = &allProcs[pgprocno];
 
 			if (proc->databaseId == MyDatabaseId)
-				oldestDatabaseRunningXid = xid;
+				oldestDatabaseRunningXid = FullXidRelativeTo(oldestDatabaseRunningXid,
+															 xid);
 		}
 
 		if (ProcGlobal->subxidStates[index].overflowed)

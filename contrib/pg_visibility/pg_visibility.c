@@ -635,7 +635,7 @@ GetStrictOldestNonRemovableTransactionId(Relation rel)
 		runningTransactions = GetRunningTransactionData(InvalidOid);
 		LWLockRelease(ProcArrayLock);
 		LWLockRelease(XidGenLock);
-		return runningTransactions->oldestDatabaseRunningXid;
+		return XidFromFullTransactionId(runningTransactions->oldestDatabaseRunningXid);
 	}
 	else
 	{
