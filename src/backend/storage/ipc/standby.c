@@ -1129,7 +1129,7 @@ StandbyReleaseAllLocks(void)
  * write an ABORT/COMMIT record.
  */
 void
-StandbyReleaseOldLocks(TransactionId oldxid)
+StandbyReleaseOldLocks(FullTransactionId oldfxid)
 {
 	HASH_SEQ_STATUS status;
 	RecoveryLockXidEntry *entry;
@@ -1144,7 +1144,8 @@ StandbyReleaseOldLocks(TransactionId oldxid)
 			continue;
 
 		/* Skip if >= oldxid. */
-		if (!TransactionIdPrecedes(entry->xid, oldxid))
+		if (!TransactionIdPrecedes(entry->xid,
+								   XidFromFullTransactionId(oldfxid)))
 			continue;
 
 		/* Remove all locks and hash table entry. */
@@ -1202,8 +1203,7 @@ standby_redo(XLogReaderState *record)
 		running.subxid_status = xlrec->subxid_overflow ? SUBXIDS_MISSING : SUBXIDS_IN_ARRAY;
 		running.nextXid = xlrec->nextXid;
 		running.latestCompletedXid = xlrec->latestCompletedXid;
-		running.oldestRunningXid =
-			XidFromFullTransactionId(xlrec->oldestRunningXid);
+		running.oldestRunningXid = xlrec->oldestRunningXid;
 
 		if (nxids)
 		{
@@ -1422,8 +1422,7 @@ LogCurrentRunningXacts(RunningTransactions CurrRunningXacts)
 	xlrec.subxcnt = CurrRunningXacts->subxcnt;
 	xlrec.subxid_overflow = (CurrRunningXacts->subxid_status != SUBXIDS_IN_ARRAY);
 	xlrec.nextXid = CurrRunningXacts->nextXid;
-	xlrec.oldestRunningXid =
-		FullTransactionIdFromEpochAndXid(0, CurrRunningXacts->oldestRunningXid);
+	xlrec.oldestRunningXid = CurrRunningXacts->oldestRunningXid;
 	xlrec.latestCompletedXid = CurrRunningXacts->latestCompletedXid;
 
 	/* Header */
@@ -1450,18 +1449,18 @@ LogCurrentRunningXacts(RunningTransactions CurrRunningXacts)
 
 	if (xlrec.subxid_overflow)
 		elog(DEBUG2,
-			 "snapshot of %d running transactions overflowed (lsn %X/%08X oldest xid %u latest complete %" PRIu64 " next xid %" PRIu64 ")",
+			 "snapshot of %d running transactions overflowed (lsn %X/%08X oldest xid %" PRIu64 " latest complete %" PRIu64 " next xid %" PRIu64 ")",
 			 CurrRunningXacts->xcnt,
 			 LSN_FORMAT_ARGS(recptr),
-			 CurrRunningXacts->oldestRunningXid,
+			 U64FromFullTransactionId(CurrRunningXacts->oldestRunningXid),
 			 U64FromFullTransactionId(CurrRunningXacts->latestCompletedXid),
 			 U64FromFullTransactionId(CurrRunningXacts->nextXid));
 	else
 		elog(DEBUG2,
-			 "snapshot of %d+%d running transaction ids (lsn %X/%08X oldest xid %u latest complete %" PRIu64 " next xid %" PRIu64 ")",
+			 "snapshot of %d+%d running transaction ids (lsn %X/%08X oldest xid %" PRIu64 " latest complete %" PRIu64 " next xid %" PRIu64 ")",
 			 CurrRunningXacts->xcnt, CurrRunningXacts->subxcnt,
 			 LSN_FORMAT_ARGS(recptr),
-			 CurrRunningXacts->oldestRunningXid,
+			 U64FromFullTransactionId(CurrRunningXacts->oldestRunningXid),
 			 U64FromFullTransactionId(CurrRunningXacts->latestCompletedXid),
 			 U64FromFullTransactionId(CurrRunningXacts->nextXid));
 

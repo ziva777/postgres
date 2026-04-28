@@ -6260,7 +6260,8 @@ StartupXLOG(void)
 				running.subxcnt = 0;
 				running.subxid_status = SUBXIDS_IN_SUBTRANS;
 				running.nextXid = checkPoint.nextXid;
-				running.oldestRunningXid = oldestActiveXID;
+				running.oldestRunningXid = FullXidRelativeTo(running.nextXid,
+															 oldestActiveXID);
 				latestCompletedXid = checkPoint.nextXid;
 				FullTransactionIdRetreat(&latestCompletedXid);
 				Assert(FullTransactionIdIsNormal(latestCompletedXid));
@@ -8921,7 +8922,8 @@ xlog_redo(XLogReaderState *record)
 			running.subxcnt = 0;
 			running.subxid_status = SUBXIDS_IN_SUBTRANS;
 			running.nextXid = checkPoint.nextXid;
-			running.oldestRunningXid = oldestActiveXID;
+			running.oldestRunningXid = FullXidRelativeTo(running.nextXid,
+														 oldestActiveXID);
 			latestCompletedXid = checkPoint.nextXid;
 			FullTransactionIdRetreat(&latestCompletedXid);
 			Assert(FullTransactionIdIsNormal(latestCompletedXid));
