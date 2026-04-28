@@ -1156,7 +1156,7 @@ ProcArrayApplyRecoveryInfo(RunningTransactions running)
 	nxids = 0;
 	for (i = 0; i < running->xcnt + running->subxcnt; i++)
 	{
-		TransactionId xid = running->xids[i];
+		TransactionId xid = XidFromFullTransactionId(running->fxids[i]);
 
 		/*
 		 * The running-xacts snapshot can contain xids that were still visible
@@ -2634,7 +2634,7 @@ GetRunningTransactionData(Oid dbid)
 	FullTransactionId latestCompletedXid;
 	FullTransactionId oldestRunningXid;
 	FullTransactionId oldestDatabaseRunningXid;
-	TransactionId *xids;
+	FullTransactionId *fxids;
 	int			index;
 	int			count;
 	int			subcount;
@@ -2651,20 +2651,20 @@ GetRunningTransactionData(Oid dbid)
 	 * Should only be allocated in bgwriter, since only ever executed during
 	 * checkpoints.
 	 */
-	if (CurrentRunningXacts->xids == NULL)
+	if (CurrentRunningXacts->fxids == NULL)
 	{
 		/*
 		 * First call
 		 */
-		CurrentRunningXacts->xids = (TransactionId *)
-			malloc(TOTAL_MAX_CACHED_SUBXIDS * sizeof(TransactionId));
-		if (CurrentRunningXacts->xids == NULL)
+		CurrentRunningXacts->fxids = (FullTransactionId *)
+			malloc(TOTAL_MAX_CACHED_SUBXIDS * sizeof(FullTransactionId));
+		if (CurrentRunningXacts->fxids == NULL)
 			ereport(ERROR,
 					(errcode(ERRCODE_OUT_OF_MEMORY),
 					 errmsg("out of memory")));
 	}
 
-	xids = CurrentRunningXacts->xids;
+	fxids = CurrentRunningXacts->fxids;
 
 	count = subcount = 0;
 	suboverflowed = false;
@@ -2685,16 +2685,20 @@ GetRunningTransactionData(Oid dbid)
 	 */
 	for (index = 0; index < arrayP->numProcs; index++)
 	{
-		TransactionId xid;
+		FullTransactionId	fxid;
+		TransactionId		xid = UINT32_ACCESS_ONCE(other_xids[index]);
 
 		/* Fetch xid just once - see GetNewTransactionId */
-		xid = UINT32_ACCESS_ONCE(other_xids[index]);
+		if (TransactionIdIsValid(xid))
+			fxid = FullXidRelativeTo(latestCompletedXid, xid);
+		else
+			fxid = InvalidFullTransactionId;
 
 		/*
 		 * We don't need to store transactions that don't have a TransactionId
 		 * yet because they will not show as running on a standby server.
 		 */
-		if (!TransactionIdIsValid(xid))
+		if (!FullTransactionIdIsValid(fxid))
 			continue;
 
 		/*
@@ -2714,24 +2718,21 @@ GetRunningTransactionData(Oid dbid)
 		 * oldestRunningXid and suboverflowed, since these are used to clean
 		 * up transaction information held on standbys.
 		 */
-		if (TransactionIdPrecedes(xid,
-								  XidFromFullTransactionId(oldestRunningXid)))
-			oldestRunningXid = FullXidRelativeTo(oldestRunningXid, xid);
+		if (FullTransactionIdPrecedes(fxid, oldestRunningXid))
+			oldestRunningXid = fxid;
 
 		/*
 		 * Also, update the oldest running xid within the current database. As
 		 * fetching pgprocno and PGPROC could cause cache misses, we do cheap
 		 * TransactionId comparison first.
 		 */
-		if (TransactionIdPrecedes(xid,
-								  XidFromFullTransactionId(oldestDatabaseRunningXid)))
+		if (FullTransactionIdPrecedes(fxid, oldestDatabaseRunningXid))
 		{
 			int			pgprocno = arrayP->pgprocnos[index];
 			PGPROC	   *proc = &allProcs[pgprocno];
 
 			if (proc->databaseId == MyDatabaseId)
-				oldestDatabaseRunningXid = FullXidRelativeTo(oldestDatabaseRunningXid,
-															 xid);
+				oldestDatabaseRunningXid = fxid;
 		}
 
 		if (ProcGlobal->subxidStates[index].overflowed)
@@ -2745,7 +2746,7 @@ GetRunningTransactionData(Oid dbid)
 		 * are seen and it is cleaner to include them.
 		 */
 
-		xids[count++] = xid;
+		fxids[count++] = fxid;
 	}
 
 	/*
@@ -2778,8 +2779,10 @@ GetRunningTransactionData(Oid dbid)
 				/* barrier not really required, as XidGenLock is held, but ... */
 				pg_read_barrier();	/* pairs with GetNewTransactionId */
 
-				memcpy(&xids[count], proc->subxids.xids,
-					   nsubxids * sizeof(TransactionId));
+				for (int i = 0; i < nsubxids; i++)
+					fxids[i] = FullXidRelativeTo(TransamVariables->nextXid,
+												 proc->subxids.xids[i]);
+
 				count += nsubxids;
 				subcount += nsubxids;
 

@@ -49,8 +49,8 @@ extern void StartPrepare(GlobalTransaction gxact);
 extern void EndPrepare(GlobalTransaction gxact);
 extern bool StandbyTransactionIdIsPrepared(TransactionId xid);
 
-extern TransactionId PrescanPreparedTransactions(TransactionId **xids_p,
-												 int *nxids_p);
+extern FullTransactionId PrescanPreparedTransactions(FullTransactionId **xids_p,
+													 int *nxids_p);
 extern void StandbyRecoverPreparedTransactions(void);
 extern void RecoverPreparedTransactions(void);
 

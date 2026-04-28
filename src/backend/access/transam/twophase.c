@@ -1968,13 +1968,13 @@ restoreTwoPhaseData(void)
  * top-level xids is stored in *xids_p. The number of entries in the array
  * is returned in *nxids_p.
  */
-TransactionId
-PrescanPreparedTransactions(TransactionId **xids_p, int *nxids_p)
+FullTransactionId
+PrescanPreparedTransactions(FullTransactionId **xids_p, int *nxids_p)
 {
 	FullTransactionId nextXid = TransamVariables->nextXid;
-	TransactionId origNextXid = XidFromFullTransactionId(nextXid);
-	TransactionId result = origNextXid;
-	TransactionId *xids = NULL;
+	FullTransactionId origNextXid = nextXid;
+	FullTransactionId result = origNextXid;
+	FullTransactionId *xids = NULL;
 	int			nxids = 0;
 	int			allocsize = 0;
 	int			i;
@@ -1982,7 +1982,7 @@ PrescanPreparedTransactions(TransactionId **xids_p, int *nxids_p)
 	LWLockAcquire(TwoPhaseStateLock, LW_EXCLUSIVE);
 	for (i = 0; i < TwoPhaseState->numPrepXacts; i++)
 	{
-		TransactionId xid;
+		FullTransactionId fxid;
 		char	   *buf;
 		GlobalTransaction gxact = TwoPhaseState->prepXacts[i];
 
@@ -1999,9 +1999,9 @@ PrescanPreparedTransactions(TransactionId **xids_p, int *nxids_p)
 		 * OK, we think this file is valid.  Incorporate xid into the
 		 * running-minimum result.
 		 */
-		xid = XidFromFullTransactionId(gxact->fxid);
-		if (TransactionIdPrecedes(xid, result))
-			result = xid;
+		fxid = gxact->fxid;
+		if (FullTransactionIdPrecedes(fxid, result))
+			result = fxid;
 
 		if (xids_p)
 		{
@@ -2010,15 +2010,15 @@ PrescanPreparedTransactions(TransactionId **xids_p, int *nxids_p)
 				if (nxids == 0)
 				{
 					allocsize = 10;
-					xids = palloc(allocsize * sizeof(TransactionId));
+					xids = palloc(allocsize * sizeof(xids[0]));
 				}
 				else
 				{
 					allocsize = allocsize * 2;
-					xids = repalloc(xids, allocsize * sizeof(TransactionId));
+					xids = repalloc(xids, allocsize * sizeof(xids[0]));
 				}
 			}
-			xids[nxids++] = xid;
+			xids[nxids++] = fxid;
 		}
 
 		pfree(buf);

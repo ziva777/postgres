@@ -136,7 +136,7 @@ typedef struct RunningTransactionsData
 												 * current database */
 	FullTransactionId latestCompletedXid;	/* so we can set xmax */
 
-	TransactionId *xids;		/* array of (sub)xids still running */
+	FullTransactionId *fxids;		/* array of (sub)xids still running */
 } RunningTransactionsData;
 
 typedef RunningTransactionsData *RunningTransactions;

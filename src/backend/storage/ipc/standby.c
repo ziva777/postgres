@@ -1216,34 +1216,28 @@ standby_redo(XLogReaderState *record)
 			 */
 			int j = 0;
 
-			running.xids = palloc0_array(TransactionId, nxids);
+			running.fxids = palloc0_array(FullTransactionId, nxids);
 
 			for (int i = 0; i < nxids; i++)
 			{
-				FullTransactionId	fxid;
-				TransactionId		xid;
+				FullTransactionId fxid = xlrec->xids[i];
 
-				fxid = xlrec->xids[i];
 				if (!FullTransactionIdIsValid(fxid))
 					continue;
 
-				xid = XidFromFullTransactionId(fxid);
-				if (!TransactionIdIsValid(xid))
-					continue;
-
-				running.xids[j++] = xid;
+				running.fxids[j++] = fxid;
 			}
 
 			running.xcnt = Min(running.xcnt, j);
 			running.subxcnt = j - running.xcnt;
 		}
 		else
-			running.xids = NULL;
+			running.fxids = NULL;
 
 		ProcArrayApplyRecoveryInfo(&running);
 
-		if (running.xids)
-			pfree(running.xids);
+		if (running.fxids)
+			pfree(running.fxids);
 
 		/*
 		 * The startup process currently has no convenient way to schedule
@@ -1437,8 +1431,7 @@ LogCurrentRunningXacts(RunningTransactions CurrRunningXacts)
 
 		fxids = palloc(nxids * sizeof(FullTransactionId));
 		for (int i = 0; i < nxids; i++)
-			fxids[i] = FullTransactionIdFromEpochAndXid(0,
-														CurrRunningXacts->xids[i]);
+			fxids[i] = CurrRunningXacts->fxids[i];
 		XLogRegisterData(fxids, nxids * sizeof(FullTransactionId));
 	}
 

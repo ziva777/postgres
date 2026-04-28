@@ -5858,7 +5858,7 @@ StartupXLOG(void)
 	EndOfWalRecoveryInfo *endOfRecoveryInfo;
 	XLogRecPtr	abortedRecPtr;
 	XLogRecPtr	missingContrecPtr;
-	TransactionId oldestActiveXID;
+	FullTransactionId oldestActiveXID;
 	bool		promoted = false;
 	char		timebuf[128];
 
@@ -6212,7 +6212,7 @@ StartupXLOG(void)
 		 */
 		if (ArchiveRecoveryRequested && EnableHotStandby)
 		{
-			TransactionId *xids;
+			FullTransactionId *xids;
 			int			nxids;
 
 			ereport(DEBUG1,
@@ -6223,8 +6223,9 @@ StartupXLOG(void)
 			if (wasShutdown)
 				oldestActiveXID = PrescanPreparedTransactions(&xids, &nxids);
 			else
-				oldestActiveXID = checkPoint.oldestActiveXid;
-			Assert(TransactionIdIsValid(oldestActiveXID));
+				oldestActiveXID = FullXidRelativeTo(TransamVariables->nextXid,
+													checkPoint.oldestActiveXid);
+			Assert(FullTransactionIdIsValid(oldestActiveXID));
 
 			/* Tell procarray about the range of xids it has to deal with */
 			ProcArrayInitRecovery(XidFromFullTransactionId(TransamVariables->nextXid));
@@ -6234,7 +6235,7 @@ StartupXLOG(void)
 			 * have already been started up and other SLRUs are not maintained
 			 * during recovery and need not be started yet.
 			 */
-			StartupSUBTRANS(oldestActiveXID);
+			StartupSUBTRANS(XidFromFullTransactionId(oldestActiveXID));
 
 			/*
 			 * If we're beginning at a shutdown checkpoint, we know that
@@ -6260,13 +6261,12 @@ StartupXLOG(void)
 				running.subxcnt = 0;
 				running.subxid_status = SUBXIDS_IN_SUBTRANS;
 				running.nextXid = checkPoint.nextXid;
-				running.oldestRunningXid = FullXidRelativeTo(running.nextXid,
-															 oldestActiveXID);
+				running.oldestRunningXid = oldestActiveXID;
 				latestCompletedXid = checkPoint.nextXid;
 				FullTransactionIdRetreat(&latestCompletedXid);
 				Assert(FullTransactionIdIsNormal(latestCompletedXid));
 				running.latestCompletedXid = latestCompletedXid;
-				running.xids = xids;
+				running.fxids = xids;
 
 				ProcArrayApplyRecoveryInfo(&running);
 			}
@@ -6520,7 +6520,7 @@ StartupXLOG(void)
 	 * timestamps are started below, if necessary.)
 	 */
 	if (standbyState == STANDBY_DISABLED)
-		StartupSUBTRANS(oldestActiveXID);
+		StartupSUBTRANS(XidFromFullTransactionId(oldestActiveXID));
 
 	/*
 	 * Perform end of recovery actions for any SLRUs that need it.
@@ -8901,9 +8901,9 @@ xlog_redo(XLogReaderState *record)
 		 */
 		if (standbyState >= STANDBY_INITIALIZED)
 		{
-			TransactionId *xids;
+			FullTransactionId *xids;
 			int			nxids;
-			TransactionId oldestActiveXID;
+			FullTransactionId oldestActiveXID;
 			FullTransactionId latestCompletedXid;
 			RunningTransactionsData running;
 
@@ -8922,13 +8922,12 @@ xlog_redo(XLogReaderState *record)
 			running.subxcnt = 0;
 			running.subxid_status = SUBXIDS_IN_SUBTRANS;
 			running.nextXid = checkPoint.nextXid;
-			running.oldestRunningXid = FullXidRelativeTo(running.nextXid,
-														 oldestActiveXID);
+			running.oldestRunningXid = oldestActiveXID;
 			latestCompletedXid = checkPoint.nextXid;
 			FullTransactionIdRetreat(&latestCompletedXid);
 			Assert(FullTransactionIdIsNormal(latestCompletedXid));
 			running.latestCompletedXid = latestCompletedXid;
-			running.xids = xids;
+			running.fxids = xids;
 
 			ProcArrayApplyRecoveryInfo(&running);
 		}
