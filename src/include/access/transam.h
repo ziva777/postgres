@@ -153,6 +153,20 @@ FullTransactionIdAdvance(FullTransactionId *dest)
 	(AssertMacro(TransactionIdIsNormal(id1) && TransactionIdIsNormal(id2)), \
 	(int64) ((id1) - (id2)) > 0)
 
+/*
+ * Helper function to subtract diff from value, but doesn't go below limit.
+ */
+static inline uint64
+pg_floored_sub64(uint64 value, uint64 diff, uint64 limit)
+{
+	if (value > diff + limit)
+		value -= diff;
+	else
+		value = limit;
+
+	return value;
+}
+
 /* ----------
  *		Object ID (OID) zero is InvalidOid.
  *

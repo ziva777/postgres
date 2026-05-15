@@ -1162,15 +1162,11 @@ vacuum_get_cutoffs(Relation rel, const VacuumParams *params,
 	 * Almost ready to set freeze output parameters; check if OldestXmin or
 	 * OldestMxact are held back to an unsafe degree before we start on that
 	 */
-	if (nextXID > FirstNormalTransactionId + autovacuum_freeze_max_age)
-		safeOldestXmin = nextXID - autovacuum_freeze_max_age;
-	else
-		safeOldestXmin = FirstNormalTransactionId;
+	safeOldestXmin = pg_floored_sub64(nextXID, autovacuum_freeze_max_age,
+									  FirstNormalTransactionId);
 
-	if (nextMXID > FirstMultiXactId + effective_multixact_freeze_max_age)
-		safeOldestMxact = nextMXID - effective_multixact_freeze_max_age;
-	else
-		safeOldestMxact = FirstMultiXactId;
+	safeOldestMxact = pg_floored_sub64(nextMXID, effective_multixact_freeze_max_age,
+									   FirstMultiXactId);
 
 	if (TransactionIdPrecedes(cutoffs->OldestXmin, safeOldestXmin))
 		ereport(WARNING,
@@ -1195,11 +1191,8 @@ vacuum_get_cutoffs(Relation rel, const VacuumParams *params,
 	Assert(freeze_min_age >= 0);
 
 	/* Compute FreezeLimit, being careful to generate a normal XID */
-	cutoffs->FreezeLimit = nextXID - freeze_min_age;
-	if (nextXID > FirstNormalTransactionId + freeze_min_age)
-		cutoffs->FreezeLimit = nextXID - freeze_min_age;
-	else
-		cutoffs->FreezeLimit = FirstNormalTransactionId;
+	cutoffs->FreezeLimit = pg_floored_sub64(nextXID, freeze_min_age,
+											FirstNormalTransactionId);
 	/* FreezeLimit must always be <= OldestXmin */
 	if (TransactionIdPrecedes(cutoffs->OldestXmin, cutoffs->FreezeLimit))
 		cutoffs->FreezeLimit = cutoffs->OldestXmin;
@@ -1237,10 +1230,8 @@ vacuum_get_cutoffs(Relation rel, const VacuumParams *params,
 		freeze_table_age = vacuum_freeze_table_age;
 	freeze_table_age = Min(freeze_table_age, autovacuum_freeze_max_age * 0.95);
 	Assert(freeze_table_age >= 0);
-	if (nextXID > FirstNormalTransactionId + freeze_table_age)
-		aggressiveXIDCutoff = nextXID - freeze_table_age;
-	else
-		aggressiveXIDCutoff = FirstNormalTransactionId;
+	aggressiveXIDCutoff = pg_floored_sub64(nextXID, freeze_table_age,
+										   FirstNormalTransactionId);
 	if (TransactionIdPrecedesOrEquals(cutoffs->relfrozenxid,
 									  aggressiveXIDCutoff))
 		return true;
@@ -1259,10 +1250,9 @@ vacuum_get_cutoffs(Relation rel, const VacuumParams *params,
 		Min(multixact_freeze_table_age,
 			effective_multixact_freeze_max_age * 0.95);
 	Assert(multixact_freeze_table_age >= 0);
-	if (nextMXID > FirstMultiXactId + multixact_freeze_table_age)
-		aggressiveMXIDCutoff = nextMXID - multixact_freeze_table_age;
-	else
-		aggressiveMXIDCutoff = FirstMultiXactId;
+	aggressiveMXIDCutoff = pg_floored_sub64(nextMXID,
+											multixact_freeze_table_age,
+											FirstMultiXactId);
 	if (MultiXactIdPrecedesOrEquals(cutoffs->relminmxid,
 									aggressiveMXIDCutoff))
 		return true;
@@ -1286,6 +1276,8 @@ vacuum_xid_failsafe_check(const struct VacuumCutoffs *cutoffs)
 	TransactionId xid_skip_limit;
 	MultiXactId multi_skip_limit;
 	int			skip_index_vacuum;
+	TransactionId next_xid;
+	MultiXactId next_multi;
 
 	Assert(TransactionIdIsNormal(relfrozenxid));
 	Assert(MultiXactIdIsValid(relminmxid));
@@ -1296,10 +1288,9 @@ vacuum_xid_failsafe_check(const struct VacuumCutoffs *cutoffs)
 	 */
 	skip_index_vacuum = Max(vacuum_failsafe_age, autovacuum_freeze_max_age * 1.05);
 
-	if (ReadNextTransactionId() > FirstNormalTransactionId + skip_index_vacuum)
-		xid_skip_limit = ReadNextTransactionId() - skip_index_vacuum;
-	else
-		xid_skip_limit = FirstNormalTransactionId;
+	next_xid = ReadNextTransactionId();
+	xid_skip_limit = pg_floored_sub64(next_xid, skip_index_vacuum,
+									  FirstNormalTransactionId);
 
 	if (TransactionIdPrecedes(relfrozenxid, xid_skip_limit))
 	{
@@ -1315,10 +1306,9 @@ vacuum_xid_failsafe_check(const struct VacuumCutoffs *cutoffs)
 	skip_index_vacuum = Max(vacuum_multixact_failsafe_age,
 							autovacuum_multixact_freeze_max_age * 1.05);
 
-	if (ReadNextMultiXactId() > FirstMultiXactId + autovacuum_freeze_max_age)
-		multi_skip_limit = ReadNextMultiXactId() - autovacuum_freeze_max_age;
-	else
-		multi_skip_limit = FirstMultiXactId;
+	next_multi = ReadNextMultiXactId();
+	multi_skip_limit = pg_floored_sub64(next_multi, autovacuum_freeze_max_age,
+										FirstMultiXactId);
 
 	if (MultiXactIdPrecedes(relminmxid, multi_skip_limit))
 	{

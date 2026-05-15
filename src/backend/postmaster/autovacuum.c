@@ -1176,18 +1176,14 @@ do_start_worker(void)
 	 * pass without forcing a vacuum.  (This limit can be tightened for
 	 * particular tables, but not loosened.)
 	 */
-	recentXid = ReadNextTransactionId();
-	if (recentXid > FirstNormalTransactionId + autovacuum_freeze_max_age)
-		xidForceLimit = recentXid - autovacuum_freeze_max_age;
-	else
-		xidForceLimit = FirstNormalTransactionId;
+	xidForceLimit = pg_floored_sub64(recentXid, autovacuum_freeze_max_age,
+									 FirstNormalTransactionId);
 
 	/* Also determine the oldest datminmxid we will consider. */
 	recentMulti = ReadNextMultiXactId();
-	if (recentMulti > FirstMultiXactId + autovacuum_multixact_freeze_max_age)
-		multiForceLimit = recentMulti - MultiXactMemberFreezeThreshold();
-	else
-		multiForceLimit = FirstMultiXactId;
+	multiForceLimit = pg_floored_sub64(recentMulti,
+									   MultiXactMemberFreezeThreshold(),
+									   FirstMultiXactId);
 
 	/*
 	 * Choose a database to connect to.  We pick the database that was least
@@ -3177,18 +3173,14 @@ relation_needs_vacanalyze(Oid relid,
 	relminmxid = classForm->relminmxid;
 
 	/* Force vacuum if table is at risk of wraparound */
-	if (recentXid > FirstNormalTransactionId + freeze_max_age)
-		xidForceLimit = recentXid - freeze_max_age;
-	else
-		xidForceLimit = FirstNormalTransactionId;
+	xidForceLimit = pg_floored_sub64(recentXid, freeze_max_age,
+									 FirstNormalTransactionId);
 	force_vacuum = (TransactionIdIsNormal(relfrozenxid) &&
 					TransactionIdPrecedes(relfrozenxid, xidForceLimit));
 	if (!force_vacuum)
 	{
-		if (recentMulti > FirstMultiXactId + multixact_freeze_max_age)
-			multiForceLimit = recentMulti - multixact_freeze_max_age;
-		else
-			multiForceLimit = FirstMultiXactId;
+		multiForceLimit = pg_floored_sub64(recentMulti, multixact_freeze_max_age,
+										   FirstMultiXactId);
 		force_vacuum = MultiXactIdIsValid(relminmxid) &&
 			MultiXactIdPrecedes(relminmxid, multiForceLimit);
 	}
