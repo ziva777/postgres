@@ -3462,7 +3462,7 @@ construct_array_builtin(Datum *elems, int nelems, Oid elmtype)
 		case XIDOID:
 			elmlen = sizeof(TransactionId);
 			elmbyval = true;
-			elmalign = TYPALIGN_INT;
+			elmalign = TYPALIGN_DOUBLE;
 			break;
 
 		default:
