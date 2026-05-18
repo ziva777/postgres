@@ -235,9 +235,6 @@ typedef struct TransamVariablesData
 
 	TransactionId oldestXid;	/* cluster-wide minimum datfrozenxid */
 	TransactionId xidVacLimit;	/* start forcing autovacuums here */
-	TransactionId xidWarnLimit; /* start complaining here */
-	TransactionId xidStopLimit; /* refuse to advance nextXid beyond here */
-	TransactionId xidWrapLimit; /* where the world ends */
 	Oid			oldestXidDB;	/* database with minimum datfrozenxid */
 
 	/*
