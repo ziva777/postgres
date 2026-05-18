@@ -446,7 +446,6 @@ static void lazy_vacuum_heap_rel(LVRelState *vacrel);
 static void lazy_vacuum_heap_page(LVRelState *vacrel, BlockNumber blkno,
 								  Buffer buffer, OffsetNumber *deadoffsets,
 								  int num_offsets, Buffer vmbuffer);
-static bool lazy_check_wraparound_failsafe(LVRelState *vacrel);
 static void lazy_cleanup_all_indexes(LVRelState *vacrel);
 static IndexBulkDeleteResult *lazy_vacuum_one_index(Relation indrel,
 													IndexBulkDeleteResult *istat,
@@ -856,11 +855,8 @@ heap_vacuum_rel(Relation rel, const VacuumParams *params,
 	/*
 	 * Allocate dead_items memory using dead_items_alloc.  This handles
 	 * parallel VACUUM initialization as part of allocating shared memory
-	 * space used for dead_items.  (But do a failsafe precheck first, to
-	 * ensure that parallel VACUUM won't be attempted at all when relfrozenxid
-	 * is already dangerously old.)
+	 * space used for dead_items.
 	 */
-	lazy_check_wraparound_failsafe(vacrel);
 	dead_items_alloc(vacrel, params->nworkers);
 
 #ifdef USE_INJECTION_POINTS
@@ -1330,19 +1326,6 @@ lazy_scan_heap(LVRelState *vacrel)
 		bool		got_cleanup_lock = false;
 
 		vacuum_delay_point(false);
-
-		/*
-		 * Regularly check if wraparound failsafe should trigger.
-		 *
-		 * There is a similar check inside lazy_vacuum_all_indexes(), but
-		 * relfrozenxid might start to look dangerously old before we reach
-		 * that point.  This check also provides failsafe coverage for the
-		 * one-pass strategy, and the two-pass strategy with the index_cleanup
-		 * param set to 'off'.
-		 */
-		if (vacrel->scanned_pages > 0 &&
-			vacrel->scanned_pages % FAILSAFE_EVERY_PAGES == 0)
-			lazy_check_wraparound_failsafe(vacrel);
 
 		/*
 		 * Consider if we definitely have enough space to process TIDs on page
@@ -2511,13 +2494,6 @@ lazy_vacuum_all_indexes(LVRelState *vacrel)
 	Assert(vacrel->do_index_vacuuming);
 	Assert(vacrel->do_index_cleanup);
 
-	/* Precheck for XID wraparound emergencies */
-	if (lazy_check_wraparound_failsafe(vacrel))
-	{
-		/* Wraparound emergency -- don't even start an index scan */
-		return false;
-	}
-
 	/*
 	 * Report that we are now vacuuming indexes and the number of indexes to
 	 * vacuum.
@@ -2540,13 +2516,6 @@ lazy_vacuum_all_indexes(LVRelState *vacrel)
 			/* Report the number of indexes vacuumed */
 			pgstat_progress_update_param(PROGRESS_VACUUM_INDEXES_PROCESSED,
 										 idx + 1);
-
-			if (lazy_check_wraparound_failsafe(vacrel))
-			{
-				/* Wraparound emergency -- end current index scan */
-				allindexes = false;
-				break;
-			}
 		}
 	}
 	else
@@ -2555,13 +2524,6 @@ lazy_vacuum_all_indexes(LVRelState *vacrel)
 		parallel_vacuum_bulkdel_all_indexes(vacrel->pvs, old_live_tuples,
 											vacrel->num_index_scans,
 											&(vacrel->worker_usage.vacuum));
-
-		/*
-		 * Do a postcheck to consider applying wraparound failsafe now.  Note
-		 * that parallel VACUUM only gets the precheck and this postcheck.
-		 */
-		if (lazy_check_wraparound_failsafe(vacrel))
-			allindexes = false;
 	}
 
 	/*
@@ -2872,69 +2834,6 @@ lazy_vacuum_heap_page(LVRelState *vacrel, BlockNumber blkno, Buffer buffer,
 
 	/* Revert to the previous phase information for error traceback */
 	restore_vacuum_error_info(vacrel, &saved_err_info);
-}
-
-/*
- * Trigger the failsafe to avoid wraparound failure when vacrel table has a
- * relfrozenxid and/or relminmxid that is dangerously far in the past.
- * Triggering the failsafe makes the ongoing VACUUM bypass any further index
- * vacuuming and heap vacuuming.  Truncating the heap is also bypassed.
- *
- * Any remaining work (work that VACUUM cannot just bypass) is typically sped
- * up when the failsafe triggers.  VACUUM stops applying any cost-based delay
- * that it started out with.
- *
- * Returns true when failsafe has been triggered.
- */
-static bool
-lazy_check_wraparound_failsafe(LVRelState *vacrel)
-{
-	/* Don't warn more than once per VACUUM */
-	if (VacuumFailsafeActive)
-		return true;
-
-	if (unlikely(vacuum_xid_failsafe_check(&vacrel->cutoffs)))
-	{
-		const int	progress_index[] = {
-			PROGRESS_VACUUM_INDEXES_TOTAL,
-			PROGRESS_VACUUM_INDEXES_PROCESSED,
-			PROGRESS_VACUUM_MODE
-		};
-		int64		progress_val[3] = {0, 0, PROGRESS_VACUUM_MODE_FAILSAFE};
-
-		VacuumFailsafeActive = true;
-
-		/*
-		 * Abandon use of a buffer access strategy to allow use of all of
-		 * shared buffers.  We assume the caller who allocated the memory for
-		 * the BufferAccessStrategy will free it.
-		 */
-		vacrel->bstrategy = NULL;
-
-		/* Disable index vacuuming, index cleanup, and heap rel truncation */
-		vacrel->do_index_vacuuming = false;
-		vacrel->do_index_cleanup = false;
-		vacrel->do_rel_truncate = false;
-
-		/* Reset the progress counters and set the failsafe mode */
-		pgstat_progress_update_multi_param(3, progress_index, progress_val);
-
-		ereport(WARNING,
-				(errmsg("bypassing nonessential maintenance of table \"%s.%s.%s\" as a failsafe after %d index scans",
-						vacrel->dbname, vacrel->relnamespace, vacrel->relname,
-						vacrel->num_index_scans),
-				 errdetail("The table's relfrozenxid or relminmxid is too far in the past."),
-				 errhint("Consider increasing configuration parameter \"maintenance_work_mem\" or \"autovacuum_work_mem\".\n"
-						 "You might also need to consider other ways for VACUUM to keep up with the allocation of transaction IDs.")));
-
-		/* Stop applying cost limits from this point on */
-		VacuumCostActive = false;
-		VacuumCostBalance = 0;
-
-		return true;
-	}
-
-	return false;
 }
 
 /*
