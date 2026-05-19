@@ -159,9 +159,6 @@ typedef struct MultiXactStateData
 
 	/* support for anti-wraparound measures */
 	MultiXactId multiVacLimit;
-	MultiXactId multiWarnLimit;
-	MultiXactId multiStopLimit;
-	MultiXactId multiWrapLimit;
 
 	/*
 	 * Per-backend data starts here.  We have two arrays stored in the area
@@ -1000,8 +997,6 @@ GetNewMultiXactId(int nmembers, MultiXactOffset *offset)
 	 * If we're past multiVacLimit or the safe threshold for member storage
 	 * space, or we don't know what the safe threshold for member storage is,
 	 * start trying to force autovacuum cycles.
-	 * If we're past multiWarnLimit, start issuing warnings.
-	 * If we're past multiStopLimit, refuse to create new MultiXactIds.
 	 *
 	 * Note these are pretty much the same protections in GetNewTransactionId.
 	 *----------
@@ -1015,40 +1010,8 @@ GetNewMultiXactId(int nmembers, MultiXactOffset *offset)
 		 * possibility of deadlock while doing get_database_name(). First,
 		 * copy all the shared values we'll need in this path.
 		 */
-		MultiXactId multiWarnLimit = MultiXactState->multiWarnLimit;
-		MultiXactId multiStopLimit = MultiXactState->multiStopLimit;
-		MultiXactId multiWrapLimit = MultiXactState->multiWrapLimit;
-		Oid			oldest_datoid = MultiXactState->oldestMultiXactDB;
 
 		LWLockRelease(MultiXactGenLock);
-
-		if (IsUnderPostmaster &&
-			!MultiXactIdPrecedes(result, multiStopLimit))
-		{
-			char	   *oldest_datname = get_database_name(oldest_datoid);
-
-			/*
-			 * Immediately kick autovacuum into action as we're already in
-			 * ERROR territory.
-			 */
-			SendPostmasterSignal(PMSIGNAL_START_AUTOVAC_LAUNCHER);
-
-			/* complain even if that DB has disappeared */
-			if (oldest_datname)
-				ereport(ERROR,
-						(errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
-						 errmsg("database is not accepting commands that assign new MultiXactIds to avoid wraparound data loss in database \"%s\"",
-								oldest_datname),
-						 errhint("Execute a database-wide VACUUM in that database.\n"
-								 "You might also need to commit or roll back old prepared transactions, or drop stale replication slots.")));
-			else
-				ereport(ERROR,
-						(errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
-						 errmsg("database is not accepting commands that assign new MultiXactIds to avoid wraparound data loss in database with OID %u",
-								oldest_datoid),
-						 errhint("Execute a database-wide VACUUM in that database.\n"
-								 "You might also need to commit or roll back old prepared transactions, or drop stale replication slots.")));
-		}
 
 		/*
 		 * To avoid swamping the postmaster with signals, we issue the autovac
@@ -1057,35 +1020,6 @@ GetNewMultiXactId(int nmembers, MultiXactOffset *offset)
 		 */
 		if (IsUnderPostmaster && ((result % 65536) == 0 || result == FirstMultiXactId))
 			SendPostmasterSignal(PMSIGNAL_START_AUTOVAC_LAUNCHER);
-
-		if (!MultiXactIdPrecedes(result, multiWarnLimit))
-		{
-			char	   *oldest_datname = get_database_name(oldest_datoid);
-
-			/* complain even if that DB has disappeared */
-			if (oldest_datname)
-				ereport(WARNING,
-						(errmsg_plural("database \"%s\" must be vacuumed before %" PRIu64 " more MultiXactId is used",
-									   "database \"%s\" must be vacuumed before %" PRIu64 " more MultiXactIds are used",
-									   multiWrapLimit - result,
-									   oldest_datname,
-									   multiWrapLimit - result),
-						 errdetail("Approximately %.2f%% of MultiXactIds are available for use.",
-								   (double) (multiWrapLimit - result) / (MaxMultiXactId / 2) * 100),
-						 errhint("Execute a database-wide VACUUM in that database.\n"
-								 "You might also need to commit or roll back old prepared transactions, or drop stale replication slots.")));
-			else
-				ereport(WARNING,
-						(errmsg_plural("database with OID %u must be vacuumed before %" PRIu64 " more MultiXactId is used",
-									   "database with OID %u must be vacuumed before %" PRIu64 " more MultiXactIds are used",
-									   multiWrapLimit - result,
-									   oldest_datoid,
-									   multiWrapLimit - result),
-						 errdetail("Approximately %.2f%% of MultiXactIds are available for use.",
-								   (double) (multiWrapLimit - result) / (MaxMultiXactId / 2) * 100),
-						 errhint("Execute a database-wide VACUUM in that database.\n"
-								 "You might also need to commit or roll back old prepared transactions, or drop stale replication slots.")));
-		}
 
 		/* Re-acquire lock and start over */
 		LWLockAcquire(MultiXactGenLock, LW_EXCLUSIVE);
@@ -1107,7 +1041,7 @@ GetNewMultiXactId(int nmembers, MultiXactOffset *offset)
 	 * Offsets are 64-bit integers and will never wrap around.  Firstly, it
 	 * would take an unrealistic amount of time and resources to consume 2^64
 	 * offsets.  Secondly, multixid creation is WAL-logged, so you would run
-	 * out of LSNs before reaching offset wraparound.  Nevertheless, check for
+	 * out of LSNs before reaching offset wraparound.
 	 * wraparound as a sanity check.
 	 */
 	if (nextOffset + nmembers < nextOffset)
@@ -2085,43 +2019,8 @@ void
 SetMultiXactIdLimit(MultiXactId oldest_datminmxid, Oid oldest_datoid)
 {
 	MultiXactId multiVacLimit;
-	MultiXactId multiWarnLimit;
-	MultiXactId multiStopLimit;
-	MultiXactId multiWrapLimit;
-	MultiXactId curMulti;
 
 	Assert(MultiXactIdIsValid(oldest_datminmxid));
-
-	/*
-	 * We pretend that a wrap will happen halfway through the multixact ID
-	 * space, but that's not really true, because multixacts wrap differently
-	 * from transaction IDs.
-	 */
-	multiWrapLimit = oldest_datminmxid + (MaxMultiXactId >> 1);
-	if (multiWrapLimit < FirstMultiXactId)
-		multiWrapLimit += FirstMultiXactId;
-
-	/*
-	 * We'll refuse to continue assigning MultiXactIds once we get within 3M
-	 * multi of data loss.  See SetTransactionIdLimit.
-	 */
-	multiStopLimit = multiWrapLimit - 3000000;
-	if (multiStopLimit < FirstMultiXactId)
-		multiStopLimit -= FirstMultiXactId;
-
-	/*
-	 * We'll start complaining loudly when we get within 100M multis of data
-	 * loss.  This is kind of arbitrary, but if you let your gas gauge get
-	 * down to 5% of full, would you be looking for the next gas station?  We
-	 * need to be fairly liberal about this number because there are lots of
-	 * scenarios where most transactions are done by automatic clients that
-	 * won't pay attention to warnings.  (No, we're not gonna make this
-	 * configurable.  If you know enough to configure it, you know enough to
-	 * not get in this kind of trouble in the first place.)
-	 */
-	multiWarnLimit = multiWrapLimit - 100000000;
-	if (multiWarnLimit < FirstMultiXactId)
-		multiWarnLimit -= FirstMultiXactId;
 
 	/*
 	 * We'll start trying to force autovacuums when oldest_datminmxid gets to
@@ -2132,24 +2031,13 @@ SetMultiXactIdLimit(MultiXactId oldest_datminmxid, Oid oldest_datoid)
 	 * its value.  See SetTransactionIdLimit.
 	 */
 	multiVacLimit = oldest_datminmxid + autovacuum_multixact_freeze_max_age;
-	if (multiVacLimit < FirstMultiXactId)
-		multiVacLimit += FirstMultiXactId;
 
 	/* Grab lock for just long enough to set the new limit values */
 	LWLockAcquire(MultiXactGenLock, LW_EXCLUSIVE);
 	MultiXactState->oldestMultiXactId = oldest_datminmxid;
 	MultiXactState->oldestMultiXactDB = oldest_datoid;
 	MultiXactState->multiVacLimit = multiVacLimit;
-	MultiXactState->multiWarnLimit = multiWarnLimit;
-	MultiXactState->multiStopLimit = multiStopLimit;
-	MultiXactState->multiWrapLimit = multiWrapLimit;
-	curMulti = MultiXactState->nextMXact;
 	LWLockRelease(MultiXactGenLock);
-
-	/* Log the info */
-	ereport(DEBUG1,
-			(errmsg_internal("MultiXactId wrap limit is %" PRIu64 ", limited by database with OID %u",
-							 multiWrapLimit, oldest_datoid)));
 
 	/*
 	 * Computing the actual limits is only possible once the data directory is
@@ -2171,59 +2059,6 @@ SetMultiXactIdLimit(MultiXactId oldest_datminmxid, Oid oldest_datoid)
 	 * check.
 	 */
 	SetOldestOffset();
-
-	/*
-	 * If past the autovacuum force point, immediately signal an autovac
-	 * request.  The reason for this is that autovac only processes one
-	 * database per invocation.  Once it's finished cleaning up the oldest
-	 * database, it'll call here, and we'll signal the postmaster to start
-	 * another iteration immediately if there are still any old databases.
-	 */
-	if (MultiXactIdPrecedes(multiVacLimit, curMulti) && IsUnderPostmaster)
-		SendPostmasterSignal(PMSIGNAL_START_AUTOVAC_LAUNCHER);
-
-	/* Give an immediate warning if past the wrap warn point */
-	if (MultiXactIdPrecedes(multiWarnLimit, curMulti))
-	{
-		char	   *oldest_datname;
-
-		/*
-		 * We can be called when not inside a transaction, for example during
-		 * StartupXLOG().  In such a case we cannot do database access, so we
-		 * must just report the oldest DB's OID.
-		 *
-		 * Note: it's also possible that get_database_name fails and returns
-		 * NULL, for example because the database just got dropped.  We'll
-		 * still warn, even though the warning might now be unnecessary.
-		 */
-		if (IsTransactionState())
-			oldest_datname = get_database_name(oldest_datoid);
-		else
-			oldest_datname = NULL;
-
-		if (oldest_datname)
-			ereport(WARNING,
-					(errmsg_plural("database \"%s\" must be vacuumed before %" PRIu64 " more MultiXactId is used",
-								   "database \"%s\" must be vacuumed before %" PRIu64 " more MultiXactIds are used",
-								   multiWrapLimit - curMulti,
-								   oldest_datname,
-								   multiWrapLimit - curMulti),
-					 errdetail("Approximately %.2f%% of MultiXactIds are available for use.",
-							   (double) (multiWrapLimit - curMulti) / (MaxMultiXactId / 2) * 100),
-					 errhint("To avoid MultiXactId assignment failures, execute a database-wide VACUUM in that database.\n"
-							 "You might also need to commit or roll back old prepared transactions, or drop stale replication slots.")));
-		else
-			ereport(WARNING,
-					(errmsg_plural("database with OID %u must be vacuumed before %" PRIu64 " more MultiXactId is used",
-								   "database with OID %u must be vacuumed before %" PRIu64 " more MultiXactIds are used",
-								   multiWrapLimit - curMulti,
-								   oldest_datoid,
-								   multiWrapLimit - curMulti),
-					 errdetail("Approximately %.2f%% of MultiXactIds are available for use.",
-							   (double) (multiWrapLimit - curMulti) / (MaxMultiXactId / 2) * 100),
-					 errhint("To avoid MultiXactId assignment failures, execute a database-wide VACUUM in that database.\n"
-							 "You might also need to commit or roll back old prepared transactions, or drop stale replication slots.")));
-	}
 }
 
 /*
