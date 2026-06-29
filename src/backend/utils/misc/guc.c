@@ -4501,7 +4501,7 @@ GetConfigOption(const char *name, bool missing_ok, bool restrict_privileged)
 
 		case PGC_INT_64:
 			snprintf(buffer, sizeof(buffer), "%" PRId64,
-					 *((struct config_int64 *) record)->variable);
+					 *record->_int_64.variable);
 			return buffer;
 
 		case PGC_REAL:
@@ -4554,7 +4554,7 @@ GetConfigOptionResetString(const char *name)
 
 		case PGC_INT_64:
 			snprintf(buffer, sizeof(buffer), "%" PRId64,
-					 ((struct config_int64 *) record)->reset_val);
+					 record->_int_64.reset_val);
 			return buffer;
 
 		case PGC_REAL:

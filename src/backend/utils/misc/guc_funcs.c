@@ -701,7 +701,7 @@ GetConfigOptionValues(const struct config_generic *conf, const char **values)
 
 		case PGC_INT_64:
 			{
-				struct config_int64 *lconf = (struct config_int64 *) conf;
+				const struct config_int64 *lconf = &conf->_int_64;
 
 				/* min_val */
 				snprintf(buffer, sizeof(buffer), "%" PRId64, lconf->min);
