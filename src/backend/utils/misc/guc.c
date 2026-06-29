@@ -35,6 +35,7 @@
 #include "catalog/pg_authid.h"
 #include "catalog/pg_parameter_acl.h"
 #include "catalog/pg_type.h"
+#include "common/int.h"
 #include "guc_internal.h"
 #include "libpq/pqformat.h"
 #include "libpq/protocol.h"
@@ -6073,8 +6074,7 @@ estimate_variable_size(struct config_generic *gconf)
 				 * small values.  Maximum value is 2^63, i.e. 20 chars.
 				 * Include one byte for sign.
 				 */
-#define ABS(x)			((x) >= 0 ? (x) : -(x))
-				if (ABS(*conf->variable) < 1000)
+				if (pg_abs_s64(*conf->variable) < 1000)
 					valsize = 3 + 1;
 				else
 					valsize = 20 + 1;
