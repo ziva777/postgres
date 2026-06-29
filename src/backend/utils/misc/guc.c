@@ -2362,7 +2362,7 @@ AtEOXact_GUC(bool isCommit, int nestLevel)
 					case PGC_INT_64:
 						{
 							struct config_int64 *conf = &gconf->_int_64;
-							int64		newval = newvalue.val.intval;
+							int64		newval = newvalue.val.int64val;
 							void	   *newextra = newvalue.extra;
 
 							if (*conf->variable != newval ||
