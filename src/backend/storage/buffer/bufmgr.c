@@ -5596,10 +5596,10 @@ MarkBufferConverted(Buffer buffer, bool converted)
 		return;
 
 	buf_state = LockBufHdr(bufHdr);
-	buf_state &= ~BM_CONVERTED;
-	if (converted)
-		buf_state |= BM_CONVERTED;
-	UnlockBufHdr(bufHdr);
+	UnlockBufHdrExt(bufHdr, buf_state,
+					converted ? BM_CONVERTED : 0,	/* set bit */
+					converted ? 0 : BM_CONVERTED,	/* unset bit */
+					0);
 }
 
 bool
