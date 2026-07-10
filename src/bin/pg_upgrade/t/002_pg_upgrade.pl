@@ -368,13 +368,9 @@ if (defined($ENV{oldinstall}))
 # old node.
 $oldnode->append_conf('postgresql.conf', 'autovacuum = off');
 $oldnode->restart;
-$oldnode->safe_psql('regression',
-	"CREATE TABLE t1 (id SERIAL NOT NULL PRIMARY KEY, plt text, pln NUMERIC(8, 4));
-	 INSERT INTO t1 (plt, pln) SELECT md5(random()::text), random() * 9999 FROM generate_series(1, 1000);");
-my $relfrozenxid = $oldnode->safe_psql('regression',
-	"SELECT relfrozenxid FROM pg_class WHERE relname = 't1';");
-my $relminmxid = $oldnode->safe_psql('regression',
-	"SELECT relminmxid FROM pg_class WHERE relname = 't1';");
+#$oldnode->safe_psql('regression',
+#	"CREATE TABLE t1 (id SERIAL NOT NULL PRIMARY KEY, plt text, pln NUMERIC(8, 4));
+#	 INSERT INTO t1 (plt, pln) SELECT md5(random()::text), random() * 9999 FROM generate_series(1, 1000);");
 
 # Test that dump/restore of the regression database roundtrips cleanly.  This
 # doesn't work well when the nodes are different versions, so skip it in that
@@ -493,6 +489,14 @@ if (defined($ENV{oldinstall}))
 		  WHERE probin NOT LIKE '\$libdir/%'");
 	}
 }
+
+# Execute vacuum freeze on all databases
+$oldnode->command_ok([ 'vacuumdb', '--all', '--freeze', '--port', $oldnode->port ],
+	"vacuumdb --all --freeze");
+my $relfrozenxid = $oldnode->safe_psql('regression',
+	"SELECT relfrozenxid FROM pg_class WHERE relname = 't1';");
+my $relminmxid = $oldnode->safe_psql('regression',
+	"SELECT relminmxid FROM pg_class WHERE relname = 't1';");
 
 # Create an invalid database, will be deleted below
 $oldnode->safe_psql(
